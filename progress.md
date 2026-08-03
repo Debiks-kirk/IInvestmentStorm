@@ -12,7 +12,8 @@
 - 修复人工巡检发现的 360px 首页横向溢出；临时巡检截图已清理，自动化截图保留在忽略的 `.artifacts/` 中供本地复查。
 - Render 官方文档核验 `runtime: static`、`npm ci && npm run build`、`dist` 发布目录和 SPA rewrite 配置有效。
 - 局限：尚未执行真实多人线下试玩，也未实际创建远程 Render 服务。
-- 下一步：完成 Git 提交；随后可连接远程仓库并由 Render Blueprint 部署。
+- 功能提交：`2453f2e`（`feat(game): 实现密封竞价完整对局`）。
+- 下一步：组织真实多人试玩；准备上线时连接远程仓库并由 Render Blueprint 部署。
 
 ## 2026-08-03
 
