@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
-import { ITEM_POOL } from './game/items'
 import { createDefaultSettings, createSession, validateNames } from './game/session'
 import { clearSession, loadSession, saveSession } from './game/storage'
 import type { GameSession, GameSettings, Player, RoundResult, RoundTurn } from './game/types'
@@ -198,7 +197,6 @@ function RoundIntro({ session, onContinue }: { session: GameSession; onContinue:
   const [revealed, setRevealed] = useState(false)
   const timer = useRef<number | null>(null)
   const item = session.itemDeck[session.roundIndex]
-  const wheelItems = useMemo(() => [item, ...ITEM_POOL.filter((candidate) => candidate.id !== item.id).slice(session.roundIndex, session.roundIndex + 7)], [item, session.roundIndex])
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current) }, [])
   const spin = () => {
     setSpinning(true)
@@ -209,17 +207,24 @@ function RoundIntro({ session, onContinue }: { session: GameSession; onContinue:
     <section className="round-intro screen-center">
       <div className="screen-title"><p className="eyebrow">第 {session.roundIndex + 1} 轮</p><h1>{revealed ? '就是它了。' : '这一轮，争什么？'}</h1></div>
       {!revealed ? (
-        <div className={cx('prize-wheel', spinning && 'is-spinning')}>
-          <div className="prize-wheel__pointer">◆</div>
-          <div className="prize-wheel__disc">
-            {wheelItems.map((wheelItem, index) => <span key={`${wheelItem.id}-${index}`} style={{ transform: `rotate(${index * 45}deg) translateY(-42%) rotate(${-index * 45}deg)` }}>{wheelItem.emoji}</span>)}
-            <div>?</div>
+        <div className={cx('draw-machine', spinning && 'is-drawing')} aria-label="本轮物品抽奖机">
+          <div className="draw-machine__marquee"><span>本轮拍品</span><i>●</i><span>正在封存</span><i>●</i><span>本轮拍品</span></div>
+          <div className="draw-machine__body">
+            <div className="draw-machine__globe" aria-hidden="true">
+              {['●', '◆', '●', '✦', '●', '◆', '●', '✦', '●'].map((symbol, index) => <span className={`draw-machine__ball ball-${index + 1}`} key={index}>{symbol}</span>)}
+            </div>
+            <div className="draw-machine__neck" aria-hidden="true" />
+            <div className="draw-machine__chute">
+              <span>{spinning ? '?' : '✦'}</span>
+            </div>
+            <div className="draw-machine__plaque"><small>价值</small><strong>{spinning ? '???' : '待揭晓'}</strong></div>
           </div>
+          <p>{spinning ? '摇奖进行中，请稍候……' : '启动后，本轮物品将从牌堆中抽出。'}</p>
         </div>
       ) : <PrizeCard item={item} />}
       <div className="center-actions">
-        {!spinning && !revealed && <button className="button button--primary button--large" onClick={spin}>转动选物</button>}
-        {spinning && <p className="muted pulse">命运正在挑选……</p>}
+        {!spinning && !revealed && <button className="button button--primary button--large" onClick={spin}>启动抽奖机</button>}
+        {spinning && <p className="muted pulse">正在抽取本轮拍品……</p>}
         {revealed && <><p className="muted">看清楚了吗？接下来请依次秘密操作。</p><button className="button button--primary button--large" onClick={onContinue}>开始传递 <span>→</span></button></>}
       </div>
     </section>
@@ -424,4 +429,3 @@ export default function App() {
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} />
   return <Home saved={saved} onQuickStart={quickStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onDelete={removeSaved} />
 }
-

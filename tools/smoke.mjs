@@ -65,7 +65,8 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await assertNoHorizontalOverflow(page, `${playerCount} 人设置页`)
   if (playerCount === 10) await page.screenshot({ path: '.artifacts/setup-10-mobile.png', fullPage: true })
   await page.getByRole('button', { name: /开始这局/ }).click()
-  await page.getByRole('button', { name: '转动选物' }).click()
+  if (playerCount === 3) await page.screenshot({ path: '.artifacts/draw-machine-mobile.png', fullPage: true })
+  await page.getByRole('button', { name: '启动抽奖机' }).click()
   await page.getByRole('button', { name: /开始传递/ }).waitFor()
   await page.getByRole('button', { name: /开始传递/ }).click()
 
