@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { CARD_DEFINITIONS, getCardDefinition } from './game/cards'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
-import { createDefaultSettings, createSession, validateNames } from './game/session'
+import { createDefaultSettings, createSession, prepareCardGrants, validateNames } from './game/session'
 import { clearSession, loadSession, saveSession } from './game/storage'
-import type { GameSession, GameSettings, Player, RoundResult, RoundTurn } from './game/types'
+import type { CardId, CardUse, GameSession, GameSettings, Player, RoundResult, RoundTurn } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'game'
 
@@ -95,13 +96,14 @@ function Rules({ onBack }: { onBack: () => void }) {
           <article><span className="rule-number">01</span><h2>秘密下注</h2><p>轮流拿设备，下注会立刻消耗金币。余额只有本人长按才能看见。</p></article>
           <article><span className="rule-number">02</span><h2>避开并列</h2><p>所有相同出价都出局。剩下的唯一出价从高到低重新排名。</p></article>
           <article><span className="rule-number">03</span><h2>顺手猜人</h2><p>可猜谁会第一。猜错扣半个物品价值；猜中则由第一名向你付款。</p></article>
-          <article><span className="rule-number">04</span><h2>留到最后</h2><p>排名奖励先到账，预测随后结算。最终金币最多的人获胜，物品只作收藏。</p></article>
+          <article><span className="rule-number">04</span><h2>道具翻盘</h2><p>从第二轮起，落后者可能秘密抽到道具。每轮最多用一张，效果在结算时匿名公开。</p></article>
         </div>
         <div className="rule-example">
           <div><small>四人下注</small><strong>10 · 10 · 9 · 8</strong></div>
           <span>→</span>
           <div><small>10 撞车出局</small><strong>9 成为第一</strong></div>
         </div>
+        <p className="rules-footnote">每轮结算后会公布当前余额领跑者，但不会公布任何人的具体余额。</p>
         <button className="button button--primary" onClick={onBack}>明白了</button>
       </section>
     </AppShell>
@@ -161,6 +163,9 @@ function Setup({ onBack, onStart }: { onBack: () => void; onStart: (session: Gam
                 <div className="setting-row"><label htmlFor="correct">猜中收益</label><select id="correct" value={settings.correctPredictionMultiplier} onChange={(event) => setSettings({ ...settings, correctPredictionMultiplier: Number(event.target.value) })}><option value="0.5">0.5V</option><option value="1">1V</option><option value="1.5">1.5V</option><option value="2">2V</option></select></div>
                 <div className="setting-row"><label htmlFor="wrong">猜错罚款</label><select id="wrong" value={settings.wrongPredictionMultiplier} onChange={(event) => setSettings({ ...settings, wrongPredictionMultiplier: Number(event.target.value) })}><option value="0.5">0.5V</option><option value="1">1V</option><option value="1.5">1.5V</option></select></div>
                 <label className="switch-row"><span><strong>公开个人下注</strong><small>只在每轮结算后显示</small></span><input type="checkbox" checked={settings.revealBids} onChange={(event) => setSettings({ ...settings, revealBids: event.target.checked })} /></label>
+                <label className="switch-row"><span><strong>公布余额领跑者</strong><small>每轮只公布第一名姓名，不显示余额</small></span><input type="checkbox" checked={settings.revealBalanceLeader} onChange={(event) => setSettings({ ...settings, revealBalanceLeader: event.target.checked })} /></label>
+                <div className="setting-row"><label htmlFor="card-probability">道具发放概率</label><div><input id="card-probability" type="number" min="0" max="100" value={settings.cardGrantProbability} onChange={(event) => setSettings({ ...settings, cardGrantProbability: Number(event.target.value) })} /><span>%</span></div></div>
+                <div className="card-setting-group"><strong>禁用道具卡</strong><small>未勾选的卡会加入本局不放回牌堆</small><div>{CARD_DEFINITIONS.map((card) => <label key={card.id}><input type="checkbox" checked={!settings.disabledCardIds.includes(card.id)} onChange={(event) => setSettings({ ...settings, disabledCardIds: event.target.checked ? settings.disabledCardIds.filter((id) => id !== card.id) : [...settings.disabledCardIds, card.id] })} /><span>{card.symbol} {card.name}</span></label>)}</div></div>
                 <div className="setting-row"><label htmlFor="motion">动画速度</label><select id="motion" value={settings.animationSpeed} onChange={(event) => setSettings({ ...settings, animationSpeed: event.target.value as GameSettings['animationSpeed'] })}><option value="full">完整</option><option value="fast">快速</option><option value="reduced">极简</option></select></div>
               </div>
             )}
@@ -268,14 +273,23 @@ function BalanceReveal({ units }: { units: number }) {
   )
 }
 
-function PrivateTurn({ session, onSubmit }: { session: GameSession; onSubmit: (turn: RoundTurn) => void }) {
+function PrivateTurn({ session, onSubmit, onAcknowledgeGrant }: { session: GameSession; onSubmit: (turn: RoundTurn) => void; onAcknowledgeGrant: (playerId: string) => void }) {
   const player = session.players[session.currentTurnIndex]
   const item = session.itemDeck[session.roundIndex]
   const [bidUnits, setBidUnits] = useState(0)
   const [prediction, setPrediction] = useState<string | null>(null)
+  const [selectedCardId, setSelectedCardId] = useState<CardId | null>(null)
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const setBid = (value: number) => setBidUnits(Math.max(0, Math.min(player.balanceUnits, Math.round(value))))
   const predicted = session.players.find((candidate) => candidate.id === prediction)
+  const previousTurns = session.turns.filter((turn) => turn.playerId !== player.id)
+  const targetPlayers = previousTurns.map((turn) => session.players.find((candidate) => candidate.id === turn.playerId)).filter(Boolean) as Player[]
+  const selectedCard = selectedCardId ? getCardDefinition(selectedCardId) : null
+  const grant = session.pendingCardGrants.find((entry) => entry.playerId === player.id && !entry.announced)
+  const peekedTurn = selectedCardId === 'peek' && selectedTargetId ? previousTurns.find((turn) => turn.playerId === selectedTargetId) : undefined
+  const cardUse: CardUse | undefined = selectedCardId ? { cardId: selectedCardId, ...(selectedCard?.needsTarget && selectedTargetId ? { targetPlayerId: selectedTargetId } : {}) } : undefined
+  const canSubmitCard = !selectedCard?.needsTarget || Boolean(selectedTargetId)
   return (
     <section className="private-turn">
       <div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>你的回合</h1></div><BalanceReveal units={player.balanceUnits} /></div>
@@ -297,17 +311,27 @@ function PrivateTurn({ session, onSubmit }: { session: GameSession; onSubmit: (t
           </div>
         </div>
       </div>
-      <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span></p><button className="button button--primary button--large" onClick={() => setConfirming(true)}>确认我的选择</button></div>
+      <section className="card-inventory panel">
+        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮最多使用一张</span></div>
+        {player.cardInventory.length === 0 ? <p className="empty-cards">暂时没有道具卡。落后时，下一轮可能得到秘密支援。</p> : <div className="card-list">{player.cardInventory.map((cardId) => {
+          const card = getCardDefinition(cardId)
+          const unavailable = card.needsTarget && targetPlayers.length === 0
+          return <button key={cardId} className={cx('card-choice', selectedCardId === cardId && 'is-selected')} disabled={unavailable} onClick={() => { setSelectedCardId(selectedCardId === cardId ? null : cardId); setSelectedTargetId(null) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{unavailable ? '本轮尚无已投资玩家，可留到后续回合使用。' : card.description}</small></div><i>{selectedCardId === cardId ? '✓' : ''}</i></button>
+        })}</div>}
+        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择要交换排名金额的玩家'}</strong><div>{targetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => setSelectedTargetId(candidate.id)}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
+      </section>
+      <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{selectedCard?.name ?? '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCard} onClick={() => setConfirming(true)}>确认我的选择</button></div>
       {confirming && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
           <div className="confirm-sheet">
             <p className="eyebrow">最后确认</p><h2 id="confirm-title">提交后不能修改</h2>
-            <div className="confirm-summary"><span>秘密下注 <strong><CoinValue units={bidUnits} /></strong></span><span>预测第一 <strong>{predicted?.name ?? '不预测'}</strong></span></div>
+            <div className="confirm-summary"><span>秘密下注 <strong><CoinValue units={bidUnits} /></strong></span><span>预测第一 <strong>{predicted?.name ?? '不预测'}</strong></span><span>使用道具 <strong>{selectedCard ? `${selectedCard.name}${selectedTargetId ? ` · ${playerName(session.players, selectedTargetId)}` : ''}` : '不使用'}</strong></span></div>
             <p>提交后请立刻把设备传给下一位，不要停留在此页。</p>
-            <div><button className="button button--paper" onClick={() => setConfirming(false)}>再想想</button><button className="button button--primary" onClick={() => onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction })}>确定提交</button></div>
+            <div><button className="button button--paper" onClick={() => setConfirming(false)}>再想想</button><button className="button button--primary" onClick={() => onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(cardUse ? { cardUse } : {}) })}>确定提交</button></div>
           </div>
         </div>
       )}
+      {grant && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="grant-title"><div className="card-grant-sheet"><span>{getCardDefinition(grant.cardId).symbol}</span><p className="eyebrow">秘密支援</p><h2 id="grant-title">你获得了{getCardDefinition(grant.cardId).name}</h2><p>{getCardDefinition(grant.cardId).description}</p><small>这张卡已加入你的库存。请勿告诉其他人。</small><button className="button button--primary" onClick={() => onAcknowledgeGrant(player.id)}>收下道具卡</button></div></div>}
     </section>
   )
 }
@@ -332,24 +356,27 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
   const [skipMotion, setSkipMotion] = useState(session.settings.animationSpeed === 'reduced')
   const item = result.item
   const winner = session.players.find((player) => player.id === result.winnerId)
+  const valueChanged = result.effectiveValueUnits !== item.value * 2
   return (
     <section className={cx('results-page', skipMotion && 'skip-motion')}>
       <div className="results-hero">
-        <div><p className="eyebrow">第 {result.roundIndex + 1} 轮 · 结果</p><h1>{winner ? <><em>{winner.name}</em> 拿下 {item.name}</> : <>本轮物品<em>流拍</em></>}</h1><p>{winner ? `唯一出价胜出，获得 ${session.settings.rewardMultipliers[0]}V 奖励。` : '没有产生唯一出价者，物品无人获得。'}</p></div>
-        <div className="result-prize"><span>{item.emoji}</span><small>价值 {item.value}</small></div>
+        <div><p className="eyebrow">第 {result.roundIndex + 1} 轮 · 结果</p><h1>{winner ? <><em>{winner.name}</em> 拿下 {item.name}</> : <>本轮物品<em>流拍</em></>}</h1><p>{winner ? '唯一排名金额胜出，获得本轮第一名奖励。' : '没有产生唯一排名金额，物品无人获得。'}</p></div>
+        <div className="result-prize"><span>{item.emoji}</span><small>{valueChanged ? <>真实价值 <CoinValue units={result.effectiveValueUnits} /></> : <>价值 {item.value}</>}</small></div>
       </div>
-      <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>最低获奖线</small>{result.minWinningBidUnits === null ? <strong>—</strong> : <CoinValue units={result.minWinningBidUnits} />}</div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
+      <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>最低获奖排名额</small>{result.minWinningBidUnits === null ? <strong>—</strong> : <CoinValue units={result.minWinningBidUnits} />}</div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
+      {result.cardEffects.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">匿名公开</p><h2>本轮道具影响</h2></div><span>不显示使用者或目标</span></div><div>{result.cardEffects.map((effect, index) => <p key={`${effect.cardId}-${index}`}><span>{getCardDefinition(effect.cardId).symbol}</span>{effect.description}</p>)}</div></article>}
       <div className="result-columns">
         <article className="panel result-ranking"><div className="panel-title"><div><p className="eyebrow">下注排名</p><h2>本轮获奖</h2></div>{result.tiedPlayerIds.length > 0 && <span>{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局</span>}</div>
-          {result.rankings.length === 0 ? <div className="empty-result">没有唯一出价，奖励全部落空。</div> : <ol>{result.rankings.map((entry, index) => <li key={entry.playerId} style={{ '--delay': `${index * 110}ms`, '--player-color': session.players.find((player) => player.id === entry.playerId)?.color } as React.CSSProperties}><span>{MEDALS[index]}</span><strong>{playerName(session.players, entry.playerId)}</strong>{session.settings.revealBids && <small>下注 {formatCoins(entry.bidUnits)}</small>}<CoinValue units={entry.rewardUnits} signed /></li>)}</ol>}
+          {result.rankings.length === 0 ? <div className="empty-result">没有唯一排名金额，奖励全部落空。</div> : <ol>{result.rankings.map((entry, index) => <li key={entry.playerId} style={{ '--delay': `${index * 110}ms`, '--player-color': session.players.find((player) => player.id === entry.playerId)?.color } as React.CSSProperties}><span>{MEDALS[index]}</span><strong>{playerName(session.players, entry.playerId)}</strong>{session.settings.revealBids && <small>下注 {formatCoins(entry.actualBidUnits)}{entry.actualBidUnits !== entry.bidUnits ? ` · 排名额 ${formatCoins(entry.bidUnits)}` : ''}</small>}<CoinValue units={entry.rewardUnits} signed /></li>)}</ol>}
         </article>
         <article className="panel prediction-result"><div className="panel-title"><div><p className="eyebrow">眼光如何</p><h2>预测结算</h2></div>{result.winnerPaymentUnits > 0 && <span>第一名共支付 {formatCoins(result.winnerPaymentUnits)}</span>}</div>
           <div className="prediction-outcomes">{result.predictionOutcomes.map((outcome, index) => <div key={outcome.playerId} style={{ '--delay': `${index * 90 + 180}ms` } as React.CSSProperties}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '没有预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选了 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>
         </article>
       </div>
       <article className="panel public-ledger"><div className="panel-title"><div><p className="eyebrow">公开账本</p><h2>本轮收益变化</h2></div><span>不含秘密下注 · 不显示余额</span></div>
-        <div className="ledger-table">{session.players.map((player) => { const delta = result.deltas.find((entry) => entry.playerId === player.id)!; const turn = result.turns.find((entry) => entry.playerId === player.id); return <div key={player.id}><span className="player-dot" style={{ background: player.color }} /><strong>{player.name}</strong>{session.settings.revealBids && <small>下注 {turn ? formatCoins(turn.bidUnits) : '—'}</small>}<small>排名 {delta.rewardUnits ? `+${formatCoins(delta.rewardUnits)}` : '±0'}</small><small>预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)}</small><DeltaLabel units={delta.publicDeltaUnits} /></div> })}</div>
+        <div className="ledger-table">{session.players.map((player) => { const delta = result.deltas.find((entry) => entry.playerId === player.id)!; const turn = result.turns.find((entry) => entry.playerId === player.id); return <div key={player.id}><span className="player-dot" style={{ background: player.color }} /><strong>{player.name}</strong>{session.settings.revealBids && <small>下注 {turn ? formatCoins(turn.bidUnits) : '—'}</small>}<small>获奖 {delta.rewardUnits ? `+${formatCoins(delta.rewardUnits)}` : '±0'}</small><small>预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)}</small><DeltaLabel units={delta.publicDeltaUnits} /></div> })}</div>
       </article>
+      {session.settings.revealBalanceLeader && <article className="balance-leader"><span>♛</span><div><small>当前余额领跑者</small><strong>{result.balanceLeaderIds.length > 1 ? '并列第一 · ' : ''}{result.balanceLeaderIds.map((id) => playerName(session.players, id)).join('、')}</strong></div><p>仅公布姓名，不公布余额</p></article>}
       <div className="result-actions"><button className="text-button" onClick={() => setSkipMotion(true)}>跳过动画</button><button className="button button--primary button--large" onClick={onNext}>{session.roundIndex + 1 >= session.settings.rounds ? '查看最终排行榜' : '进入下一轮'} <span>→</span></button></div>
     </section>
   )
@@ -371,7 +398,19 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
 function Game({ session, setSession, onExit, onNewGame }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void }) {
   const patch = (changes: Partial<GameSession>) => setSession({ ...session, ...changes, updatedAt: new Date().toISOString() })
   const submitTurn = (turn: RoundTurn) => {
-    const players = session.players.map((player) => player.id === turn.playerId ? { ...player, balanceUnits: player.balanceUnits - turn.bidUnits } : player)
+    const currentPlayer = session.players.find((player) => player.id === turn.playerId)
+    if (!currentPlayer || turn.bidUnits < 0 || turn.bidUnits > currentPlayer.balanceUnits) return
+    if (turn.cardUse) {
+      if (!currentPlayer.cardInventory.includes(turn.cardUse.cardId)) return
+      const needsTarget = getCardDefinition(turn.cardUse.cardId).needsTarget
+      const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === turn.cardUse?.targetPlayerId)
+      if (needsTarget && !targetIsPrevious) return
+    }
+    const players = session.players.map((player) => player.id === turn.playerId ? {
+      ...player,
+      balanceUnits: player.balanceUnits - turn.bidUnits,
+      cardInventory: turn.cardUse ? player.cardInventory.filter((cardId) => cardId !== turn.cardUse?.cardId) : player.cardInventory,
+    } : player)
     const turns = [...session.turns, turn]
     const isLast = session.currentTurnIndex >= session.players.length - 1
     patch({ players, turns, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : session.currentTurnIndex + 1 })
@@ -392,15 +431,25 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult' })
-    else patch({ phase: 'roundIntro', roundIndex: session.roundIndex + 1, currentTurnIndex: 0, turns: [] })
+    else {
+      const nextRoundIndex = session.roundIndex + 1
+      const grants = nextRoundIndex >= session.cardRulesStartRound ? prepareCardGrants({
+        players: session.players,
+        cardDeck: session.cardDeck,
+        roundIndex: nextRoundIndex,
+        probability: session.settings.cardGrantProbability,
+      }) : { players: session.players, cardDeck: session.cardDeck, pendingCardGrants: [] }
+      patch({ phase: 'roundIntro', roundIndex: nextRoundIndex, currentTurnIndex: 0, turns: [], players: grants.players, cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants })
+    }
   }
+  const acknowledgeGrant = (playerId: string) => patch({ pendingCardGrants: session.pendingCardGrants.map((grant) => grant.playerId === playerId ? { ...grant, announced: true } : grant) })
   const result = session.results[session.results.length - 1]
   return (
     <AppShell quiet={session.phase === 'handoff'}>
       {session.phase !== 'finalResult' && <GameHeader session={session} onExit={onExit} />}
       {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} onContinue={() => patch({ phase: 'handoff' })} />}
       {session.phase === 'handoff' && <Handoff session={session} onReady={() => patch({ phase: 'privateTurn' })} />}
-      {session.phase === 'privateTurn' && <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={submitTurn} />}
+      {session.phase === 'privateTurn' && <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={submitTurn} onAcknowledgeGrant={acknowledgeGrant} />}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
       {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
       {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} />}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './engine'
-import type { Item, Player, RoundTurn } from './types'
+import { createCardDeck } from './cards'
+import { prepareCardGrants } from './session'
+import type { CardUse, Item, Player, RoundTurn } from './types'
 
 const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000' }
 
@@ -11,20 +13,21 @@ function players(balances: number[]): Player[] {
     color: '#000',
     balanceUnits: coinsToUnits(balance),
     items: [],
+    cardInventory: [],
   }))
 }
 
-function turn(playerId: string, bid: number, predictedPlayerId: string | null = null): RoundTurn {
-  return { playerId, bidUnits: coinsToUnits(bid), predictedPlayerId }
+function turn(playerId: string, bid: number, predictedPlayerId: string | null = null, cardUse?: CardUse): RoundTurn {
+  return { playerId, bidUnits: coinsToUnits(bid), predictedPlayerId, ...(cardUse ? { cardUse } : {}) }
 }
 
-function settle(basePlayers: Player[], turns: RoundTurn[]) {
+function settle(basePlayers: Player[], turns: RoundTurn[], rewardMultipliers = [2, 1, 0.5]) {
   return settleRound({
     playersAfterBids: basePlayers,
     turns,
     item,
     roundIndex: 0,
-    rewardMultipliers: [2, 1, 0.5],
+    rewardMultipliers,
     correctPredictionMultiplier: 1,
     wrongPredictionMultiplier: 0.5,
     fairnessOrderIds: basePlayers.map((player) => player.id),
@@ -114,5 +117,108 @@ describe('配置与终局', () => {
   it('最终同金币共享名次，后续名次按竞赛排名跳号', () => {
     const standings = rankFinalPlayers(players([12, 20, 20, 5]))
     expect(standings.map((standing) => standing.place)).toEqual([1, 1, 3, 4])
+  })
+})
+
+describe('道具卡结算', () => {
+  it('红卡与黑卡相乘后回到原价值，并使用修改后的价值结算预测', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 9, null, { cardId: 'red' }),
+      turn('p2', 7, 'p1', { cardId: 'black' }),
+      turn('p3', 2, 'p1'),
+    ]).result
+    expect(result.effectiveValueUnits).toBe(coinsToUnits(5))
+    expect(result.cardEffects.map((effect) => effect.cardId)).toEqual(expect.arrayContaining(['red', 'black']))
+    expect(result.predictionOutcomes.filter((outcome) => outcome.status === 'correct').map((outcome) => outcome.deltaUnits)).toEqual([coinsToUnits(5), coinsToUnits(5)])
+  })
+
+  it('黑卡的 1.5V 奖励与 0.5V 罚款均向下取到半金币', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 9, null, { cardId: 'black' }),
+      turn('p2', 7, 'p3'),
+      turn('p3', 2),
+    ], [2, 1.5]).result
+    expect(result.effectiveValueUnits).toBe(coinsToUnits(2.5))
+    expect(result.rankings[1]?.rewardUnits).toBe(coinsToUnits(3.5))
+    expect(result.predictionOutcomes.find((outcome) => outcome.playerId === 'p2')?.deltaUnits).toBe(coinsToUnits(-1))
+  })
+
+  it('偷天换日只交换排名金额，不改变公开总下注或实际扣款', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 10),
+      turn('p2', 4, null, { cardId: 'swap', targetPlayerId: 'p1' }),
+      turn('p3', 8),
+    ]).result
+    expect(result.totalBidUnits).toBe(coinsToUnits(22))
+    expect(result.winnerId).toBe('p2')
+    expect(result.rankings.find((entry) => entry.playerId === 'p2')).toMatchObject({ bidUnits: coinsToUnits(10), actualBidUnits: coinsToUnits(4) })
+  })
+
+  it('偷看底牌只留下匿名结算说明，不影响排名或金币', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 10),
+      turn('p2', 4, null, { cardId: 'peek', targetPlayerId: 'p1' }),
+      turn('p3', 8),
+    ]).result
+    expect(result.winnerId).toBe('p1')
+    expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'peek' })]))
+    expect(result.deltas.every((delta) => delta.cardUnits === 0)).toBe(true)
+  })
+
+  it('反客为主在交换后将自己的排名金额翻倍', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 5),
+      turn('p2', 4, null, { cardId: 'swap', targetPlayerId: 'p1' }),
+      turn('p3', 8, null, { cardId: 'doubleBid' }),
+    ]).result
+    expect(result.winnerId).toBe('p3')
+    expect(result.rankings[0]).toMatchObject({ playerId: 'p3', bidUnits: coinsToUnits(16), actualBidUnits: coinsToUnits(8) })
+  })
+
+  it('劫富济贫在奖励前按半金币公平分配，并在公开收益中保持匿名', () => {
+    const result = settle(players([20, 4, 4]), [
+      turn('p1', 1, null, { cardId: 'redistribute' }),
+      turn('p2', 1),
+      turn('p3', 1),
+    ]).result
+    expect(result.cardEffects[0]?.cardId).toBe('redistribute')
+    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(-5))
+    expect(result.deltas.find((delta) => delta.playerId === 'p2')?.cardUnits).toBe(coinsToUnits(2.5))
+    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.publicDeltaUnits).not.toBe(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits)
+  })
+
+  it('结算后记录唯一或并列余额领跑者', () => {
+    const result = settle(players([10, 10, 10]), [turn('p1', 9), turn('p2', 7), turn('p3', 2)]).result
+    expect(result.balanceLeaderIds).toEqual(['p1'])
+  })
+})
+
+describe('道具发放', () => {
+  it('禁用卡不会进入本局不放回牌堆', () => {
+    const deck = createCardDeck(['red', 'black', 'peek'])
+    expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
+    expect(new Set(deck).size).toBe(deck.length)
+  })
+
+  it('唯一最低者必中时获得不放回卡牌', () => {
+    const base = players([3, 8, 10])
+    const granted = prepareCardGrants({ players: base, cardDeck: ['red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
+    expect(granted.pendingCardGrants).toEqual([{ playerId: 'p1', cardId: 'red', announced: false }])
+    expect(granted.players[0].cardInventory).toEqual(['red'])
+    expect(granted.cardDeck).toEqual(['black'])
+  })
+
+  it('正余额并列最低者不发卡，零余额并列者各自独立判定', () => {
+    const noGrant = prepareCardGrants({ players: players([3, 3, 8]), cardDeck: ['red'], roundIndex: 1, probability: 100, roll: () => 0 })
+    expect(noGrant.pendingCardGrants).toEqual([])
+    const zeroGrant = prepareCardGrants({ players: players([0, 0, 8]), cardDeck: ['red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
+    expect(zeroGrant.pendingCardGrants).toHaveLength(2)
+    expect(new Set(zeroGrant.pendingCardGrants.map((grant) => grant.cardId)).size).toBe(2)
+  })
+
+  it('第一位操作玩家抽到偷看底牌时改抽另一张卡，偷看卡留在池中', () => {
+    const granted = prepareCardGrants({ players: players([0, 8, 10]), cardDeck: ['peek', 'red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
+    expect(granted.pendingCardGrants[0]?.cardId).toBe('red')
+    expect(granted.cardDeck).toEqual(['peek', 'black'])
   })
 })

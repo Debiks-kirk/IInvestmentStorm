@@ -1,6 +1,7 @@
 import { coinsToUnits, defaultRewards } from './engine'
+import { createCardDeck } from './cards'
 import { createItemDeck, shuffle } from './items'
-import type { GameSession, GameSettings, Player } from './types'
+import type { CardGrant, CardId, GameSession, GameSettings, Player } from './types'
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
@@ -13,6 +14,9 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     correctPredictionMultiplier: 1,
     wrongPredictionMultiplier: 0.5,
     revealBids: false,
+    revealBalanceLeader: true,
+    cardGrantProbability: 50,
+    disabledCardIds: [],
     animationSpeed: 'full',
   }
 }
@@ -30,14 +34,18 @@ export function createSession(names: string[], settings: GameSettings): GameSess
     color: PLAYER_COLORS[index],
     balanceUnits: coinsToUnits(settings.initialCoins),
     items: [],
+    cardInventory: [],
   }))
   return {
-    version: 1,
+    version: 2,
     id: createId('game'),
     phase: 'roundIntro',
     settings: { ...settings, playerCount: names.length, rewardMultipliers: [...settings.rewardMultipliers] },
     players,
     itemDeck: createItemDeck(settings.rounds),
+    cardDeck: createCardDeck(settings.disabledCardIds),
+    pendingCardGrants: [],
+    cardRulesStartRound: 1,
     fairnessOrderIds: shuffle(players.map((player) => player.id)),
     roundIndex: 0,
     currentTurnIndex: 0,
@@ -48,6 +56,48 @@ export function createSession(names: string[], settings: GameSettings): GameSess
   }
 }
 
+export interface CardGrantPreparation {
+  players: Player[]
+  cardDeck: CardId[]
+  pendingCardGrants: CardGrant[]
+}
+
+export function prepareCardGrants({
+  players,
+  cardDeck,
+  roundIndex,
+  probability,
+  roll = Math.random,
+}: {
+  players: Player[]
+  cardDeck: CardId[]
+  roundIndex: number
+  probability: number
+  roll?: () => number
+}): CardGrantPreparation {
+  if (roundIndex === 0 || cardDeck.length === 0 || probability <= 0) {
+    return { players, cardDeck, pendingCardGrants: [] }
+  }
+  const lowestBalance = Math.min(...players.map((player) => player.balanceUnits))
+  const lowestPlayers = players.filter((player) => player.balanceUnits === lowestBalance)
+  const candidates = lowestPlayers.length > 1 && lowestBalance > 0 ? [] : lowestPlayers
+  const nextPlayers = players.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory] }))
+  const nextDeck = [...cardDeck]
+  const grants: CardGrant[] = []
+  for (const candidate of candidates) {
+    if (nextDeck.length === 0 || roll() >= probability / 100) continue
+    const isFirstOperator = players[0]?.id === candidate.id
+    const cardIndex = isFirstOperator ? nextDeck.findIndex((cardId) => cardId !== 'peek') : 0
+    if (cardIndex < 0) continue
+    const [cardId] = nextDeck.splice(cardIndex, 1)
+    const player = nextPlayers.find((entry) => entry.id === candidate.id)
+    if (!player) continue
+    player.cardInventory.push(cardId)
+    grants.push({ playerId: candidate.id, cardId, announced: false })
+  }
+  return { players: nextPlayers, cardDeck: nextDeck, pendingCardGrants: grants }
+}
+
 export function validateNames(names: string[]): string[] {
   const trimmed = names.map((name) => name.trim())
   const errors: string[] = []
@@ -56,4 +106,3 @@ export function validateNames(names: string[]): string[] {
   if (new Set(trimmed).size !== trimmed.length) errors.push('玩家名字不能重复')
   return errors
 }
-
