@@ -3,6 +3,7 @@ import { defaultIdentitySettings, taskLabel } from './identities'
 import type {
   CardEffect,
   CardId,
+  CardUse,
   FinalStanding,
   GameSettings,
   IdentityEvent,
@@ -100,16 +101,20 @@ function cardEffect(cardId: CardId, description: string): CardEffect {
   return { cardId, description }
 }
 
+function cardUses(turn: RoundTurn): CardUse[] {
+  return (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).slice(0, 2)
+}
+
 function rankingReversalDescription(count: number): string {
   if (count === 1) return '获奖区排名已被逆转。'
   if (count % 2 === 0) return `获奖区排名被逆转了 ${count} 次，故排名不变。`
   return `获奖区排名被逆转了 ${count} 次，最终仍为逆转排名。`
 }
 
-function valueFactor(turns: RoundTurn[]): number {
-  return turns.reduce((factor, turn) => {
-    if (turn.cardUse?.cardId === 'red') return factor * 2
-    if (turn.cardUse?.cardId === 'black') return factor * 0.5
+function valueFactor(uses: CardUse[]): number {
+  return uses.reduce((factor, use) => {
+    if (use.cardId === 'red') return factor * 2
+    if (use.cardId === 'black') return factor * 0.5
     return factor
   }, 1)
 }
@@ -130,9 +135,10 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   }]))
   const cardEffects: CardEffect[] = []
   const identityEvents: IdentityEvent[] = []
+  const usedCards = turns.flatMap((turn) => cardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
 
   let redistributionTransferUnits: number | null = null
-  const redistributionUse = turns.find((turn) => turn.cardUse?.cardId === 'redistribute')
+  const redistributionUse = usedCards.find(({ use }) => use.cardId === 'redistribute')
   if (redistributionUse) {
     const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
     const lowestBalance = Math.min(...players.map((player) => player.balanceUnits))
@@ -155,30 +161,49 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     cardEffects.push(cardEffect('redistribute', poolUnits > 0 ? `劫富济贫已生效：本轮共转移 ${formatCoins(poolUnits)} 金币。` : '劫富济贫已使用，但本轮没有可转移的金币。'))
   }
 
+  for (const { playerId, use } of usedCards) {
+    if (use.cardId !== 'fateCoin') continue
+    const player = playerById.get(playerId)
+    const delta = deltaByPlayer.get(playerId)
+    if (!player || !delta) continue
+    if (use.coinResult === 'heads') {
+      const gained = coinsToUnits(6)
+      player.balanceUnits += gained
+      delta.cardUnits += gained
+      cardEffects.push(cardEffect('fateCoin', '命运硬币：正面朝上，获得 6 金币。'))
+    } else {
+      const lost = Math.min(player.balanceUnits, coinsToUnits(4))
+      player.balanceUnits -= lost
+      delta.cardUnits -= lost
+      cardEffects.push(cardEffect('fateCoin', `命运硬币：反面朝上，损失 ${formatCoins(lost)} 金币。`))
+    }
+  }
+
   const rankingBids = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
-  for (const turn of turns) {
-    if (turn.cardUse?.cardId !== 'swap' || !turn.cardUse.targetPlayerId) continue
-    const targetBid = rankingBids.get(turn.cardUse.targetPlayerId)
-    const ownBid = rankingBids.get(turn.playerId)
+  for (const { playerId, use } of usedCards) {
+    if (use.cardId !== 'swap' || !use.targetPlayerId) continue
+    const targetBid = rankingBids.get(use.targetPlayerId)
+    const ownBid = rankingBids.get(playerId)
     if (targetBid === undefined || ownBid === undefined) continue
-    rankingBids.set(turn.playerId, targetBid)
-    rankingBids.set(turn.cardUse.targetPlayerId, ownBid)
+    rankingBids.set(playerId, targetBid)
+    rankingBids.set(use.targetPlayerId, ownBid)
     cardEffects.push(cardEffect('swap', '两笔投资的排名金额已互换。'))
   }
-  for (const turn of turns) {
-    if (turn.cardUse?.cardId !== 'doubleBid') continue
-    rankingBids.set(turn.playerId, (rankingBids.get(turn.playerId) ?? turn.bidUnits) * 2)
+  for (const { playerId, use } of usedCards) {
+    if (use.cardId !== 'doubleBid') continue
+    const actualBid = turns.find((turn) => turn.playerId === playerId)?.bidUnits ?? 0
+    rankingBids.set(playerId, (rankingBids.get(playerId) ?? actualBid) * 2)
     cardEffects.push(cardEffect('doubleBid', '有一笔投资以双倍金额参与排名。'))
   }
 
-  const factor = valueFactor(turns)
+  const factor = valueFactor(usedCards.map(({ use }) => use))
   const effectiveValueUnits = floorToHalfUnits(item.value * COIN_UNIT * factor)
-  const redUsed = turns.some((turn) => turn.cardUse?.cardId === 'red')
-  const blackUsed = turns.some((turn) => turn.cardUse?.cardId === 'black')
+  const redUsed = usedCards.some(({ use }) => use.cardId === 'red')
+  const blackUsed = usedCards.some(({ use }) => use.cardId === 'black')
   if (redUsed) cardEffects.push(cardEffect('red', `红卡已生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
   if (blackUsed) cardEffects.push(cardEffect('black', `黑卡已生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
-  for (const turn of turns) {
-    if (turn.cardUse?.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
+  for (const { use } of usedCards) {
+    if (use.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
   }
 
   const rankingTurns = turns.map((turn) => ({ ...turn, rankingBidUnits: rankingBids.get(turn.playerId) ?? turn.bidUnits }))
@@ -187,7 +212,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const sortedUniqueTurns = rankingTurns.filter((turn) => bidCounts.get(turn.rankingBidUnits) === 1).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)
   const tiedPlayerIds = rankingTurns.filter((turn) => (bidCounts.get(turn.rankingBidUnits) ?? 0) > 1).map((turn) => turn.playerId)
   const reverserTurn = turns.find((turn) => turn.identityAction?.type === 'reverserInvert' && playerById.get(turn.playerId)?.identity?.id === 'reverser')
-  const rankingReversalCount = turns.filter((turn) => turn.cardUse?.cardId === 'reverseRank').length + (reverserTurn ? 1 : 0)
+  const rankingReversalCount = usedCards.filter(({ use }) => use.cardId === 'reverseRank').length + (reverserTurn ? 1 : 0)
   if (reverserTurn) {
     const reverser = playerById.get(reverserTurn.playerId)
     const reverserDelta = deltaByPlayer.get(reverserTurn.playerId)
@@ -358,7 +383,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     roundIndex,
     item,
     effectiveValueUnits,
-    turns: turns.map((turn) => ({ ...turn, cardUse: turn.cardUse ? { ...turn.cardUse } : undefined })),
+    turns: turns.map((turn) => ({ ...turn, cardUses: cardUses(turn).map((use) => ({ ...use })), cardUse: turn.cardUse ? { ...turn.cardUse } : undefined })),
     rankings,
     tiedPlayerIds,
     winnerId,

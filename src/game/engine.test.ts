@@ -200,6 +200,32 @@ describe('道具卡结算', () => {
     expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'reverseRank', description: '获奖区排名已被逆转。' })]))
   })
 
+  it('命运硬币按已保存的正反结果结算，不会重新随机', () => {
+    const heads = settle(players([20, 20, 20]), [
+      { ...turn('p1', 9), cardUses: [{ cardId: 'fateCoin', coinResult: 'heads' }] },
+      turn('p2', 7),
+      turn('p3', 2),
+    ]).result
+    const tails = settle(players([20, 20, 20]), [
+      { ...turn('p1', 9), cardUses: [{ cardId: 'fateCoin', coinResult: 'tails' }] },
+      turn('p2', 7),
+      turn('p3', 2),
+    ]).result
+    expect(heads.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(6))
+    expect(tails.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(-coinsToUnits(4))
+    expect(heads.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'fateCoin', description: '命运硬币：正面朝上，获得 6 金币。' })]))
+  })
+
+  it('结算内核最多读取每位玩家的两张道具', () => {
+    const result = settle(players([20, 20, 20]), [
+      { ...turn('p1', 9), cardUses: [{ cardId: 'red' }, { cardId: 'black' }, { cardId: 'fateCoin', coinResult: 'heads' }] },
+      turn('p2', 7),
+      turn('p3', 2),
+    ]).result
+    expect(result.effectiveValueUnits).toBe(coinsToUnits(5))
+    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(0)
+  })
+
   it('劫富济贫在奖励前按半金币公平分配，并在公开收益中保持匿名', () => {
     const result = settle(players([20, 4, 4]), [
       turn('p1', 1, null, { cardId: 'redistribute' }),
@@ -229,6 +255,13 @@ describe('道具发放', () => {
   it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
     expect(createCardDeck([])).toContain('reverseRank')
     expect(createCardDeck(['reverseRank'])).not.toContain('reverseRank')
+    expect(createCardDeck([])).toContain('fateCoin')
+    expect(createCardDeck(['fateCoin'])).not.toContain('fateCoin')
+  })
+
+  it('两张已使用道具都会在下轮前回到卡池', () => {
+    const recycled = recycleUsedCards(['black'], [{ ...turn('p1', 5), cardUses: [{ cardId: 'red' }, { cardId: 'fateCoin', coinResult: 'heads' }] }])
+    expect(recycled).toEqual(expect.arrayContaining(['black', 'red', 'fateCoin']))
   })
 
   it('唯一最低者必中时从卡池获得卡牌', () => {

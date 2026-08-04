@@ -84,6 +84,8 @@ async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard
     await page.locator('.card-choice').first().click()
     const targets = page.locator('.card-targets button')
     if (await targets.count() > 0) await targets.first().click()
+    const confirmUse = page.getByRole('button', { name: '确认使用' })
+    if (await confirmUse.count() > 0) await confirmUse.click()
   }
   await setRange(page.getByLabel('秘密下注'), bidUnits)
   await page.getByRole('button', { name: '确认我的选择' }).click()
@@ -171,6 +173,8 @@ async function runCardFlow(page) {
   await page.locator('.card-choice').first().click()
   const targets = page.locator('.card-targets button')
   if (await targets.count() > 0) await targets.first().click()
+  const confirmUse = page.getByRole('button', { name: '确认使用' })
+  if (await confirmUse.count() > 0) await confirmUse.click()
   await setRange(page.getByLabel('秘密下注'), 6)
   await page.getByRole('button', { name: '确认我的选择' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()

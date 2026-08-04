@@ -25,6 +25,10 @@ function playerName(players: Player[], id: string | null): string {
   return players.find((player) => player.id === id)?.name ?? '无人'
 }
 
+function turnCardUses(turn: RoundTurn): CardUse[] {
+  return turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])
+}
+
 function CoinValue({ units, signed = false }: { units: number; signed?: boolean }) {
   const prefix = signed && units > 0 ? '+' : ''
   return <span className="coin-value"><span aria-hidden="true">●</span>{prefix}{formatCoins(units)}</span>
@@ -340,6 +344,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const [prediction, setPrediction] = useState<string | null>(null)
   const [selectedCardId, setSelectedCardId] = useState<CardId | null>(null)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
+  const [confirmedCardUses, setConfirmedCardUses] = useState<CardUse[]>([])
+  const [cardConfirming, setCardConfirming] = useState<CardUse | null>(null)
+  const [coinFlipResult, setCoinFlipResult] = useState<'heads' | 'tails' | null>(null)
   const [identityAction, setIdentityAction] = useState<IdentityAction | undefined>()
   const [lobbyTargetId, setLobbyTargetId] = useState('')
   const [lobbySpecified, setLobbySpecified] = useState(false)
@@ -357,8 +364,26 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const cardTargetPlayers = selectedCardId === 'swap' ? session.players.filter((candidate) => candidate.id !== player.id) : targetPlayers
   const grant = session.pendingCardGrants.find((entry) => entry.playerId === player.id && !entry.announced)
   const peekedTurn = selectedCardId === 'peek' && selectedTargetId ? previousTurns.find((turn) => turn.playerId === selectedTargetId) : undefined
-  const cardUse: CardUse | undefined = selectedCardId ? { cardId: selectedCardId, ...(selectedCard?.needsTarget && selectedTargetId ? { targetPlayerId: selectedTargetId } : {}) } : undefined
-  const canSubmitCard = !selectedCard?.needsTarget || Boolean(selectedTargetId)
+  const cardSlotsRemaining = 2 - confirmedCardUses.length
+  const canSubmitCards = !selectedCardId && !cardConfirming
+  const openCardConfirmation = (use: CardUse) => {
+    setCardConfirming(use)
+    setCoinFlipResult(use.cardId === 'fateCoin' ? null : 'heads')
+  }
+  const confirmCardUse = () => {
+    if (!cardConfirming || (cardConfirming.cardId === 'fateCoin' && !coinFlipResult)) return
+    const use: CardUse = cardConfirming.cardId === 'fateCoin' ? { ...cardConfirming, coinResult: coinFlipResult as 'heads' | 'tails' } : cardConfirming
+    setConfirmedCardUses((uses) => [...uses, use])
+    setCardConfirming(null)
+    setCoinFlipResult(null)
+    setSelectedCardId(null)
+    setSelectedTargetId(null)
+  }
+  useEffect(() => {
+    if (cardConfirming?.cardId !== 'fateCoin' || coinFlipResult !== null) return
+    const timer = window.setTimeout(() => setCoinFlipResult(Math.random() < 0.5 ? 'heads' : 'tails'), 900)
+    return () => window.clearTimeout(timer)
+  }, [cardConfirming, coinFlipResult])
   const identity = player.identity
   const nextItem = session.itemDeck[session.roundIndex + 1]
   const lobbyFee = ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || identity?.lobbyistNextFree) ? 0 : session.settings.identitySettings.lobbyistFeeCoins
@@ -415,25 +440,27 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {identity.id === 'lobbyist' && <>{session.identityContracts.filter((contract) => contract.targetPlayerId === player.id && contract.status === 'pending' && contract.executeRoundIndex === session.roundIndex).map((contract) => <p key={contract.id} className="identity-task">本轮任务：<strong>{taskLabel(contract.taskType)}</strong>{contract.comparisonPlayerId ? ` ${playerName(session.players, contract.comparisonPlayerId)}` : ''}</p>)}{lobbyUnavailableReason ? <><p>{lobbyUnavailableReason}。</p><button className="button" disabled>{lobbyUnavailableReason}</button></> : <div className="lobbyist-form"><strong>发布下一轮任务 · 默认随机{lobbyFee === 0 ? '（本次免费）' : ` · 基础费用 ${lobbyFee} 金币`}</strong><select value={lobbyTargetId} onChange={(event) => { setLobbyTargetId(event.target.value); setIdentityAction(undefined) }}><option value="">选择任务对象</option>{session.players.filter((candidate) => candidate.id !== player.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select><label className="switch-row"><span><strong>指定任务</strong><small>额外支付 {session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币</small></span><input type="checkbox" checked={lobbySpecified} onChange={(event) => { setLobbySpecified(event.target.checked); setIdentityAction(undefined) }} /></label>{lobbySpecified && <><select value={lobbyTask} onChange={(event) => { setLobbyTask(event.target.value as LobbyistTaskType); setIdentityAction(undefined) }}><option value="avoidPrize">不进入获奖区</option><option value="winFirst">拿到第一名</option><option value="outbid">下注高于某人</option><option value="underbid">下注低于某人</option></select>{(lobbyTask === 'outbid' || lobbyTask === 'underbid') && <select value={lobbyCompareId} onChange={(event) => { setLobbyCompareId(event.target.value); setIdentityAction(undefined) }}><option value="">比较谁</option>{session.players.filter((candidate) => candidate.id !== player.id && candidate.id !== lobbyTargetId).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select>}</>}<button className={cx('button', identityAction?.type === 'lobbyistContract' && 'button--primary')} disabled={identityAction?.type !== 'lobbyistContract' && (!lobbyTargetId || !lobbyActionValid || lobbyShortfallUnits > 0)} onClick={() => setIdentityAction(identityAction?.type === 'lobbyistContract' ? undefined : { type: 'lobbyistContract', targetPlayerId: lobbyTargetId, specified: lobbySpecified, ...(lobbySpecified ? { taskType: lobbyTask, ...((lobbyTask === 'outbid' || lobbyTask === 'underbid') ? { comparisonPlayerId: lobbyCompareId } : {}) } : {}) })}>{identityAction?.type === 'lobbyistContract' ? '已安排发布任务 · 点击撤销' : !lobbyTargetId ? '请先选择任务对象' : !lobbyActionValid ? '请补全任务条件' : lobbyShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(lobbyShortfallUnits)} 金币` : lobbySpecified ? `指定并发布（+${session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins}）` : '随机发布任务'}</button></div>}</>}</div>}
       </section>
       <section className="card-inventory panel">
-        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮最多使用一张</span></div>
+        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮还可使用 {cardSlotsRemaining} 张</span></div>
         {player.cardInventory.length === 0 ? <p className="empty-cards">暂时没有道具卡。落后时，下一轮可能得到秘密支援。</p> : <div className="card-list">{player.cardInventory.map((cardId) => {
           const card = getCardDefinition(cardId)
           const unavailable = card.needsTarget && (cardId === 'swap' ? cardTargetPlayers.length === 0 : targetPlayers.length === 0)
-          return <button key={cardId} className={cx('card-choice', selectedCardId === cardId && 'is-selected')} disabled={unavailable} onClick={() => { setSelectedCardId(selectedCardId === cardId ? null : cardId); setSelectedTargetId(null) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{unavailable ? '本轮尚无已投资玩家，可留到后续回合使用。' : card.description}</small></div><i>{selectedCardId === cardId ? '✓' : ''}</i></button>
+          const confirmed = confirmedCardUses.find((use) => use.cardId === cardId)
+          return <button key={cardId} className={cx('card-choice', (selectedCardId === cardId || confirmed) && 'is-selected')} disabled={!confirmed && (unavailable || cardSlotsRemaining === 0)} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } if (card.needsTarget) { setSelectedCardId(cardId); setSelectedTargetId(null); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{confirmed ? '本轮已安排，点击取消。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(selectedCardId === cardId || confirmed) ? '✓' : ''}</i></button>
         })}</div>}
-        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择任意一名其他玩家，结算时交换排名金额'}</strong><div>{cardTargetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => setSelectedTargetId(candidate.id)}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
+        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择任意一名其他玩家，结算时交换排名金额'}</strong><div>{cardTargetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => { setSelectedTargetId(candidate.id); openCardConfirmation({ cardId: selectedCardId as CardId, targetPlayerId: candidate.id }) }}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
       </section>
-      <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{selectedCard?.name ?? '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCard || !lobbyActionValid} onClick={() => setConfirming(true)}>确认我的选择</button></div>
+      <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{confirmedCardUses.length > 0 ? confirmedCardUses.map((use) => getCardDefinition(use.cardId).name).join('、') : '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCards || !lobbyActionValid} onClick={() => setConfirming(true)}>确认我的选择</button></div>
       {confirming && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
           <div className="confirm-sheet">
             <p className="eyebrow">最后确认</p><h2 id="confirm-title">提交后不能修改</h2>
-            <div className="confirm-summary"><span>秘密下注 <strong><CoinValue units={bidUnits} /></strong></span><span>预测第一 <strong>{predicted?.name ?? '不预测'}</strong></span><span>使用道具 <strong>{selectedCard ? `${selectedCard.name}${selectedTargetId ? ` · ${playerName(session.players, selectedTargetId)}` : ''}` : '不使用'}</strong></span></div>
+            <div className="confirm-summary"><span>秘密下注 <strong><CoinValue units={bidUnits} /></strong></span><span>预测第一 <strong>{predicted?.name ?? '不预测'}</strong></span><span>使用道具 <strong>{confirmedCardUses.length > 0 ? confirmedCardUses.map((use) => `${getCardDefinition(use.cardId).name}${use.targetPlayerId ? ` · ${playerName(session.players, use.targetPlayerId)}` : ''}`).join('、') : '不使用'}</strong></span></div>
             <p>提交后请立刻把设备传给下一位，不要停留在此页。</p>
-            <div><button className="button button--paper" onClick={() => setConfirming(false)}>再想想</button><button className="button button--primary" onClick={() => onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(cardUse ? { cardUse } : {}), ...(identityAction ? { identityAction } : {}) })}>确定提交</button></div>
+            <div><button className="button button--paper" onClick={() => setConfirming(false)}>再想想</button><button className="button button--primary" onClick={() => onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(confirmedCardUses.length > 0 ? { cardUses: confirmedCardUses } : {}), ...(identityAction ? { identityAction } : {}) })}>确定提交</button></div>
           </div>
         </div>
       )}
+      {cardConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="card-confirm-title"><div className="confirm-sheet card-use-confirm"><p className="eyebrow">确认使用道具</p><h2 id="card-confirm-title">{getCardDefinition(cardConfirming.cardId).name}</h2>{cardConfirming.cardId === 'fateCoin' ? <div className="fate-coin-wrap"><div className={cx('fate-coin', coinFlipResult && 'is-settled')}><span>{coinFlipResult === 'heads' ? '正' : coinFlipResult === 'tails' ? '反' : '?'}</span></div><p>{coinFlipResult === null ? '硬币正在翻转…' : coinFlipResult === 'heads' ? '正面朝上：本轮获得 6 金币。' : '反面朝上：本轮损失 4 金币。'}</p></div> : <p>确认后，这张卡会安排在本轮结算时使用。{cardConfirming.targetPlayerId ? ` 目标：${playerName(session.players, cardConfirming.targetPlayerId)}。` : ''}</p>}<div><button className="button button--paper" onClick={() => { setCardConfirming(null); setCoinFlipResult(null) }}>取消</button><button className="button button--primary" disabled={cardConfirming.cardId === 'fateCoin' && coinFlipResult === null} onClick={confirmCardUse}>确认使用</button></div></div></div>}
       {grant && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="grant-title"><div className="card-grant-sheet"><span>{getCardDefinition(grant.cardId).symbol}</span><p className="eyebrow">秘密支援</p><h2 id="grant-title">你获得了{getCardDefinition(grant.cardId).name}</h2><p>{getCardDefinition(grant.cardId).description}</p><small>这张卡已加入你的库存。请勿告诉其他人。</small><button className="button button--primary" onClick={() => onAcknowledgeGrant(player.id)}>收下道具卡</button></div></div>}
       {session.pendingIdentityNotices.filter((notice) => notice.playerId === player.id).map((notice) => <div key={notice.id} className="modal-backdrop" role="dialog" aria-modal="true"><div className="card-grant-sheet"><span>!</span><p className="eyebrow">身份提示</p><h2>{notice.title}</h2><p>{notice.detail}</p><button className="button button--primary" onClick={() => onAcknowledgeNotice(notice.id)}>知道了</button></div></div>)}
     </section>
@@ -523,14 +550,14 @@ function RoundReview({ session }: { session: GameSession }) {
       <p className="round-review-note">按回合查看每个人的实际下注、道具与技能操作，以及排名奖励和预测结算。</p>
       <div className="round-review-list">
         {session.results.map((result) => {
-          const cardTurns = result.turns.filter((turn) => turn.cardUse)
+          const cardTurns = result.turns.flatMap((turn) => turnCardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
           const skillTurns = result.turns.filter((turn) => turn.identityAction)
           const identityEvents = session.identityEvents.filter((event) => event.roundIndex === result.roundIndex)
           return <details key={result.roundIndex} open={result.roundIndex === session.results.length - 1}>
             <summary><span>第 {result.roundIndex + 1} 轮</span><strong>{result.item.emoji} {result.item.name}</strong><small>真实价值 {formatCoins(result.effectiveValueUnits)} · 总下注 {formatCoins(result.totalBidUnits)}</small></summary>
             <div className="round-review-grid">
               <article className="review-block"><h3>全部下注</h3>{result.turns.map((turn) => { const ranking = result.rankings.find((entry) => entry.playerId === turn.playerId); return <div className="review-row" key={turn.playerId}><strong>{playerName(session.players, turn.playerId)}</strong><span>实际下注 <CoinValue units={turn.bidUnits} /></span>{ranking && ranking.bidUnits !== turn.bidUnits && <small>排名下注 {formatCoins(ranking.bidUnits)}</small>}</div> })}</article>
-              <article className="review-block"><h3>道具使用</h3>{cardTurns.length === 0 ? <p>本轮没有使用道具。</p> : cardTurns.map((turn) => { const use = turn.cardUse!; const target = use.targetPlayerId ? ` → ${playerName(session.players, use.targetPlayerId)}` : ''; return <div className="review-row" key={turn.playerId}><strong>{playerName(session.players, turn.playerId)}</strong><span>{getCardDefinition(use.cardId).symbol} {getCardDefinition(use.cardId).name}{target}</span></div> })}{result.cardEffects.length > 0 && <div className="review-effects">{result.cardEffects.map((effect, index) => <small key={`${effect.cardId}-${index}`}>{effect.description}</small>)}</div>}</article>
+              <article className="review-block"><h3>道具使用</h3>{cardTurns.length === 0 ? <p>本轮没有使用道具。</p> : cardTurns.map(({ playerId, use }, index) => { const target = use.targetPlayerId ? ` → ${playerName(session.players, use.targetPlayerId)}` : ''; const coin = use.cardId === 'fateCoin' ? `（${use.coinResult === 'heads' ? '正面' : '反面'}）` : ''; return <div className="review-row" key={`${playerId}-${use.cardId}-${index}`}><strong>{playerName(session.players, playerId)}</strong><span>{getCardDefinition(use.cardId).symbol} {getCardDefinition(use.cardId).name}{coin}{target}</span></div> })}{result.cardEffects.length > 0 && <div className="review-effects">{result.cardEffects.map((effect, index) => <small key={`${effect.cardId}-${index}`}>{effect.description}</small>)}</div>}</article>
               <article className="review-block"><h3>身份技能</h3>{skillTurns.length === 0 && identityEvents.length === 0 ? <p>本轮没有身份技能记录。</p> : <>{skillTurns.map((turn) => <div className="review-row" key={`${turn.playerId}-${turn.identityAction!.type}`}><strong>{playerName(session.players, turn.playerId)}</strong><span>{identityActionReview(turn.identityAction!, session.players)}</span></div>)}{identityEvents.map((event, index) => <div className="review-row review-row--event" key={`${event.playerId}-${event.title}-${index}`}><strong>{playerName(session.players, event.playerId)} · {event.title}</strong><span>{event.detail}</span>{event.deltaUnits !== 0 && <DeltaLabel units={event.deltaUnits} />}</div>)}</>}</article>
               <article className="review-block"><h3>奖励如何发放</h3>{result.rankings.length === 0 ? <p>没有唯一排名，排名奖励与拍品均未发放。</p> : <>{result.rankings.map((entry) => <div className="review-row" key={entry.playerId}><strong>第 {entry.place} 名 · {playerName(session.players, entry.playerId)}</strong><span>获奖 <CoinValue units={entry.rewardUnits} signed /></span>{entry.playerId === result.winnerId && <small>获得拍品：{result.item.emoji} {result.item.name}</small>}</div>)}{result.tiedPlayerIds.length > 0 && <p>并列出局：{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')}</p>}</>}</article>
               <article className="review-block review-block--wide"><h3>预测与本轮结算</h3><div className="review-settlement">{result.predictionOutcomes.map((outcome) => <div className="review-row" key={outcome.playerId}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '未预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选择 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>{result.winnerPaymentUnits > 0 && <p>第一名向猜中者共支付 {formatCoins(result.winnerPaymentUnits)}。</p>}<div className="review-delta-list">{result.deltas.map((delta) => <small key={delta.playerId}>{playerName(session.players, delta.playerId)}：获奖 {delta.rewardUnits > 0 ? '+' : ''}{formatCoins(delta.rewardUnits)} · 预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)} · 身份 {delta.identityUnits > 0 ? '+' : ''}{formatCoins(delta.identityUnits)}</small>)}</div></article>
@@ -598,18 +625,21 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       const costUnits = Math.round(session.settings.identitySettings.reverserActivationCoins * (isLastTwoRounds ? 4 : 2))
       if (currentPlayer.identity?.id !== 'reverser' || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return
     }
-    if (turn.cardUse) {
-      if (!currentPlayer.cardInventory.includes(turn.cardUse.cardId)) return
-      const needsTarget = getCardDefinition(turn.cardUse.cardId).needsTarget
-      const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === turn.cardUse?.targetPlayerId)
-      const targetIsOtherPlayer = Boolean(turn.cardUse.targetPlayerId && turn.cardUse.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === turn.cardUse?.targetPlayerId))
-      if (needsTarget && turn.cardUse.cardId === 'peek' && !targetIsPrevious) return
-      if (needsTarget && turn.cardUse.cardId === 'swap' && !targetIsOtherPlayer) return
+    const cardUses = turnCardUses(turn)
+    if (cardUses.length > 2 || new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return
+    for (const use of cardUses) {
+      if (!currentPlayer.cardInventory.includes(use.cardId)) return
+      const needsTarget = getCardDefinition(use.cardId).needsTarget
+      const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === use.targetPlayerId)
+      const targetIsOtherPlayer = Boolean(use.targetPlayerId && use.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === use.targetPlayerId))
+      if (needsTarget && use.cardId === 'peek' && !targetIsPrevious) return
+      if (needsTarget && use.cardId === 'swap' && !targetIsOtherPlayer) return
+      if (use.cardId === 'fateCoin' && use.coinResult !== 'heads' && use.coinResult !== 'tails') return
     }
     let players = session.players.map((player) => player.id === turn.playerId ? {
       ...player,
       balanceUnits: player.balanceUnits - turn.bidUnits,
-      cardInventory: turn.cardUse ? player.cardInventory.filter((cardId) => cardId !== turn.cardUse?.cardId) : player.cardInventory,
+      cardInventory: cardUses.length > 0 ? player.cardInventory.filter((cardId) => !cardUses.some((use) => use.cardId === cardId)) : player.cardInventory,
     } : player)
     let identityContracts = [...session.identityContracts]
     let resolvedTurn = turn

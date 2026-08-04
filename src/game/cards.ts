@@ -17,6 +17,7 @@ export const CARD_DEFINITIONS: CardDefinition[] = [
   { id: 'doubleBid', name: '反客为主', symbol: '↑', description: '本轮投资以双倍金额参与排名。', needsTarget: false },
   { id: 'black', name: '黑卡', symbol: '◐', description: '本轮拍品真实价值减半，奖励预览不变。', needsTarget: false },
   { id: 'reverseRank', name: '逆转排名', symbol: '↻', description: '倒转本轮获奖区内的排名；若与其他逆转叠加，偶数次会抵消。', needsTarget: false },
+  { id: 'fateCoin', name: '命运硬币', symbol: '◒', description: '掷硬币：正面获得 6 金币，反面损失 4 金币。', needsTarget: false },
 ]
 
 export function getCardDefinition(cardId: CardId): CardDefinition {

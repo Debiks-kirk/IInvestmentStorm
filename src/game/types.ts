@@ -13,7 +13,7 @@ export type GamePhase =
 
 export type AnimationSpeed = 'full' | 'fast' | 'reduced'
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst'
@@ -23,6 +23,7 @@ export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
 export interface CardUse {
   cardId: CardId
   targetPlayerId?: string
+  coinResult?: 'heads' | 'tails'
 }
 
 export interface CardGrant {
@@ -155,6 +156,7 @@ export interface RoundTurn {
   playerId: string
   bidUnits: number
   predictedPlayerId: string | null
+  cardUses?: CardUse[]
   cardUse?: CardUse
   identityAction?: IdentityAction
 }
@@ -208,7 +210,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 6
+  version: 7
   id: string
   phase: GamePhase
   settings: GameSettings

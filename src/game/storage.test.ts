@@ -49,7 +49,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(6)
+    expect(migrated?.version).toBe(7)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.itemDeck[0].category).toBeTruthy()
@@ -57,9 +57,18 @@ describe('对局存档迁移', () => {
     expect(migrated?.cardDeck).toContain('reverseRank')
   })
 
-  it('v6 存档加载时保留已开启的身份系统', () => {
+  it('v7 存档加载时保留已开启的身份系统', () => {
     const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     values.set('who-is-raising:session:v1', JSON.stringify(session))
     expect(loadSession()?.settings.identitySettings.enabled).toBe(true)
+  })
+
+  it('旧单卡回合会迁移为可容纳多卡的记录', () => {
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    const legacy = JSON.parse(JSON.stringify(session))
+    legacy.version = 6
+    legacy.turns = [{ playerId: legacy.players[0].id, bidUnits: 0, predictedPlayerId: null, cardUse: { cardId: 'red' } }]
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    expect(loadSession()?.turns[0].cardUses).toEqual([{ cardId: 'red' }])
   })
 })
