@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBotObservation, decideBotTurn, emptyBotMemory } from './bots'
+import { buildBotObservation, decideBotTurn, emptyBotMemory, estimateBalances } from './bots'
 import { createDefaultSettings, createSession } from './session'
 import { createGamePreset } from './presets'
 import type { SeatConfig } from './types'
@@ -22,7 +22,7 @@ describe('Bot 信息边界与决策', () => {
     expect(observation.opponents[0]).toEqual({ id: session.players[1].id, name: '玩家乙' })
     expect(JSON.stringify(observation)).not.toContain('77')
     expect(JSON.stringify(observation)).not.toContain('33')
-    expect(JSON.stringify(observation)).not.toContain('red')
+    expect(observation.opponents[0]).not.toHaveProperty('cardInventory')
   })
 
   it('高手每轮只得到一条已提交对手的模糊投资区间', () => {
@@ -41,6 +41,25 @@ describe('Bot 信息边界与决策', () => {
     expect(first.bidUnits).toBeGreaterThanOrEqual(0)
     expect(first.bidUnits).toBeLessThanOrEqual(session.players[0].balanceUnits)
     expect(first.cardUses.length).toBeLessThanOrEqual(2)
+  })
+
+  it('会从公开总下注、门槛与收益变化推算对手现金区间', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const observation = buildBotObservation(session, session.players[0].id)
+    observation.publicRounds = [{ winnerId: session.players[1].id, totalBidUnits: 30, minWinningBidUnits: 10, tiedPlayerIds: [], itemCategory: 'luxury', rankings: [{ playerId: session.players[1].id, place: 1, rewardUnits: 20 }], publicDeltaByPlayerId: { [session.players[1].id]: 20, [session.players[2].id]: -4 } }]
+    const estimate = estimateBalances(observation).find((entry) => entry.playerId === session.players[1].id)
+    expect(estimate?.expectedUnits).toBe(70)
+    expect(estimate?.expectedBidUnits).toBeGreaterThan(0)
+    expect(estimate?.lowUnits).toBeLessThanOrEqual(estimate?.expectedUnits ?? 0)
+    expect(estimate?.highUnits).toBeGreaterThanOrEqual(estimate?.expectedUnits ?? 0)
+  })
+
+  it('预测期望为负时会选择跳过，而不是机械预测第一名', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const observation = buildBotObservation(session, session.players[0].id)
+    observation.balanceEstimates = observation.balanceEstimates.map((entry) => entry.playerId === session.players[0].id ? entry : { ...entry, lowUnits: 0, expectedUnits: 0, highUnits: 0 })
+    const decision = decideBotTurn(observation, 'observer', 'standard', emptyBotMemory())
+    expect(decision.predictedPlayerId).toBeNull()
   })
 
   it('命运硬币会在 Bot 提交前固定正反面', () => {

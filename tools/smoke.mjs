@@ -215,6 +215,7 @@ async function runIdentityFlow(page) {
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
   await page.getByRole('button', { name: /查看最终排行榜/ }).click()
   await page.getByText('逐轮复盘', { exact: true }).waitFor()
+  await page.getByText('身份公开', { exact: true }).waitFor()
 }
 
 async function runAssetFinalFlow(page) {
