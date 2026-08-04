@@ -499,6 +499,40 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
   )
 }
 
+function identityActionReview(action: IdentityAction, players: Player[]): string {
+  if (action.type === 'reverserInvert') return '逆行者发动了获奖区排名逆转'
+  if (action.type === 'merchantAuction') return '道具商人发起了下一轮道具竞购'
+  const target = playerName(players, action.targetPlayerId)
+  const comparison = action.comparisonPlayerId ? `（比较对象：${playerName(players, action.comparisonPlayerId)}）` : ''
+  return `说客向 ${target} 发布${action.specified ? '指定' : '随机'}任务：${action.taskType ? taskLabel(action.taskType) : '任务待定'}${comparison}`
+}
+
+function RoundReview({ session }: { session: GameSession }) {
+  return (
+    <section className="round-review panel">
+      <div className="panel-title"><div><p className="eyebrow">终局公开</p><h2>逐轮复盘</h2></div><span>下注、道具与身份技能现已全部公开</span></div>
+      <p className="round-review-note">按回合查看每个人的实际下注、道具与技能操作，以及排名奖励和预测结算。</p>
+      <div className="round-review-list">
+        {session.results.map((result) => {
+          const cardTurns = result.turns.filter((turn) => turn.cardUse)
+          const skillTurns = result.turns.filter((turn) => turn.identityAction)
+          const identityEvents = session.identityEvents.filter((event) => event.roundIndex === result.roundIndex)
+          return <details key={result.roundIndex} open={result.roundIndex === session.results.length - 1}>
+            <summary><span>第 {result.roundIndex + 1} 轮</span><strong>{result.item.emoji} {result.item.name}</strong><small>真实价值 {formatCoins(result.effectiveValueUnits)} · 总下注 {formatCoins(result.totalBidUnits)}</small></summary>
+            <div className="round-review-grid">
+              <article className="review-block"><h3>全部下注</h3>{result.turns.map((turn) => { const ranking = result.rankings.find((entry) => entry.playerId === turn.playerId); return <div className="review-row" key={turn.playerId}><strong>{playerName(session.players, turn.playerId)}</strong><span>实际下注 <CoinValue units={turn.bidUnits} /></span>{ranking && ranking.bidUnits !== turn.bidUnits && <small>排名下注 {formatCoins(ranking.bidUnits)}</small>}</div> })}</article>
+              <article className="review-block"><h3>道具使用</h3>{cardTurns.length === 0 ? <p>本轮没有使用道具。</p> : cardTurns.map((turn) => { const use = turn.cardUse!; const target = use.targetPlayerId ? ` → ${playerName(session.players, use.targetPlayerId)}` : ''; return <div className="review-row" key={turn.playerId}><strong>{playerName(session.players, turn.playerId)}</strong><span>{getCardDefinition(use.cardId).symbol} {getCardDefinition(use.cardId).name}{target}</span></div> })}{result.cardEffects.length > 0 && <div className="review-effects">{result.cardEffects.map((effect, index) => <small key={`${effect.cardId}-${index}`}>{effect.description}</small>)}</div>}</article>
+              <article className="review-block"><h3>身份技能</h3>{skillTurns.length === 0 && identityEvents.length === 0 ? <p>本轮没有身份技能记录。</p> : <>{skillTurns.map((turn) => <div className="review-row" key={`${turn.playerId}-${turn.identityAction!.type}`}><strong>{playerName(session.players, turn.playerId)}</strong><span>{identityActionReview(turn.identityAction!, session.players)}</span></div>)}{identityEvents.map((event, index) => <div className="review-row review-row--event" key={`${event.playerId}-${event.title}-${index}`}><strong>{playerName(session.players, event.playerId)} · {event.title}</strong><span>{event.detail}</span>{event.deltaUnits !== 0 && <DeltaLabel units={event.deltaUnits} />}</div>)}</>}</article>
+              <article className="review-block"><h3>奖励如何发放</h3>{result.rankings.length === 0 ? <p>没有唯一排名，排名奖励与拍品均未发放。</p> : <>{result.rankings.map((entry) => <div className="review-row" key={entry.playerId}><strong>第 {entry.place} 名 · {playerName(session.players, entry.playerId)}</strong><span>获奖 <CoinValue units={entry.rewardUnits} signed /></span>{entry.playerId === result.winnerId && <small>获得拍品：{result.item.emoji} {result.item.name}</small>}</div>)}{result.tiedPlayerIds.length > 0 && <p>并列出局：{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')}</p>}</>}</article>
+              <article className="review-block review-block--wide"><h3>预测与本轮结算</h3><div className="review-settlement">{result.predictionOutcomes.map((outcome) => <div className="review-row" key={outcome.playerId}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '未预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选择 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>{result.winnerPaymentUnits > 0 && <p>第一名向猜中者共支付 {formatCoins(result.winnerPaymentUnits)}。</p>}<div className="review-delta-list">{result.deltas.map((delta) => <small key={delta.playerId}>{playerName(session.players, delta.playerId)}：获奖 {delta.rewardUnits > 0 ? '+' : ''}{formatCoins(delta.rewardUnits)} · 预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)} · 身份 {delta.identityUnits > 0 ? '+' : ''}{formatCoins(delta.identityUnits)}</small>)}</div></article>
+            </div>
+          </details>
+        })}
+      </div>
+    </section>
+  )
+}
+
 function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: () => void }) {
   const standings = rankFinalPlayers(session.players)
   const topAssets = standings[0]?.totalAssetUnits ?? 0
@@ -506,7 +540,7 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
     <section className="final-page">
       <div className="final-heading"><p className="eyebrow">全局结束</p><h1>最后的赢家，<br /><em>{standings.filter((standing) => standing.totalAssetUnits === topAssets).map((standing) => standing.player.name).join('、')}</em></h1><p>{session.settings.rounds} 轮竞价已经落定。最终以金币与固定资产总和排名。</p></div>
       <div className="podium-list">{standings.map((standing, index) => <article key={standing.player.id} className={cx(index === 0 && 'is-first')} style={{ '--delay': `${index * 100}ms`, '--player-color': standing.player.color } as React.CSSProperties}><span className="standing-place">{standing.place}</span><div className="standing-avatar">{standing.player.name.slice(0, 1)}</div><div className="standing-copy"><strong>{standing.player.name}</strong><small>{standing.player.items.length > 0 ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有收藏品'}</small>{standing.fixedAssets.some((asset) => asset.units > 0) && <div className="asset-breakdown">{standing.fixedAssets.filter((asset) => asset.units > 0).map((asset) => <span key={asset.category}>{ASSET_CATEGORY_CONFIGS.find((entry) => entry.category === asset.category)?.symbol} {categoryConfig(asset.category).name} {asset.itemCount} 件 +{formatCoins(asset.units)}</span>)}</div>}</div><div className="standing-balance"><CoinValue units={standing.totalAssetUnits} /><small>总资产</small><span>现金 {formatCoins(standing.cashUnits)} · 固定资产 +{formatCoins(standing.fixedAssetUnits)}</span></div></article>)}</div>
-      {session.settings.identitySettings.enabled && <section className="identity-final panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>身份档案</h2></div><span>身份、目标与技能记录现已公开</span></div><div>{session.players.map((player) => { const identity = player.identity; const definition = identity ? getIdentityDefinition(identity.id) : null; const events = session.identityEvents.filter((event) => event.playerId === player.id); return <article key={player.id}><span>{definition?.symbol ?? '—'}</span><div><strong>{player.name} · {definition?.name ?? '未分配'}</strong><small>{definition?.summary}</small>{identity?.targetPlayerId && <p>目标：{playerName(session.players, identity.targetPlayerId)}</p>}{identity?.collectorCategory && <p>资产加成：{categoryConfig(identity.collectorCategory).name} +1 件</p>}{events.length > 0 && <div className="identity-final-events">{events.map((event, index) => <p key={`${event.title}-${index}`}><strong>{event.title}</strong>：{event.detail}</p>)}</div>}</div></article> })}</div></section>}
+      <RoundReview session={session} />
       <div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div>
       <button className="button button--primary button--large" onClick={onNewGame}>再开一局</button>
     </section>
