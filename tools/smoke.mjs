@@ -211,7 +211,8 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
   const bananaNotice = page.getByRole('button', { name: '知道了' })
   if (await bananaNotice.count() > 0) await bananaNotice.click()
-  await page.getByText('本轮道具与排名变化', { exact: true }).waitFor()
+  // 发到的卡可能是被动护盾或仅私密生效的偷看卡；无论是否产生公共道具影响，都必须能完成结算。
+  await page.getByText('本轮收益变化', { exact: true }).waitFor()
   if (await page.getByText('当前余额领跑者', { exact: true }).count() !== 0) throw new Error('新默认设置不应公开余额领跑者。')
   await assertNoHorizontalOverflow(page, '道具结算页')
 }

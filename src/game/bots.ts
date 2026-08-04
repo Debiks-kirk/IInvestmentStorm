@@ -46,6 +46,22 @@ function hash(value: string): number {
   return result >>> 0
 }
 
+/** Stable pseudo-random values keep a chosen Bot action reproducible after a refresh. */
+function unitRandom(seed: string): number {
+  return (hash(seed) + .5) / 4294967296
+}
+
+/** Box–Muller transform: a deterministic, zero-mean normal sample from a seed. */
+function normalRandom(seed: string): number {
+  const first = Math.max(.000001, unitRandom(`${seed}:a`))
+  const second = unitRandom(`${seed}:b`)
+  return Math.sqrt(-2 * Math.log(first)) * Math.cos(2 * Math.PI * second)
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value))
+}
+
 function choose<T>(values: T[], seed: string): T | undefined {
   return values.length ? values[hash(seed) % values.length] : undefined
 }
@@ -394,27 +410,46 @@ function kidnapSuccessChance(observation: BotObservation, targetPlayerId: string
   return estimatePlaceAndChance(observation, targetBid, targetPlayerId).firstChance
 }
 
-function nearOptimalChoice(candidates: ScoredPlan[], observation: BotObservation, profile: BotProfile): ScoredPlan {
+function behavioralTemperatureUnits(observation: BotObservation, profile: BotProfile, difficulty: BotDifficulty, mode: StrategyMode, memory: BotMemory): number {
+  const difficultyFactor = difficulty === 'easy' ? 1.32 : difficulty === 'expert' ? .62 : .95
+  const profileVolatility = .45 + profile.risk * .42 + profile.cards * .13
+  const earlyRoundFactor = observation.roundIndex < observation.totalRounds - 2 ? 1.12 : mode === 'finalSprint' ? .64 : .88
+  const repetitionFactor = memory.lastMode === mode ? 1.16 : 1
+  return coinsToUnits(.6 + profileVolatility * difficultyFactor * earlyRoundFactor * repetitionFactor)
+}
+
+function nearOptimalChoice(candidates: ScoredPlan[], observation: BotObservation, profile: BotProfile, difficulty: BotDifficulty, memory: BotMemory): ScoredPlan {
   const ordered = [...candidates].sort((left, right) => right.score - left.score || left.bidUnits - right.bidUnits || left.id.localeCompare(right.id))
   const best = ordered[0]
   // 身份和目标道具的组合应明确执行最佳计划；普通下注才在近似最优解间混合，避免可被轻易读透。
   if ((best.identityAction && best.identityAction.type !== 'kidnap') || best.rankingBidFromTargetId || best.reversalCount > 0) return best
-  const tolerance = coinsToUnits(.5) + coinsToUnits(observation.item?.value ?? 0) * (.025 + profile.risk * .045)
-  const close = ordered.filter((candidate) => candidate.score >= best.score - tolerance && candidate.score >= 0)
-  return close[hash(`${observation.playerId}:${observation.roundIndex}:${profile.id}:${observation.publicRounds.length}`) % Math.max(1, close.length)] ?? best
+  const temperature = behavioralTemperatureUnits(observation, profile, difficulty, modeFor(observation, profile, memory), memory)
+  // 只让价值足够接近的方案参与；分数越高，按 softmax 被选中的机会越大，而不是均匀乱选。
+  const qualityWindow = Math.max(coinsToUnits(1), temperature * 3.2)
+  const plausible = ordered.filter((candidate) => candidate.score >= best.score - qualityWindow)
+  const weights = plausible.map((candidate) => Math.exp(clamp((candidate.score - best.score) / Math.max(1, temperature), -7, 0)))
+  const total = weights.reduce((sum, weight) => sum + weight, 0)
+  let cursor = unitRandom(`${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:${profile.id}:plan`) * total
+  for (let index = 0; index < plausible.length; index += 1) {
+    cursor -= weights[index]
+    if (cursor <= 0) return plausible[index]
+  }
+  return plausible[0] ?? best
 }
 
 /**
  * 让普通竞拍在近似最优解周围做极小、可复现的扰动。以玩家 ID 和对局进度为种子，刷新不会改写
  * 已作出的 Bot 决策；而换日、逆转排名等需要精确语义的计划绝不扰动。
  */
-function applyBidJitter(best: ScoredPlan, observation: BotObservation): ScoredPlan {
+function applyBidJitter(best: ScoredPlan, observation: BotObservation, profile: BotProfile, difficulty: BotDifficulty, mode: StrategyMode, memory: BotMemory): ScoredPlan {
   if (best.rankingBidFromTargetId || best.reversalCount > 0) return best
   const identityCost = best.identityAction?.type === 'reverserInvert'
     ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
     : best.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits : 0
   const cap = Math.max(0, observation.self.balanceUnits - identityCost)
-  const offsetUnits = hash(`${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:bid-jitter`) % 3 - 1
+  const standardDeviation = behavioralTemperatureUnits(observation, profile, difficulty, mode, memory) * .5
+  // 绝大多数报价落在中心附近，少量较大胆/保守的偏移来自正态尾部；截断避免无意义的梭哈或归零。
+  const offsetUnits = Math.round(clamp(normalRandom(`${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:${profile.id}:bid-jitter`) * standardDeviation, -4, 4))
   const bidUnits = Math.max(0, Math.min(cap, best.bidUnits + offsetUnits))
   if (bidUnits === best.bidUnits) return best
   const rankingBidUnits = bidUnits * best.rankingMultiplier
@@ -476,7 +511,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
-  const best = applyBidJitter(nearOptimalChoice(scored, observation, profile), observation)
+  const best = applyBidJitter(nearOptimalChoice(scored, observation, profile, difficulty, memory), observation, profile, difficulty, mode, memory)
   const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
   const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode)
   const target = preferredOpponent(observation, memory) ?? observation.publicRounds.at(-1)?.winnerId ?? observation.opponents[0]?.id ?? null
@@ -487,7 +522,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const intel = observation.intel ? `模糊情报：${observation.opponents.find((opponent) => opponent.id === observation.intel?.playerId)?.name ?? '一名对手'} 的投资约为 ${observation.intel.lowUnits / 2}–${observation.intel.highUnits / 2}。` : undefined
   const predictionText = prediction.playerId ? `预测 ${observation.opponents.find((opponent) => opponent.id === prediction.playerId)?.name ?? '对手'} 的期望收益 ${Math.round(prediction.expectedUnits) / 2}。` : '预测期望不够，选择跳过。'
   const specialText = best.specialReason ? `${best.specialReason}${best.identityAction?.type === 'reverserInvert' ? ` 预计先以第 ${best.place} 名进入获奖区，再倒转为第 ${best.effectivePlace} 名。` : ''}` : ''
-  const mixedText = !best.specialReason && !best.identityAction ? ' 在近似最优的合法方案中做了小幅混合，避免固定出价规律。' : ''
+  const mixedText = !best.specialReason && !best.identityAction ? ' 在高价值方案中按性格与局势做了带权混合，并加入受控的报价波动。' : ''
   return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${specialText}${mixedText}${predictionText}`, intel }
 }
 

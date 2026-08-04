@@ -43,6 +43,22 @@ describe('Bot 信息边界与决策', () => {
     expect(first.cardUses.length).toBeLessThanOrEqual(2)
   })
 
+  it('相同资源的不同 Bot 种子会在高价值候选中做出不同报价，而非固定指向同一结果', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 11, category: 'luxury' }
+    const base = buildBotObservation(session, session.players[0].id)
+    const bids = new Set<number>()
+    for (let index = 0; index < 18; index += 1) {
+      const playerId = `同资源-bot-${index}`
+      const observation = { ...base, playerId, self: { ...base.self, id: playerId } }
+      const decision = decideBotTurn(observation, 'adaptive', 'standard', emptyBotMemory())
+      expect(decision.bidUnits).toBeGreaterThanOrEqual(0)
+      expect(decision.bidUnits).toBeLessThanOrEqual(base.self.balanceUnits)
+      bids.add(decision.bidUnits)
+    }
+    expect(bids.size).toBeGreaterThan(1)
+  })
+
   it('会从公开总下注、门槛与收益变化推算对手现金区间', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     const observation = buildBotObservation(session, session.players[0].id)
