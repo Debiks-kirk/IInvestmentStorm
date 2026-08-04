@@ -240,6 +240,22 @@ async function runAssetFinalFlow(page) {
   await assertNoHorizontalOverflow(page, '固定资产终局页')
 }
 
+async function runBotSpectatorFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await page.locator('#motion').selectOption('reduced')
+  for (let index = 1; index <= 3; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.getByText('全局结束', { exact: true }).waitFor({ timeout: 15000 })
+  await page.getByText('Bot 档案', { exact: true }).waitFor()
+  await page.getByText('逐轮复盘', { exact: true }).waitFor()
+  await assertNoHorizontalOverflow(page, '全 Bot 观战终局页')
+}
+
 let browser
 try {
   await waitForServer()
@@ -252,11 +268,12 @@ try {
   await runPresetFlow(page)
   await runIdentityFlow(page)
   await runAssetFinalFlow(page)
+  await runBotSpectatorFlow(page)
   await page.setViewportSize({ width: 1366, height: 768 })
   await page.evaluate(() => localStorage.clear())
   await page.goto('http://127.0.0.1:5181')
   await page.screenshot({ path: '.artifacts/home-desktop.png', fullPage: true })
-  console.log('冒烟测试通过：3、6、10 人对局、刷新隐私保护、道具私密发放、配置预设与移动端页面均已验证。')
+  console.log('冒烟测试通过：3、6、10 人对局、全 Bot 观战、刷新隐私保护、道具私密发放、配置预设与移动端页面均已验证。')
 } finally {
   await browser?.close()
   server.kill()

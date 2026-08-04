@@ -1,7 +1,7 @@
 import { defaultRewards } from './engine'
 import { createDefaultSettings } from './session'
 import { normalizeIdentitySettings } from './identities'
-import type { GamePreset, GameSettings } from './types'
+import type { GamePreset, GameSettings, SeatConfig } from './types'
 
 export interface SystemPreset {
   id: string
@@ -9,6 +9,7 @@ export interface SystemPreset {
   description: string
   names: string[]
   settings: GameSettings
+  seats: SeatConfig[]
 }
 
 export function cloneSettings(settings: GameSettings): GameSettings {
@@ -22,6 +23,7 @@ function systemPreset(id: string, name: string, playerCount: number, rounds: num
     name,
     description: `${playerCount} 人 · ${rounds} 轮 · 每人 ${initialCoins} 金币`,
     names: Array.from({ length: playerCount }, (_, index) => `玩家 ${index + 1}`),
+    seats: Array.from({ length: playerCount }, (_, index) => ({ name: `玩家 ${index + 1}`, controller: { kind: 'human' } })),
     settings: { ...settings, rounds, initialCoins, rewardMultipliers: defaultRewards(playerCount) },
   }
 }
@@ -37,12 +39,14 @@ function createId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function createGamePreset(name: string, names: string[], settings: GameSettings, existing?: GamePreset): GamePreset {
+export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | string[], settings: GameSettings, existing?: GamePreset): GamePreset {
   const now = new Date().toISOString()
+  const seats = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' as const } } : { ...seat, controller: { ...seat.controller } })
   return {
     id: existing?.id ?? createId(),
     name: name.trim(),
-    names: [...names],
+    names: seats.map((seat) => seat.name),
+    seats,
     settings: cloneSettings(settings),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

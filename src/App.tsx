@@ -7,7 +7,8 @@ import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createSession, prepareCardGrants, recycleUsedCards, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { shuffle } from './game/items'
-import type { AssetCategory, CardId, CardUse, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, RoundResult, RoundTurn } from './game/types'
+import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
+import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'game'
 
@@ -109,6 +110,7 @@ function Rules({ onBack }: { onBack: () => void }) {
           <article><span className="rule-number">02</span><h2>避开并列</h2><p>所有相同出价都出局。剩下的唯一出价从高到低重新排名。</p></article>
           <article><span className="rule-number">03</span><h2>顺手猜人</h2><p>可猜谁会第一。猜错扣半个物品价值；猜中则由第一名向你付款。</p></article>
           <article><span className="rule-number">04</span><h2>资产翻盘</h2><p>拍品会组成四类固定资产。用过的道具会回到卡池，留着不用则一直由你保管。</p></article>
+          <article><span className="rule-number">05</span><h2>Bot 也会上桌</h2><p>Bot 只按它能合法看到的信息行动，会记住本局的恩怨；高手可能得到一次模糊投资情报。</p></article>
         </div>
         <div className="rule-example">
           <div><small>四人下注</small><strong>10 · 10 · 9 · 8</strong></div>
@@ -124,22 +126,22 @@ function Rules({ onBack }: { onBack: () => void }) {
 
 function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void }) {
   const [settings, setSettings] = useState<GameSettings>(() => createDefaultSettings())
-  const [names, setNames] = useState(['玩家 1', '玩家 2', '玩家 3'])
+  const [seats, setSeats] = useState<SeatConfig[]>(() => ['玩家 1', '玩家 2', '玩家 3'].map((name) => ({ name, controller: { kind: 'human' } })))
   const [advanced, setAdvanced] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
   const [presetName, setPresetName] = useState('')
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
 
-  const applyConfiguration = (nextNames: string[], nextSettings: GameSettings, preset?: GamePreset) => {
-    setNames([...nextNames])
-    setSettings(cloneSettings({ ...nextSettings, playerCount: nextNames.length }))
+  const applyConfiguration = (nextSeats: SeatConfig[], nextSettings: GameSettings, preset?: GamePreset) => {
+    setSeats(nextSeats.map((seat) => ({ ...seat, controller: { ...seat.controller } })))
+    setSettings(cloneSettings({ ...nextSettings, playerCount: nextSeats.length }))
     setPresetName(preset?.name ?? '')
     setActivePresetId(preset?.id ?? null)
     setErrors([])
   }
 
   const setPlayerCount = (count: number) => {
-    setNames((current) => Array.from({ length: count }, (_, index) => current[index] ?? `玩家 ${index + 1}`))
+    setSeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: `玩家 ${index + 1}`, controller: { kind: 'human' } }))
     setSettings((current) => ({ ...current, playerCount: count, rewardMultipliers: defaultRewards(count) }))
   }
   const setRewardCount = (count: number) => {
@@ -149,19 +151,19 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
     })
   }
   const submit = () => {
-    const nextErrors = [...validateNames(names), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const nextErrors = [...validateNames(seats.map((seat) => seat.name)), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     setErrors(nextErrors)
-    if (nextErrors.length === 0) onStart(createSession(names, settings))
+    if (nextErrors.length === 0) onStart(createSession(seats, settings))
   }
   const saveCurrentPreset = () => {
-    const nextErrors = [...validateNames(names), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const nextErrors = [...validateNames(seats.map((seat) => seat.name)), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     if (!presetName.trim()) nextErrors.push('请为这套配置填写名称')
     setErrors(nextErrors)
     if (nextErrors.length > 0) return
     const existing = presets.find((preset) => preset.id === activePresetId)
-    const preset = createGamePreset(presetName, names, settings, existing)
+    const preset = createGamePreset(presetName, seats, settings, existing)
     onSavePresets(existing ? presets.map((entry) => entry.id === preset.id ? preset : entry) : [...presets, preset])
     setActivePresetId(preset.id)
     setPresetName(preset.name)
@@ -181,13 +183,18 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
             <label className="field-label" htmlFor="player-count">玩家人数 <strong>{settings.playerCount}</strong></label>
             <input id="player-count" className="range" type="range" min="3" max="10" value={settings.playerCount} onChange={(event) => setPlayerCount(Number(event.target.value))} />
             <div className="name-grid">
-              {names.map((name, index) => (
-                <label className="name-field" key={index} style={{ '--player-color': `var(--player-${index + 1})` } as React.CSSProperties}>
+              {seats.map((seat, index) => (
+                <div className="seat-field" key={index} style={{ '--player-color': `var(--player-${index + 1})` } as React.CSSProperties}>
                   <span>{index + 1}</span>
-                  <input value={name} maxLength={12} aria-label={`玩家 ${index + 1} 名字`} onChange={(event) => setNames((current) => current.map((value, itemIndex) => itemIndex === index ? event.target.value : value))} />
-                </label>
+                  <input value={seat.name} maxLength={12} aria-label={`玩家 ${index + 1} 名字`} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name: event.target.value } : value))} />
+                  <select aria-label={`玩家 ${index + 1} 类型`} value={seat.controller.kind} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index ? value : event.target.value === 'bot' ? { ...value, controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } } : { ...value, controller: { kind: 'human' } }))}>
+                    <option value="human">真人</option><option value="bot">Bot</option>
+                  </select>
+                  {seat.controller.kind === 'bot' && <div className="bot-seat-controls"><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 性格`} value={seat.controller.profileId} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, profileId: event.target.value as BotProfileId } }))}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.summary}</option>)}</select><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></div>}
+                </div>
               ))}
             </div>
+            {seats.some((seat) => seat.controller.kind === 'bot') && <p className="bot-setup-note">Bot 的性格、难度和策略在开局后保持隐藏；高手每轮可能得到一次模糊投资情报。</p>}
           </div>
           <div className="panel settings-panel">
             <div className="setting-row"><label htmlFor="rounds">轮数</label><div><input id="rounds" type="number" min="1" max="12" value={settings.rounds} onChange={(event) => setSettings({ ...settings, rounds: Number(event.target.value) })} /><span>轮</span></div></div>
@@ -215,8 +222,8 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
         <section className="preset-save panel"><div><p className="eyebrow">常用配置</p><h2>保存这套设置</h2><small>保存玩家姓名、轮数与所有高级规则，不会影响当前进行中的对局。</small></div><div><input aria-label="配置名称" placeholder="例如：周末六人局" maxLength={20} value={presetName} onChange={(event) => { setPresetName(event.target.value); setActivePresetId(null) }} /><button className="button button--paper" onClick={saveCurrentPreset}>{activePresetId ? '覆盖保存' : '另存配置'}</button></div></section>
         <section className="preset-panel panel">
           <div className="panel-title"><div><p className="eyebrow">一键开局</p><h2>系统配置</h2></div><span>载入后仍可继续微调</span></div>
-          <div className="preset-grid">{SYSTEM_PRESETS.map((preset) => <button key={preset.id} className="preset-choice" onClick={() => applyConfiguration(preset.names, preset.settings)}><strong>{preset.name}</strong><small>{preset.description}</small></button>)}</div>
-          {presets.length > 0 && <><div className="panel-title saved-preset-title"><div><p className="eyebrow">本机保存</p><h2>我的配置</h2></div><span>含玩家姓名与高级设置</span></div><div className="preset-grid">{presets.map((preset) => <div key={preset.id} className={cx('preset-choice', activePresetId === preset.id && 'is-active')}><button onClick={() => applyConfiguration(preset.names, preset.settings, preset)}><strong>{preset.name}</strong><small>{preset.names.join('、')} · {preset.settings.rounds} 轮</small></button><button className="preset-delete" aria-label={`删除${preset.name}`} onClick={() => deletePreset(preset.id)}>×</button></div>)}</div></>}
+          <div className="preset-grid">{SYSTEM_PRESETS.map((preset) => <button key={preset.id} className="preset-choice" onClick={() => applyConfiguration(preset.seats, preset.settings)}><strong>{preset.name}</strong><small>{preset.description}</small></button>)}</div>
+          {presets.length > 0 && <><div className="panel-title saved-preset-title"><div><p className="eyebrow">本机保存</p><h2>我的配置</h2></div><span>含座位、Bot 与高级设置</span></div><div className="preset-grid">{presets.map((preset) => <div key={preset.id} className={cx('preset-choice', activePresetId === preset.id && 'is-active')}><button onClick={() => applyConfiguration(preset.seats ?? preset.names.map((name) => ({ name, controller: { kind: 'human' } })), preset.settings, preset)}><strong>{preset.name}</strong><small>{preset.names.join('、')} · {preset.settings.rounds} 轮</small></button><button className="preset-delete" aria-label={`删除${preset.name}`} onClick={() => deletePreset(preset.id)}>×</button></div>)}</div></>}
         </section>
         {errors.length > 0 && <div className="error-box" role="alert">{errors.map((error) => <span key={error}>{error}</span>)}</div>}
         <div className="sticky-action"><div><strong>{settings.playerCount} 人 · {settings.rounds} 轮</strong><span>每人 {settings.initialCoins} 金币</span></div><button className="button button--primary button--large" onClick={submit}>开始这局 <span>→</span></button></div>
@@ -244,7 +251,7 @@ function PrizeCard({ item, compact = false }: { item: GameSession['itemDeck'][nu
   )
 }
 
-function RoundIntro({ session, onContinue }: { session: GameSession; onContinue: () => void }) {
+function RoundIntro({ session, onContinue, auto = false }: { session: GameSession; onContinue: () => void; auto?: boolean }) {
   const [spinning, setSpinning] = useState(false)
   const [revealed, setRevealed] = useState(false)
   const timer = useRef<number | null>(null)
@@ -255,6 +262,16 @@ function RoundIntro({ session, onContinue }: { session: GameSession; onContinue:
     const duration = session.settings.animationSpeed === 'reduced' ? 150 : session.settings.animationSpeed === 'fast' ? 700 : 1500
     timer.current = window.setTimeout(() => { setSpinning(false); setRevealed(true) }, duration)
   }
+  useEffect(() => {
+    if (!auto || spinning || revealed) return
+    const start = window.setTimeout(spin, 80)
+    return () => window.clearTimeout(start)
+  }, [auto, spinning, revealed])
+  useEffect(() => {
+    if (!auto || !revealed) return
+    const next = window.setTimeout(onContinue, session.settings.animationSpeed === 'reduced' ? 80 : 500)
+    return () => window.clearTimeout(next)
+  }, [auto, revealed])
   return (
     <section className="round-intro screen-center">
       <div className="screen-title"><p className="eyebrow">第 {session.roundIndex + 1} 轮</p><h1>{revealed ? '就是它了。' : '这一轮，争什么？'}</h1></div>
@@ -295,6 +312,14 @@ function Handoff({ session, onReady }: { session: GameSession; onReady: () => vo
       <small className="privacy-note">点击后请立即开始自己的私密操作</small>
     </section>
   )
+}
+
+function BotThinking({ player, allBots }: { player: Player; allBots: boolean }) {
+  return <section className="bot-thinking screen-center"><div className="privacy-seal"><span>✦</span></div><p className="eyebrow">Bot 正在行动</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">正在分析拍品、局势与可用技能。</p><div className="bot-thinking__dots" aria-label="Bot 正在思考"><i /><i /><i /></div>{allBots && <small className="privacy-note">观战模式会自动推进至终局</small>}</section>
+}
+
+function SpectatorControls({ paused, speed, onToggle, onSpeed }: { paused: boolean; speed: number; onToggle: () => void; onSpeed: (speed: number) => void }) {
+  return <div className="spectator-controls"><span>Bot 观战</span><button className="text-button" onClick={onToggle}>{paused ? '继续' : '暂停'}</button><select aria-label="观战速度" value={speed} onChange={(event) => onSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></div>
 }
 
 function IdentityHandoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
@@ -553,6 +578,7 @@ function RoundReview({ session }: { session: GameSession }) {
           const cardTurns = result.turns.flatMap((turn) => turnCardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
           const skillTurns = result.turns.filter((turn) => turn.identityAction)
           const identityEvents = session.identityEvents.filter((event) => event.roundIndex === result.roundIndex)
+          const botRecords = session.players.flatMap((player) => (player.botMemory?.decisionLog ?? []).filter((record) => record.roundIndex === result.roundIndex).map((record) => ({ player, record })))
           return <details key={result.roundIndex} open={result.roundIndex === session.results.length - 1}>
             <summary><span>第 {result.roundIndex + 1} 轮</span><strong>{result.item.emoji} {result.item.name}</strong><small>真实价值 {formatCoins(result.effectiveValueUnits)} · 总下注 {formatCoins(result.totalBidUnits)}</small></summary>
             <div className="round-review-grid">
@@ -561,6 +587,7 @@ function RoundReview({ session }: { session: GameSession }) {
               <article className="review-block"><h3>身份技能</h3>{skillTurns.length === 0 && identityEvents.length === 0 ? <p>本轮没有身份技能记录。</p> : <>{skillTurns.map((turn) => <div className="review-row" key={`${turn.playerId}-${turn.identityAction!.type}`}><strong>{playerName(session.players, turn.playerId)}</strong><span>{identityActionReview(turn.identityAction!, session.players)}</span></div>)}{identityEvents.map((event, index) => <div className="review-row review-row--event" key={`${event.playerId}-${event.title}-${index}`}><strong>{playerName(session.players, event.playerId)} · {event.title}</strong><span>{event.detail}</span>{event.deltaUnits !== 0 && <DeltaLabel units={event.deltaUnits} />}</div>)}</>}</article>
               <article className="review-block"><h3>奖励如何发放</h3>{result.rankings.length === 0 ? <p>没有唯一排名，排名奖励与拍品均未发放。</p> : <>{result.rankings.map((entry) => <div className="review-row" key={entry.playerId}><strong>第 {entry.place} 名 · {playerName(session.players, entry.playerId)}</strong><span>获奖 <CoinValue units={entry.rewardUnits} signed /></span>{entry.playerId === result.winnerId && <small>获得拍品：{result.item.emoji} {result.item.name}</small>}</div>)}{result.tiedPlayerIds.length > 0 && <p>并列出局：{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')}</p>}</>}</article>
               <article className="review-block review-block--wide"><h3>预测与本轮结算</h3><div className="review-settlement">{result.predictionOutcomes.map((outcome) => <div className="review-row" key={outcome.playerId}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '未预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选择 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>{result.winnerPaymentUnits > 0 && <p>第一名向猜中者共支付 {formatCoins(result.winnerPaymentUnits)}。</p>}<div className="review-delta-list">{result.deltas.map((delta) => <small key={delta.playerId}>{playerName(session.players, delta.playerId)}：获奖 {delta.rewardUnits > 0 ? '+' : ''}{formatCoins(delta.rewardUnits)} · 预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)} · 身份 {delta.identityUnits > 0 ? '+' : ''}{formatCoins(delta.identityUnits)}</small>)}</div></article>
+              {botRecords.length > 0 && <article className="review-block review-block--wide"><h3>Bot 决策回顾</h3>{botRecords.map(({ player, record }, index) => <div className="review-row review-row--event" key={`${player.id}-${record.stage}-${index}`}><strong>{player.name} · {modeLabel(record.mode)}</strong><span>{record.reason}</span>{record.intel && <small>{record.intel}</small>}</div>)}</article>}
             </div>
           </details>
         })}
@@ -576,6 +603,7 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
     <section className="final-page">
       <div className="final-heading"><p className="eyebrow">全局结束</p><h1>最后的赢家，<br /><em>{standings.filter((standing) => standing.totalAssetUnits === topAssets).map((standing) => standing.player.name).join('、')}</em></h1><p>{session.settings.rounds} 轮竞价已经落定。最终以金币与固定资产总和排名。</p></div>
       <div className="podium-list">{standings.map((standing, index) => <article key={standing.player.id} className={cx(index === 0 && 'is-first')} style={{ '--delay': `${index * 100}ms`, '--player-color': standing.player.color } as React.CSSProperties}><span className="standing-place">{standing.place}</span><div className="standing-avatar">{standing.player.name.slice(0, 1)}</div><div className="standing-copy"><strong>{standing.player.name}</strong><small>{standing.player.items.length > 0 ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有收藏品'}</small>{standing.fixedAssets.some((asset) => asset.units > 0) && <div className="asset-breakdown">{standing.fixedAssets.filter((asset) => asset.units > 0).map((asset) => <span key={asset.category}>{ASSET_CATEGORY_CONFIGS.find((entry) => entry.category === asset.category)?.symbol} {categoryConfig(asset.category).name} {asset.itemCount} 件 +{formatCoins(asset.units)}</span>)}</div>}</div><div className="standing-balance"><CoinValue units={standing.totalAssetUnits} /><small>总资产</small><span>现金 {formatCoins(standing.cashUnits)} · 固定资产 +{formatCoins(standing.fixedAssetUnits)}</span></div></article>)}</div>
+      {session.players.some((player) => isBot(player)) && <section className="bot-reveal panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>Bot 档案</h2></div><span>性格、难度和本局恩怨</span></div>{session.players.filter((player) => player.controller?.kind === 'bot').map((player) => { const controller = player.controller as Extract<Player['controller'], { kind: 'bot' }>; const profile = BOT_PROFILES.find((entry) => entry.id === controller.profileId); const grudges = Object.entries(player.botMemory?.grudgeByPlayerId ?? {}).filter(([, score]) => score > 0).sort((a, b) => b[1] - a[1]); return <article key={player.id}><strong>{player.name} · {profile?.name}</strong><small>{profile?.summary} · {controller.difficulty === 'easy' ? '简单' : controller.difficulty === 'expert' ? '高手' : '标准'}难度</small><p>{grudges.length ? `本局最在意：${grudges.slice(0, 2).map(([id]) => playerName(session.players, id)).join('、')}` : '本局没有形成明显恩怨。'}</p></article> })}</section>}
       <RoundReview session={session} />
       <div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div>
       <button className="button button--primary button--large" onClick={onNewGame}>再开一局</button>
@@ -584,6 +612,8 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
 }
 
 function Game({ session, setSession, onExit, onNewGame }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void }) {
+  const [botPaused, setBotPaused] = useState(false)
+  const [botSpeed, setBotSpeed] = useState(1)
   const patch = (changes: Partial<GameSession>) => setSession({ ...session, ...changes, updatedAt: new Date().toISOString() })
   const chooseIdentity = (identityId: IdentityId) => {
     const draft = session.identityDraft
@@ -592,7 +622,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     const merchantCardOfferIds = identity.needsMerchantCard ? session.cardDeck.slice(0, session.settings.identitySettings.merchantInitialOfferCount) : undefined
     patch({ identityDraft: { ...draft, selectedIdentityId: identityId, ...(merchantCardOfferIds ? { merchantCardOfferIds } : {}) } })
   }
-  const confirmIdentity = (config: { targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId }) => {
+  const confirmIdentity = (config: { targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId }, botRecord?: { mode: import('./game/types').StrategyMode; reason: string }) => {
     const draft = session.identityDraft
     const identityId = draft?.selectedIdentityId
     if (!draft || !identityId) return
@@ -607,7 +637,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       cardDeck.splice(cardIndex, 1)
       pendingAwards.push({ playerId: session.players[draft.playerIndex].id, cardId: config.merchantCardId })
     }
-    const players = session.players.map((player, index) => index === draft.playerIndex ? { ...player, identity: createPlayerIdentity(identityId, config) } : player)
+    const players = session.players.map((player, index) => index === draft.playerIndex ? (botRecord ? appendBotRecord({ ...player, identity: createPlayerIdentity(identityId, config) }, { stage: 'identity', roundIndex: 0, mode: botRecord.mode, reason: botRecord.reason }) : { ...player, identity: createPlayerIdentity(identityId, config) }) : player)
     const available = session.identityAvailableIds.filter((id) => id !== identityId)
     const nextIndex = draft.playerIndex + 1
     if (nextIndex >= players.length) {
@@ -617,7 +647,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     }
     patch({ players, cardDeck, pendingIdentityCardAwards: pendingAwards, identityAvailableIds: available, identityDraft: { playerIndex: nextIndex, choiceIds: dealIdentityChoices(available, session.settings.identitySettings) }, phase: 'identityHandoff' })
   }
-  const submitTurn = (turn: RoundTurn) => {
+  const submitTurn = (turn: RoundTurn, botRecord?: { mode: import('./game/types').StrategyMode; reason: string; intel?: string }) => {
     const currentPlayer = session.players.find((player) => player.id === turn.playerId)
     if (!currentPlayer || turn.bidUnits < 0 || turn.bidUnits > currentPlayer.balanceUnits) return
     if (turn.identityAction?.type === 'reverserInvert') {
@@ -636,11 +666,15 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       if (needsTarget && use.cardId === 'swap' && !targetIsOtherPlayer) return
       if (use.cardId === 'fateCoin' && use.coinResult !== 'heads' && use.coinResult !== 'tails') return
     }
-    let players = session.players.map((player) => player.id === turn.playerId ? {
-      ...player,
-      balanceUnits: player.balanceUnits - turn.bidUnits,
-      cardInventory: cardUses.length > 0 ? player.cardInventory.filter((cardId) => !cardUses.some((use) => use.cardId === cardId)) : player.cardInventory,
-    } : player)
+    let players = session.players.map((player) => {
+      if (player.id !== turn.playerId) return player
+      const updated = {
+        ...player,
+        balanceUnits: player.balanceUnits - turn.bidUnits,
+        cardInventory: cardUses.length > 0 ? player.cardInventory.filter((cardId) => !cardUses.some((use) => use.cardId === cardId)) : player.cardInventory,
+      }
+      return botRecord ? appendBotRecord(updated, { stage: 'turn', roundIndex: session.roundIndex, mode: botRecord.mode, reason: botRecord.reason, intel: botRecord.intel }) : updated
+    })
     let identityContracts = [...session.identityContracts]
     let resolvedTurn = turn
     let merchantAuction = session.merchantAuction
@@ -687,7 +721,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       identityContracts: session.identityContracts,
     })
     const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
-    patch({ players: settled.players, identityContracts: settled.identityContracts, pendingIdentityNotices: [...session.pendingIdentityNotices, ...feedbackNotices], identityEvents: [...session.identityEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
+    patch({ players: updateBotGrudges(settled.players, settled.result), identityContracts: settled.identityContracts, pendingIdentityNotices: [...session.pendingIdentityNotices, ...feedbackNotices], identityEvents: [...session.identityEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
     const grants = roundIndex >= session.cardRulesStartRound ? prepareCardGrants({ players: basePlayers, cardDeck: baseDeck, roundIndex, probability: session.settings.cardGrantProbability }) : { players: basePlayers, cardDeck: baseDeck, pendingCardGrants: [] }
@@ -714,22 +748,23 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       } else beginNormalRound(nextRoundIndex, session.players, recycledCardDeck, [...session.pendingIdentityNotices, ...taskNotices])
     }
   }
-  const submitAuctionBid = (bidUnits: number) => {
+  const submitAuctionBid = (bidUnits: number, botRecord?: { mode: import('./game/types').StrategyMode; reason: string }) => {
     const auction = session.merchantAuction
     if (!auction) return
     const bidders = session.players.filter((player) => player.id !== auction.merchantId)
     const bidder = bidders[auction.bidderIndex]
     if (!bidder || bidUnits < 0 || bidUnits > bidder.balanceUnits) return
+    const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? appendBotRecord(player, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason }) : player) : session.players
     const bids = [...auction.bids, { playerId: bidder.id, bidUnits }]
     if (auction.bidderIndex < bidders.length - 1) {
-      patch({ merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, phase: 'auctionHandoff' })
+      patch({ players: recordedPlayers, merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, phase: 'auctionHandoff' })
       return
     }
     const positive = bids.filter((bid) => bid.bidUnits > 0)
     const counts = new Map<number, number>()
     positive.forEach((bid) => counts.set(bid.bidUnits, (counts.get(bid.bidUnits) ?? 0) + 1))
     const winnerBid = positive.filter((bid) => counts.get(bid.bidUnits) === 1).sort((left, right) => right.bidUnits - left.bidUnits)[0]
-    let players: Player[] = session.players.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
+    let players: Player[] = recordedPlayers.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
     let deck = [...session.cardDeck]
     let notices = [...session.pendingIdentityNotices]
     let events = [...session.identityEvents]
@@ -748,20 +783,63 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     }
     beginNormalRound(auction.roundIndex, players, deck, notices, events)
   }
+  const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
+  const currentPlayer = session.players[session.currentTurnIndex]
+  const auctionBidder = session.merchantAuction ? session.players.filter((player) => player.id !== session.merchantAuction?.merchantId)[session.merchantAuction.bidderIndex] : undefined
+  useEffect(() => {
+    if (allBots && botPaused) return
+    const timer = window.setTimeout(() => {
+      if (session.phase === 'identityHandoff') {
+        const draftPlayer = session.players[session.identityDraft?.playerIndex ?? 0]
+        if (isBot(draftPlayer)) patch({ phase: 'identityDraft' })
+      } else if (session.phase === 'identityDraft') {
+        const draft = session.identityDraft
+        const draftPlayer = session.players[draft?.playerIndex ?? 0]
+        if (!draft || !isBot(draftPlayer)) return
+        if (!draft.selectedIdentityId) {
+          const decision = decideBotIdentity({ choices: draft.choiceIds, player: draftPlayer, players: session.players })
+          chooseIdentity(decision.identityId)
+        } else {
+          const decision = decideBotIdentity({ choices: [draft.selectedIdentityId], player: draftPlayer, players: session.players, cardOfferIds: draft.merchantCardOfferIds })
+          confirmIdentity(decision, { mode: decision.mode, reason: decision.reason })
+        }
+      } else if (session.phase === 'handoff' && isBot(currentPlayer)) {
+        patch({ phase: 'privateTurn' })
+      } else if (session.phase === 'privateTurn' && isBot(currentPlayer)) {
+        const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
+        const observation = buildBotObservation(session, currentPlayer.id)
+        const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
+        submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
+      } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
+        patch({ phase: 'auctionBid' })
+      } else if (session.phase === 'auctionBid' && isBot(auctionBidder) && session.merchantAuction) {
+        const decision = decideBotMerchantBid(auctionBidder as Player, session.merchantAuction.cardId)
+        submitAuctionBid(decision.bidUnits, decision)
+      } else if (allBots && session.phase === 'revealReady') {
+        reveal()
+      } else if (allBots && session.phase === 'roundResult') {
+        nextRound()
+      } else if (allBots && session.phase === 'auctionIntro') {
+        patch({ phase: 'auctionHandoff' })
+      }
+    }, allBots ? Math.max(45, (session.settings.animationSpeed === 'reduced' ? 80 : 350) / botSpeed) : 550)
+    return () => window.clearTimeout(timer)
+  }, [session, botPaused, botSpeed])
   const acknowledgeGrant = (playerId: string) => patch({ pendingCardGrants: session.pendingCardGrants.map((grant) => grant.playerId === playerId ? { ...grant, announced: true } : grant) })
   const acknowledgeNotice = (noticeId: string) => patch({ pendingIdentityNotices: session.pendingIdentityNotices.filter((notice) => notice.id !== noticeId) })
   const result = session.results[session.results.length - 1]
   return (
     <AppShell quiet={session.phase === 'handoff' || session.phase === 'identityHandoff' || session.phase === 'auctionHandoff'}>
       {session.phase !== 'finalResult' && <GameHeader session={session} onExit={onExit} />}
+      {allBots && session.phase !== 'finalResult' && <SpectatorControls paused={botPaused} speed={botSpeed} onToggle={() => setBotPaused((value) => !value)} onSpeed={setBotSpeed} />}
       {session.phase === 'identityHandoff' && <IdentityHandoff session={session} onReady={() => patch({ phase: 'identityDraft' })} />}
-      {session.phase === 'identityDraft' && <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />}
+      {session.phase === 'identityDraft' && (isBot(session.players[session.identityDraft?.playerIndex ?? 0]) ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots={allBots} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
       {session.phase === 'auctionIntro' && <AuctionIntro session={session} onContinue={() => patch({ phase: 'auctionHandoff' })} />}
       {session.phase === 'auctionHandoff' && <AuctionHandoff session={session} onReady={() => patch({ phase: 'auctionBid' })} />}
       {session.phase === 'auctionBid' && <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />}
-      {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} onContinue={() => patch({ phase: 'handoff' })} />}
+      {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={allBots} onContinue={() => patch({ phase: 'handoff' })} />}
       {session.phase === 'handoff' && <Handoff session={session} onReady={() => patch({ phase: 'privateTurn' })} />}
-      {session.phase === 'privateTurn' && <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={submitTurn} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} />}
+      {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={submitTurn} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} />)}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
       {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
       {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} />}
@@ -782,7 +860,7 @@ export default function App() {
   }, [session])
 
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
-  const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.names, cloneSettings(preset.settings))) }
+  const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.seats, cloneSettings(preset.settings))) }
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }

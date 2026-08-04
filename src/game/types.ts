@@ -13,6 +13,33 @@ export type GamePhase =
 
 export type AnimationSpeed = 'full' | 'fast' | 'reduced'
 
+export type BotDifficulty = 'easy' | 'standard' | 'expert'
+export type BotProfileId = 'steady' | 'aggressive' | 'collectorBot' | 'observer' | 'revenge' | 'cards' | 'identityBot' | 'comeback' | 'blocker' | 'adaptive'
+export type StrategyMode = 'value' | 'conserve' | 'collect' | 'pressure' | 'revenge' | 'cards' | 'identity' | 'comeback' | 'finalSprint'
+
+export type PlayerController =
+  | { kind: 'human' }
+  | { kind: 'bot'; profileId: BotProfileId; difficulty: BotDifficulty }
+
+export interface BotMemory {
+  grudgeByPlayerId: Record<string, number>
+  lastMode: StrategyMode | null
+  decisionLog: BotDecisionRecord[]
+}
+
+export interface BotDecisionRecord {
+  stage: 'identity' | 'turn' | 'merchantAuction'
+  roundIndex: number
+  mode: StrategyMode
+  reason: string
+  intel?: string
+}
+
+export interface SeatConfig {
+  name: string
+  controller: PlayerController
+}
+
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
@@ -150,6 +177,8 @@ export interface Player {
   items: WonItem[]
   cardInventory: CardId[]
   identity?: PlayerIdentity
+  controller?: PlayerController
+  botMemory?: BotMemory
 }
 
 export interface RoundTurn {
@@ -210,7 +239,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 7
+  version: 8
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -257,4 +286,5 @@ export interface GamePreset {
   settings: GameSettings
   createdAt: string
   updatedAt: string
+  seats?: SeatConfig[]
 }

@@ -2,7 +2,8 @@ import { createCardDeck } from './cards'
 import { normalizeItem } from './items'
 import { cloneSettings } from './presets'
 import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
-import type { CardId, GamePreset, GameSession, GameSettings, Player, RoundResult } from './types'
+import { emptyBotMemory } from './bots'
+import type { CardId, GamePreset, GameSession, GameSettings, Player, RoundResult, SeatConfig } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
@@ -21,13 +22,13 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5 && parsed.version !== 6 && parsed.version !== 7)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated
-    if (parsed.version !== 7 || migrated.phase !== safeSession.phase) saveSession(safeSession)
+    if (parsed.version !== 8 || migrated.phase !== safeSession.phase) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -48,7 +49,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     cardGrantProbability: oldSettings.cardGrantProbability ?? 80,
     disabledCardIds: (oldSettings.disabledCardIds ?? []) as CardId[],
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -66,6 +67,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         lobbyistNextFree: identity.lobbyistNextFree ?? false,
         lobbyistLastIssuedRound: identity.lobbyistLastIssuedRound ?? null,
       } : undefined,
+      controller: legacy.controller?.kind === 'bot' ? legacy.controller : { kind: 'human' },
+      ...(legacy.controller?.kind === 'bot' ? { botMemory: { ...emptyBotMemory(), ...(legacy.botMemory ?? {}), grudgeByPlayerId: { ...(legacy.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(legacy.botMemory?.decisionLog ?? [])] } } : {}),
     }
   })
   const results = ((session.results ?? []) as RoundResult[]).map((result) => ({
@@ -81,7 +84,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   const cardDeck: CardId[] = addNewCard(addNewCard(originalCardDeck, 'reverseRank'), 'fateCoin')
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 7,
+    version: 8,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -107,13 +110,18 @@ function isPreset(value: unknown): value is GamePreset {
   return typeof preset.id === 'string' && typeof preset.name === 'string' && Array.isArray(preset.names) && Boolean(preset.settings)
 }
 
+function normalizePreset(preset: GamePreset): GamePreset {
+  const seats: SeatConfig[] = (preset.seats?.length ? preset.seats : preset.names.map((name) => ({ name, controller: { kind: 'human' as const } }))).map((seat) => ({ name: seat.name, controller: seat.controller?.kind === 'bot' ? { kind: 'bot' as const, profileId: seat.controller.profileId, difficulty: seat.controller.difficulty } : { kind: 'human' as const } }))
+  return { ...preset, names: seats.map((seat) => seat.name), seats, settings: cloneSettings(preset.settings) }
+}
+
 export function loadPresets(): GamePreset[] {
   try {
     const raw = localStorage.getItem(PRESETS_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as { version?: number; presets?: unknown }
-    if (parsed.version !== 1 || !Array.isArray(parsed.presets)) return []
-    return parsed.presets.filter(isPreset).map((preset) => ({ ...preset, names: [...preset.names], settings: cloneSettings(preset.settings) }))
+    if ((parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.presets)) return []
+    return parsed.presets.filter(isPreset).map(normalizePreset)
   } catch {
     return []
   }
@@ -121,7 +129,7 @@ export function loadPresets(): GamePreset[] {
 
 export function savePresets(presets: GamePreset[]): void {
   try {
-    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify({ version: 1, presets }))
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify({ version: 2, presets }))
   } catch {
     // Presets remain usable for the current setup form when storage is unavailable.
   }

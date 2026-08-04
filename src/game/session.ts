@@ -1,8 +1,9 @@
 import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck } from './cards'
+import { emptyBotMemory } from './bots'
 import { dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, shuffle } from './items'
-import type { CardGrant, CardId, GameSession, GameSettings, Player, RoundTurn } from './types'
+import type { CardGrant, CardId, GameSession, GameSettings, Player, RoundTurn, SeatConfig } from './types'
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
@@ -28,21 +29,24 @@ function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function createSession(names: string[], settings: GameSettings): GameSession {
+export function createSession(seatsOrNames: SeatConfig[] | string[], settings: GameSettings): GameSession {
   const now = new Date().toISOString()
-  const players: Player[] = names.map((name, index) => ({
+  const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' } } : seat)
+  const players: Player[] = seats.map((seat, index) => ({
     id: createId('player'),
-    name: name.trim(),
+    name: seat.name.trim(),
     color: PLAYER_COLORS[index],
     balanceUnits: coinsToUnits(settings.initialCoins),
     items: [],
     cardInventory: [],
+    controller: seat.controller,
+    ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory() } : {}),
   }))
   return {
-    version: 7,
+    version: 8,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
-    settings: { ...settings, playerCount: names.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
+    settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
     itemDeck: createItemDeck(settings.rounds),
     cardDeck: createCardDeck(settings.disabledCardIds),
