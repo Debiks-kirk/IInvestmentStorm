@@ -13,7 +13,7 @@ export type GamePhase =
 
 export type AnimationSpeed = 'full' | 'fast' | 'reduced'
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst'
@@ -199,6 +199,7 @@ export interface RoundResult {
   predictionOutcomes: PredictionOutcome[]
   winnerPaymentUnits: number
   cardEffects: CardEffect[]
+  rankingReversalCount: number
   redistributionTransferUnits: number | null
   balanceLeaderIds: string[]
   deltas: PlayerRoundDelta[]
@@ -207,7 +208,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 5
+  version: 6
   id: string
   phase: GamePhase
   settings: GameSettings

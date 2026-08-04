@@ -49,10 +49,17 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(5)
+    expect(migrated?.version).toBe(6)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.itemDeck[0].category).toBeTruthy()
     expect(migrated?.players[0].items[0].item.category).toBeTruthy()
+    expect(migrated?.cardDeck).toContain('reverseRank')
+  })
+
+  it('v6 存档加载时保留已开启的身份系统', () => {
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    values.set('who-is-raising:session:v1', JSON.stringify(session))
+    expect(loadSession()?.settings.identitySettings.enabled).toBe(true)
   })
 })

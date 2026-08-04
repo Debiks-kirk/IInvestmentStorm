@@ -27,6 +27,10 @@ export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
   return IDENTITY_DEFINITIONS.find((identity) => identity.id === id) as IdentityDefinition
 }
 
+export function identitySkillMode(id: IdentityId): 'active' | 'passive' {
+  return id === 'merchant' || id === 'reverser' || id === 'lobbyist' ? 'active' : 'passive'
+}
+
 export function defaultIdentitySettings(enabled = true): IdentitySettings {
   return {
     enabled,

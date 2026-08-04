@@ -100,6 +100,12 @@ function cardEffect(cardId: CardId, description: string): CardEffect {
   return { cardId, description }
 }
 
+function rankingReversalDescription(count: number): string {
+  if (count === 1) return '获奖区排名已被逆转。'
+  if (count % 2 === 0) return `获奖区排名被逆转了 ${count} 次，故排名不变。`
+  return `获奖区排名被逆转了 ${count} 次，最终仍为逆转排名。`
+}
+
 function valueFactor(turns: RoundTurn[]): number {
   return turns.reduce((factor, turn) => {
     if (turn.cardUse?.cardId === 'red') return factor * 2
@@ -181,6 +187,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const sortedUniqueTurns = rankingTurns.filter((turn) => bidCounts.get(turn.rankingBidUnits) === 1).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)
   const tiedPlayerIds = rankingTurns.filter((turn) => (bidCounts.get(turn.rankingBidUnits) ?? 0) > 1).map((turn) => turn.playerId)
   const reverserTurn = turns.find((turn) => turn.identityAction?.type === 'reverserInvert' && playerById.get(turn.playerId)?.identity?.id === 'reverser')
+  const rankingReversalCount = turns.filter((turn) => turn.cardUse?.cardId === 'reverseRank').length + (reverserTurn ? 1 : 0)
   if (reverserTurn) {
     const reverser = playerById.get(reverserTurn.playerId)
     const reverserDelta = deltaByPlayer.get(reverserTurn.playerId)
@@ -193,8 +200,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '发动逆转排名', detail: `支付 ${formatCoins(paid)} 金币，获奖区名次已倒转。`, deltaUnits: -paid })
     }
   }
+  if (rankingReversalCount > 0) cardEffects.push(cardEffect('reverseRank', rankingReversalDescription(rankingReversalCount)))
   const winningTurns = sortedUniqueTurns.slice(0, rewardMultipliers.length)
-  const rankedTurns = reverserTurn ? [...winningTurns].reverse() : winningTurns
+  const rankedTurns = rankingReversalCount % 2 === 1 ? [...winningTurns].reverse() : winningTurns
   const rankings: RankingEntry[] = rankedTurns.map((turn, index) => ({ playerId: turn.playerId, place: index + 1, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }))
   const winnerId = rankedTurns[0]?.playerId ?? null
   const itemWinnerId = winnerId
@@ -359,6 +367,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     predictionOutcomes,
     winnerPaymentUnits,
     cardEffects,
+    rankingReversalCount,
     redistributionTransferUnits,
     balanceLeaderIds,
     deltas,

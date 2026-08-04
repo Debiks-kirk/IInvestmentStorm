@@ -175,7 +175,7 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: '确认我的选择' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
-  await page.getByText('本轮道具影响', { exact: true }).waitFor()
+  await page.getByText('本轮道具与排名变化', { exact: true }).waitFor()
   if (await page.getByText('当前余额领跑者', { exact: true }).count() !== 0) throw new Error('新默认设置不应公开余额领跑者。')
   await assertNoHorizontalOverflow(page, '道具结算页')
 }

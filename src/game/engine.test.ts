@@ -189,6 +189,17 @@ describe('道具卡结算', () => {
     expect(result.rankings[0]).toMatchObject({ playerId: 'p3', bidUnits: coinsToUnits(16), actualBidUnits: coinsToUnits(8) })
   })
 
+  it('逆转排名卡倒转获奖区，并把次数写入可公开的结算结果', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 10),
+      turn('p2', 8, null, { cardId: 'reverseRank' }),
+      turn('p3', 2),
+    ]).result
+    expect(result.rankingReversalCount).toBe(1)
+    expect(result.winnerId).toBe('p3')
+    expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'reverseRank', description: '获奖区排名已被逆转。' })]))
+  })
+
   it('劫富济贫在奖励前按半金币公平分配，并在公开收益中保持匿名', () => {
     const result = settle(players([20, 4, 4]), [
       turn('p1', 1, null, { cardId: 'redistribute' }),
@@ -213,6 +224,11 @@ describe('道具发放', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
     expect(new Set(deck).size).toBe(deck.length)
+  })
+
+  it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
+    expect(createCardDeck([])).toContain('reverseRank')
+    expect(createCardDeck(['reverseRank'])).not.toContain('reverseRank')
   })
 
   it('唯一最低者必中时从卡池获得卡牌', () => {

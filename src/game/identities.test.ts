@@ -80,6 +80,15 @@ describe('身份结算', () => {
     expect(settled.result.identityEvents.find((event) => event.identityId === 'reverser')?.deltaUnits).toBe(-coinsToUnits(12))
   })
 
+  it('逆行者与逆转排名卡同回合发动两次逆转，获奖区回到正常排名', () => {
+    const players = [player('first'), player('reverse'), player('third')]
+    players[1].identity = { id: 'reverser', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({ playersAfterBids: players, turns: [turn('first', 8), { ...turn('reverse', 6), identityAction: { type: 'reverserInvert' } }, { ...turn('third', 2), cardUse: { cardId: 'reverseRank' } }], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+    expect(settled.result.rankingReversalCount).toBe(2)
+    expect(settled.result.winnerId).toBe('first')
+    expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'reverseRank', description: '获奖区排名被逆转了 2 次，故排名不变。' })]))
+  })
+
   it('赌徒猜中加 50%，猜错或跳过各扣 50%，且不写入公共账本', () => {
     const settings = defaultIdentitySettings(true)
     const players = [player('hit'), player('winner'), player('wrong'), player('skip')]
