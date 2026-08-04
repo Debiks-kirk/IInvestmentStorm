@@ -898,8 +898,11 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
         const observation = buildBotObservation(session, currentPlayer.id)
         const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
-        // 防线：未来新增身份/道具时，即使 Bot 计划与提交校验暂不同步，也必须安全地交出一个合法回合，不能永久停在分析页。
-        if (!accepted) submitTurn({ playerId: currentPlayer.id, bidUnits: 0, predictedPlayerId: null, cardUses: [] }, { ...decision, reason: `${decision.reason} 计划未通过校验，已改为保守跳过。` })
+        // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
+        if (!accepted) {
+          const retainedBidUnits = Number.isInteger(decision.bidUnits) ? Math.max(0, Math.min(currentPlayer.balanceUnits, decision.bidUnits)) : 0
+          submitTurn({ playerId: currentPlayer.id, bidUnits: retainedBidUnits, predictedPlayerId: decision.predictedPlayerId, cardUses: [] }, { ...decision, reason: `${decision.reason} 附加计划未通过校验，保留竞拍和预测，撤销本回合道具/身份动作。` })
+        }
       } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
         patch({ phase: 'auctionBid' })
       } else if (session.phase === 'auctionBid' && isBot(auctionBidder) && session.merchantAuction) {
