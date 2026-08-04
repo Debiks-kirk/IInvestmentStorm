@@ -1,3 +1,4 @@
+import { calculateFixedAssets } from './assets'
 import type {
   CardEffect,
   CardId,
@@ -113,6 +114,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   }]))
   const cardEffects: CardEffect[] = []
 
+  let redistributionTransferUnits: number | null = null
   const redistributionUse = turns.find((turn) => turn.cardUse?.cardId === 'redistribute')
   if (redistributionUse) {
     const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
@@ -120,6 +122,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const richest = players.filter((player) => player.balanceUnits === highestBalance)
     const poorest = players.filter((player) => player.balanceUnits === lowestBalance)
     const poolUnits = richest.reduce((total, player) => total + floorToHalfUnits(player.balanceUnits / 4), 0)
+    redistributionTransferUnits = poolUnits
     for (const player of richest) {
       const payment = floorToHalfUnits(player.balanceUnits / 4)
       player.balanceUnits -= payment
@@ -132,7 +135,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       player.balanceUnits += payment
       ;(deltaByPlayer.get(playerId) as PlayerRoundDelta).cardUnits += payment
     }
-    cardEffects.push(cardEffect('redistribute', poolUnits > 0 ? '劫富济贫已生效：最富者向最穷者分配了金币。' : '劫富济贫已使用，但本轮没有可转移的金币。'))
+    cardEffects.push(cardEffect('redistribute', poolUnits > 0 ? `劫富济贫已生效：本轮共转移 ${formatCoins(poolUnits)} 金币。` : '劫富济贫已使用，但本轮没有可转移的金币。'))
   }
 
   const rankingBids = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
@@ -247,6 +250,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     predictionOutcomes,
     winnerPaymentUnits,
     cardEffects,
+    redistributionTransferUnits,
     balanceLeaderIds,
     deltas,
     balancesAfter: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
@@ -255,10 +259,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
 }
 
 export function rankFinalPlayers(players: Player[]): FinalStanding[] {
-  const sorted = [...players].sort((left, right) => right.balanceUnits - left.balanceUnits)
-  return sorted.map((player, index) => ({
-    player,
-    place: index > 0 && player.balanceUnits === sorted[index - 1].balanceUnits ? sorted.slice(0, index).findIndex((item) => item.balanceUnits === player.balanceUnits) + 1 : index + 1,
+  const enriched = players.map((player) => {
+    const fixedAssets = calculateFixedAssets(player.items)
+    const fixedAssetUnits = fixedAssets.reduce((total, entry) => total + entry.units, 0)
+    return { player, cashUnits: player.balanceUnits, fixedAssetUnits, totalAssetUnits: player.balanceUnits + fixedAssetUnits, fixedAssets }
+  }).sort((left, right) => right.totalAssetUnits - left.totalAssetUnits)
+  return enriched.map((standing, index) => ({
+    ...standing,
+    place: index > 0 && standing.totalAssetUnits === enriched[index - 1].totalAssetUnits ? enriched.slice(0, index).findIndex((item) => item.totalAssetUnits === standing.totalAssetUnits) + 1 : index + 1,
   }))
 }
-

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { calculateFixedAssets, fixedAssetCoins } from './assets'
 import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './engine'
 import { createCardDeck } from './cards'
-import { prepareCardGrants } from './session'
+import { ITEM_POOL } from './items'
+import { SYSTEM_PRESETS } from './presets'
+import { createDefaultSettings, prepareCardGrants } from './session'
 import type { CardUse, Item, Player, RoundTurn } from './types'
 
-const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000' }
+const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000', category: 'leisure' }
 
 function players(balances: number[]): Player[] {
   return balances.map((balance, index) => ({
@@ -182,6 +185,7 @@ describe('道具卡结算', () => {
       turn('p3', 1),
     ]).result
     expect(result.cardEffects[0]?.cardId).toBe('redistribute')
+    expect(result.redistributionTransferUnits).toBe(coinsToUnits(5))
     expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(-5))
     expect(result.deltas.find((delta) => delta.playerId === 'p2')?.cardUnits).toBe(coinsToUnits(2.5))
     expect(result.deltas.find((delta) => delta.playerId === 'p1')?.publicDeltaUnits).not.toBe(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits)
@@ -220,5 +224,35 @@ describe('道具发放', () => {
     const granted = prepareCardGrants({ players: players([0, 8, 10]), cardDeck: ['peek', 'red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
     expect(granted.pendingCardGrants[0]?.cardId).toBe('red')
     expect(granted.cardDeck).toEqual(['peek', 'black'])
+  })
+})
+
+describe('固定资产与默认配置', () => {
+  it('所有拍品都恰好归入四类资产', () => {
+    expect(ITEM_POOL).toHaveLength(29)
+    expect(new Set(ITEM_POOL.map((entry) => entry.category))).toEqual(new Set(['leisure', 'transport', 'luxury', 'property']))
+  })
+
+  it('按类别与实际数量计算轻量固定资产档位', () => {
+    expect(fixedAssetCoins('leisure', 1)).toBe(0)
+    expect(fixedAssetCoins('leisure', 2)).toBe(3)
+    expect(fixedAssetCoins('leisure', 3)).toBe(10)
+    expect(fixedAssetCoins('leisure', 4)).toBe(20)
+    expect(fixedAssetCoins('leisure', 5)).toBe(30)
+    expect(fixedAssetCoins('property', 5)).toBe(72)
+  })
+
+  it('固定资产只在终局并入总资产并改变终局名次', () => {
+    const base = players([22, 25, 18])
+    base[0].items = ITEM_POOL.filter((entry) => entry.category === 'leisure').slice(0, 3).map((item, roundIndex) => ({ item, roundIndex }))
+    const standings = rankFinalPlayers(base)
+    expect(base[0].balanceUnits).toBe(coinsToUnits(22))
+    expect(standings[0]).toMatchObject({ player: { id: 'p1' }, cashUnits: coinsToUnits(22), fixedAssetUnits: coinsToUnits(10), totalAssetUnits: coinsToUnits(32), place: 1 })
+    expect(calculateFixedAssets(base[0].items).find((entry) => entry.category === 'leisure')).toMatchObject({ itemCount: 3, units: coinsToUnits(10) })
+  })
+
+  it('新默认设置与三个系统配置使用确认后的规则', () => {
+    expect(createDefaultSettings()).toMatchObject({ wrongPredictionMultiplier: 1.5, cardGrantProbability: 80, revealBalanceLeader: false })
+    expect(SYSTEM_PRESETS.map((preset) => [preset.settings.playerCount, preset.settings.rounds, preset.settings.initialCoins])).toEqual([[3, 4, 30], [6, 6, 30], [10, 8, 40]])
   })
 })

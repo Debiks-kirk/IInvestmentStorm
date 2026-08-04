@@ -142,8 +142,48 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: '确定提交' }).click()
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
   await page.getByText('本轮道具影响', { exact: true }).waitFor()
-  await page.getByText('当前余额领跑者', { exact: true }).waitFor()
+  if (await page.getByText('当前余额领跑者', { exact: true }).count() !== 0) throw new Error('新默认设置不应公开余额领跑者。')
   await assertNoHorizontalOverflow(page, '道具结算页')
+}
+
+async function runPresetFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.getByRole('button', { name: '6 人标准局' }).click()
+  if (await page.locator('#player-count').inputValue() !== '6' || await page.locator('#rounds').inputValue() !== '6') throw new Error('系统预设未正确载入。')
+  await page.getByLabel('配置名称').fill('冒烟六人局')
+  await page.getByRole('button', { name: '另存配置' }).click()
+  await page.getByText('我的配置', { exact: true }).waitFor()
+  await page.locator('.preset-grid').nth(1).locator('button').first().click()
+  if (await page.locator('#player-count').inputValue() !== '6') throw new Error('已保存配置未正确重新载入。')
+  await page.getByRole('button', { name: '删除冒烟六人局' }).click()
+  if (await page.getByText('冒烟六人局', { exact: true }).count() !== 0) throw new Error('已保存配置未被删除。')
+  await assertNoHorizontalOverflow(page, '配置预设页')
+}
+
+async function runAssetFinalFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => {
+    localStorage.clear()
+    const leisureItems = ['垃圾', '泡面', '可乐'].map((name, index) => ({ item: { id: `asset-${index}`, name, value: 4, emoji: '🎁', tone: '#000', category: 'leisure' }, roundIndex: index }))
+    localStorage.setItem('who-is-raising:session:v1', JSON.stringify({
+      version: 3, id: 'asset-smoke', phase: 'finalResult', settings: { playerCount: 3, rounds: 3, initialCoins: 30, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, revealBids: false, revealBalanceLeader: false, cardGrantProbability: 80, disabledCardIds: [], animationSpeed: 'reduced' },
+      players: [
+        { id: 'p1', name: '收藏家', color: '#b65f55', balanceUnits: 44, items: leisureItems, cardInventory: [] },
+        { id: 'p2', name: '现金王', color: '#557f74', balanceUnits: 50, items: [], cardInventory: [] },
+        { id: 'p3', name: '玩家三', color: '#687c9b', balanceUnits: 30, items: [], cardInventory: [] },
+      ],
+      itemDeck: [], cardDeck: [], pendingCardGrants: [], cardRulesStartRound: 1, fairnessOrderIds: ['p1', 'p2', 'p3'], roundIndex: 2, currentTurnIndex: 0, turns: [], results: [], createdAt: '2026-08-04T00:00:00.000Z', updatedAt: '2026-08-04T00:00:00.000Z',
+    }))
+  })
+  await page.reload()
+  await page.getByRole('button', { name: /继续第 3 轮/ }).click()
+  await page.getByText('总资产', { exact: true }).first().waitFor()
+  await page.getByText(/生活娱乐 3 件 \+10/).waitFor()
+  await page.screenshot({ path: '.artifacts/final-assets-mobile.png', fullPage: true })
+  await assertNoHorizontalOverflow(page, '固定资产终局页')
 }
 
 let browser
@@ -155,11 +195,13 @@ try {
   await runGame(page, 6)
   await runGame(page, 10)
   await runCardFlow(page)
+  await runPresetFlow(page)
+  await runAssetFinalFlow(page)
   await page.setViewportSize({ width: 1366, height: 768 })
   await page.evaluate(() => localStorage.clear())
   await page.goto('http://127.0.0.1:5181')
   await page.screenshot({ path: '.artifacts/home-desktop.png', fullPage: true })
-  console.log('冒烟测试通过：3、6、10 人对局、刷新隐私保护、道具私密发放与移动端页面均已验证。')
+  console.log('冒烟测试通过：3、6、10 人对局、刷新隐私保护、道具私密发放、配置预设与移动端页面均已验证。')
 } finally {
   await browser?.close()
   server.kill()

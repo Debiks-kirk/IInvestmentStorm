@@ -10,6 +10,8 @@ export type AnimationSpeed = 'full' | 'fast' | 'reduced'
 
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black'
 
+export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
+
 export interface CardUse {
   cardId: CardId
   targetPlayerId?: string
@@ -46,6 +48,7 @@ export interface Item {
   value: number
   emoji: string
   tone: string
+  category: AssetCategory
 }
 
 export interface WonItem {
@@ -107,13 +110,14 @@ export interface RoundResult {
   predictionOutcomes: PredictionOutcome[]
   winnerPaymentUnits: number
   cardEffects: CardEffect[]
+  redistributionTransferUnits: number | null
   balanceLeaderIds: string[]
   deltas: PlayerRoundDelta[]
   balancesAfter: Record<string, number>
 }
 
 export interface GameSession {
-  version: 2
+  version: 3
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -134,4 +138,23 @@ export interface GameSession {
 export interface FinalStanding {
   player: Player
   place: number
+  cashUnits: number
+  fixedAssetUnits: number
+  totalAssetUnits: number
+  fixedAssets: FixedAssetBreakdown[]
+}
+
+export interface FixedAssetBreakdown {
+  category: AssetCategory
+  itemCount: number
+  units: number
+}
+
+export interface GamePreset {
+  id: string
+  name: string
+  names: string[]
+  settings: GameSettings
+  createdAt: string
+  updatedAt: string
 }

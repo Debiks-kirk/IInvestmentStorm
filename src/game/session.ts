@@ -12,10 +12,10 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     initialCoins: 30,
     rewardMultipliers: defaultRewards(playerCount),
     correctPredictionMultiplier: 1,
-    wrongPredictionMultiplier: 0.5,
+    wrongPredictionMultiplier: 1.5,
     revealBids: false,
-    revealBalanceLeader: true,
-    cardGrantProbability: 50,
+    revealBalanceLeader: false,
+    cardGrantProbability: 80,
     disabledCardIds: [],
     animationSpeed: 'full',
   }
@@ -37,7 +37,7 @@ export function createSession(names: string[], settings: GameSettings): GameSess
     cardInventory: [],
   }))
   return {
-    version: 2,
+    version: 3,
     id: createId('game'),
     phase: 'roundIntro',
     settings: { ...settings, playerCount: names.length, rewardMultipliers: [...settings.rewardMultipliers] },

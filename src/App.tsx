@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { ASSET_CATEGORY_CONFIGS, categoryConfig } from './game/assets'
 import { CARD_DEFINITIONS, getCardDefinition } from './game/cards'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
+import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createSession, prepareCardGrants, validateNames } from './game/session'
-import { clearSession, loadSession, saveSession } from './game/storage'
-import type { CardId, CardUse, GameSession, GameSettings, Player, RoundResult, RoundTurn } from './game/types'
+import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
+import type { CardId, CardUse, GamePreset, GameSession, GameSettings, Player, RoundResult, RoundTurn } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'game'
 
@@ -96,25 +98,35 @@ function Rules({ onBack }: { onBack: () => void }) {
           <article><span className="rule-number">01</span><h2>秘密下注</h2><p>轮流拿设备，下注会立刻消耗金币。余额只有本人长按才能看见。</p></article>
           <article><span className="rule-number">02</span><h2>避开并列</h2><p>所有相同出价都出局。剩下的唯一出价从高到低重新排名。</p></article>
           <article><span className="rule-number">03</span><h2>顺手猜人</h2><p>可猜谁会第一。猜错扣半个物品价值；猜中则由第一名向你付款。</p></article>
-          <article><span className="rule-number">04</span><h2>道具翻盘</h2><p>从第二轮起，落后者可能秘密抽到道具。每轮最多用一张，效果在结算时匿名公开。</p></article>
+          <article><span className="rule-number">04</span><h2>资产翻盘</h2><p>拍品会组成四类固定资产。终局按金币与固定资产总和排名，道具仍可匿名翻盘。</p></article>
         </div>
         <div className="rule-example">
           <div><small>四人下注</small><strong>10 · 10 · 9 · 8</strong></div>
           <span>→</span>
           <div><small>10 撞车出局</small><strong>9 成为第一</strong></div>
         </div>
-        <p className="rules-footnote">每轮结算后会公布当前余额领跑者，但不会公布任何人的具体余额。</p>
+        <p className="rules-footnote">固定资产只在终局结算；劫富济贫只公开总转移金额，不公开任何人的余额。</p>
         <button className="button button--primary" onClick={onBack}>明白了</button>
       </section>
     </AppShell>
   )
 }
 
-function Setup({ onBack, onStart }: { onBack: () => void; onStart: (session: GameSession) => void }) {
+function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void }) {
   const [settings, setSettings] = useState<GameSettings>(() => createDefaultSettings())
   const [names, setNames] = useState(['玩家 1', '玩家 2', '玩家 3'])
   const [advanced, setAdvanced] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
+  const [presetName, setPresetName] = useState('')
+  const [activePresetId, setActivePresetId] = useState<string | null>(null)
+
+  const applyConfiguration = (nextNames: string[], nextSettings: GameSettings, preset?: GamePreset) => {
+    setNames([...nextNames])
+    setSettings(cloneSettings({ ...nextSettings, playerCount: nextNames.length }))
+    setPresetName(preset?.name ?? '')
+    setActivePresetId(preset?.id ?? null)
+    setErrors([])
+  }
 
   const setPlayerCount = (count: number) => {
     setNames((current) => Array.from({ length: count }, (_, index) => current[index] ?? `玩家 ${index + 1}`))
@@ -131,12 +143,32 @@ function Setup({ onBack, onStart }: { onBack: () => void; onStart: (session: Gam
     setErrors(nextErrors)
     if (nextErrors.length === 0) onStart(createSession(names, settings))
   }
+  const saveCurrentPreset = () => {
+    const nextErrors = [...validateNames(names), ...validateSettings(settings)]
+    if (!presetName.trim()) nextErrors.push('请为这套配置填写名称')
+    setErrors(nextErrors)
+    if (nextErrors.length > 0) return
+    const existing = presets.find((preset) => preset.id === activePresetId)
+    const preset = createGamePreset(presetName, names, settings, existing)
+    onSavePresets(existing ? presets.map((entry) => entry.id === preset.id ? preset : entry) : [...presets, preset])
+    setActivePresetId(preset.id)
+    setPresetName(preset.name)
+  }
+  const deletePreset = (presetId: string) => {
+    onSavePresets(presets.filter((preset) => preset.id !== presetId))
+    if (activePresetId === presetId) { setActivePresetId(null); setPresetName('') }
+  }
 
   return (
     <AppShell>
       <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回">←</button><Brand /><span /></header>
       <section className="setup-page">
         <div className="section-heading"><div><p className="eyebrow">新对局</p><h1>谁会上桌？</h1></div><p>只需填名字，其他保持默认就能玩。</p></div>
+        <section className="preset-panel panel">
+          <div className="panel-title"><div><p className="eyebrow">一键开局</p><h2>系统配置</h2></div><span>载入后仍可继续微调</span></div>
+          <div className="preset-grid">{SYSTEM_PRESETS.map((preset) => <button key={preset.id} className="preset-choice" onClick={() => applyConfiguration(preset.names, preset.settings)}><strong>{preset.name}</strong><small>{preset.description}</small></button>)}</div>
+          {presets.length > 0 && <><div className="panel-title saved-preset-title"><div><p className="eyebrow">本机保存</p><h2>我的配置</h2></div><span>含玩家姓名与高级设置</span></div><div className="preset-grid">{presets.map((preset) => <div key={preset.id} className={cx('preset-choice', activePresetId === preset.id && 'is-active')}><button onClick={() => applyConfiguration(preset.names, preset.settings, preset)}><strong>{preset.name}</strong><small>{preset.names.join('、')} · {preset.settings.rounds} 轮</small></button><button className="preset-delete" aria-label={`删除${preset.name}`} onClick={() => deletePreset(preset.id)}>×</button></div>)}</div></>}
+        </section>
         <div className="setup-grid">
           <div className="panel">
             <label className="field-label" htmlFor="player-count">玩家人数 <strong>{settings.playerCount}</strong></label>
@@ -171,6 +203,7 @@ function Setup({ onBack, onStart }: { onBack: () => void; onStart: (session: Gam
             )}
           </div>
         </div>
+        <section className="preset-save panel"><div><p className="eyebrow">常用配置</p><h2>保存这套设置</h2><small>保存玩家姓名、轮数与所有高级规则，不会影响当前进行中的对局。</small></div><div><input aria-label="配置名称" placeholder="例如：周末六人局" maxLength={20} value={presetName} onChange={(event) => { setPresetName(event.target.value); setActivePresetId(null) }} /><button className="button button--paper" onClick={saveCurrentPreset}>{activePresetId ? '覆盖保存' : '另存配置'}</button></div></section>
         {errors.length > 0 && <div className="error-box" role="alert">{errors.map((error) => <span key={error}>{error}</span>)}</div>}
         <div className="sticky-action"><div><strong>{settings.playerCount} 人 · {settings.rounds} 轮</strong><span>每人 {settings.initialCoins} 金币</span></div><button className="button button--primary button--large" onClick={submit}>开始这局 <span>→</span></button></div>
       </section>
@@ -192,7 +225,7 @@ function PrizeCard({ item, compact = false }: { item: GameSession['itemDeck'][nu
   return (
     <div className={cx('prize-card', compact && 'prize-card--compact')} style={{ '--item-tone': item.tone } as React.CSSProperties}>
       <div className="prize-card__image"><span>{item.emoji}</span></div>
-      <div><small>目标物品 · 价值 {item.value}</small><strong>{item.name}</strong></div>
+      <div><small>{categoryConfig(item.category).name} · 价值 {item.value}</small><strong>{item.name}</strong></div>
     </div>
   )
 }
@@ -384,12 +417,12 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
 
 function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: () => void }) {
   const standings = rankFinalPlayers(session.players)
-  const topBalance = standings[0]?.player.balanceUnits ?? 0
+  const topAssets = standings[0]?.totalAssetUnits ?? 0
   return (
     <section className="final-page">
-      <div className="final-heading"><p className="eyebrow">全局结束</p><h1>最后的赢家，<br /><em>{standings.filter((standing) => standing.player.balanceUnits === topBalance).map((standing) => standing.player.name).join('、')}</em></h1><p>{session.settings.rounds} 轮竞价已经落定。现在，余额终于可以公开了。</p></div>
-      <div className="podium-list">{standings.map((standing, index) => <article key={standing.player.id} className={cx(index === 0 && 'is-first')} style={{ '--delay': `${index * 100}ms`, '--player-color': standing.player.color } as React.CSSProperties}><span className="standing-place">{standing.place}</span><div className="standing-avatar">{standing.player.name.slice(0, 1)}</div><div className="standing-copy"><strong>{standing.player.name}</strong><small>{standing.player.items.length > 0 ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有收藏品'}</small></div><div className="standing-balance"><CoinValue units={standing.player.balanceUnits} /><small>最终金币</small></div></article>)}</div>
-      <div className="final-note">物品只记录荣耀，不参与最终排名。并列玩家共享同一名次。</div>
+      <div className="final-heading"><p className="eyebrow">全局结束</p><h1>最后的赢家，<br /><em>{standings.filter((standing) => standing.totalAssetUnits === topAssets).map((standing) => standing.player.name).join('、')}</em></h1><p>{session.settings.rounds} 轮竞价已经落定。最终以金币与固定资产总和排名。</p></div>
+      <div className="podium-list">{standings.map((standing, index) => <article key={standing.player.id} className={cx(index === 0 && 'is-first')} style={{ '--delay': `${index * 100}ms`, '--player-color': standing.player.color } as React.CSSProperties}><span className="standing-place">{standing.place}</span><div className="standing-avatar">{standing.player.name.slice(0, 1)}</div><div className="standing-copy"><strong>{standing.player.name}</strong><small>{standing.player.items.length > 0 ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有收藏品'}</small>{standing.fixedAssets.some((asset) => asset.units > 0) && <div className="asset-breakdown">{standing.fixedAssets.filter((asset) => asset.units > 0).map((asset) => <span key={asset.category}>{ASSET_CATEGORY_CONFIGS.find((entry) => entry.category === asset.category)?.symbol} {categoryConfig(asset.category).name} {asset.itemCount} 件 +{formatCoins(asset.units)}</span>)}</div>}</div><div className="standing-balance"><CoinValue units={standing.totalAssetUnits} /><small>总资产</small><span>现金 {formatCoins(standing.cashUnits)} · 固定资产 +{formatCoins(standing.fixedAssetUnits)}</span></div></article>)}</div>
+      <div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div>
       <button className="button button--primary button--large" onClick={onNewGame}>再开一局</button>
     </section>
   )
@@ -460,6 +493,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [saved, setSaved] = useState<GameSession | null>(() => loadSession())
+  const [presets, setPresets] = useState<GamePreset[]>(() => loadPresets())
   const [session, setSession] = useState<GameSession | null>(null)
 
   useEffect(() => {
@@ -469,12 +503,13 @@ export default function App() {
   }, [session])
 
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
-  const quickStart = () => { const settings = createDefaultSettings(3); begin(createSession(['玩家 1', '玩家 2', '玩家 3'], settings)) }
+  const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.names, cloneSettings(preset.settings))) }
+  const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
 
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
-  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} />
+  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} />
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} />
   return <Home saved={saved} onQuickStart={quickStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onDelete={removeSaved} />
 }
