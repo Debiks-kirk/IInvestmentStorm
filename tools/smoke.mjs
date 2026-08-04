@@ -196,10 +196,15 @@ async function runCardFlow(page) {
     const targetCards = page.locator('.target-picker-grid button')
     if (await targetCards.count() > 0) await targetCards.first().click()
   }
-  const rerollOptions = page.locator('.prize-reroll-option')
-  if (await rerollOptions.count() > 0) await rerollOptions.first().click()
   const confirmUse = page.getByRole('button', { name: '确认使用' })
+  const confirmReroll = page.getByRole('button', { name: '确认并抽取 6 张' })
   if (await confirmUse.count() > 0) await confirmUse.click()
+  if (await confirmReroll.count() > 0) await confirmReroll.click()
+  const rerollOptions = page.locator('.prize-reroll-option')
+  if (await rerollOptions.count() > 0) {
+    if (await rerollOptions.count() !== 6) throw new Error('改拍令确认后应锁定展示 6 张候选拍品。')
+    await rerollOptions.first().click()
+  }
   await setRange(page.getByLabel('秘密下注'), 6)
   await page.getByRole('button', { name: '确认我的选择' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
@@ -375,6 +380,40 @@ async function runFirstPlayerBananaFlow(page) {
   await assertNoHorizontalOverflow(page, '首位香蕉皮目标选择')
 }
 
+async function runPrizeRerollFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('2')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
+  await page.locator('#motion').selectOption('reduced')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.evaluate(() => {
+    const raw = localStorage.getItem('who-is-raising:session:v1')
+    if (!raw) throw new Error('未找到改拍令测试对局')
+    const session = JSON.parse(raw)
+    session.players[0].cardInventory = ['prizeReroll']
+    localStorage.setItem('who-is-raising:session:v1', JSON.stringify(session))
+  })
+  await page.reload()
+  await page.getByRole('button', { name: /继续第 1 轮/ }).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  await page.locator('.card-choice').filter({ hasText: '改拍令' }).click()
+  await page.getByRole('button', { name: '确认并抽取 6 张' }).waitFor()
+  if (await page.locator('.prize-reroll-option').count() !== 0) throw new Error('改拍令确认前不应抽出候选拍品')
+  await page.getByRole('button', { name: '确认并抽取 6 张' }).click()
+  const offers = page.locator('.prize-reroll-option')
+  await offers.first().waitFor()
+  if (await offers.count() !== 6) throw new Error('改拍令确认后应展示 6 张候选拍品')
+  await offers.first().click()
+  await page.getByText('选择已确定', { exact: true }).waitFor()
+  await assertNoHorizontalOverflow(page, '改拍令六张候选页')
+}
+
 let browser
 try {
   await waitForServer()
@@ -386,6 +425,7 @@ try {
   await runCardFlow(page)
   await runSystemAuctionFlow(page)
   await runFirstPlayerBananaFlow(page)
+  await runPrizeRerollFlow(page)
   await runPresetFlow(page)
   await runIdentityFlow(page)
   await runLobbyistTaskFlow(page)

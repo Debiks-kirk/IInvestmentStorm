@@ -79,7 +79,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
 }
 
 /** Draw fresh candidates outside the scheduled deck, preventing duplicate prizes after replacement. */
-export function drawPrizeRerollOffers(itemDeck: Item[], count = 3): Item[] {
+export function drawPrizeRerollOffers(itemDeck: Item[], count = 6): Item[] {
   const scheduledIds = new Set(itemDeck.map((item) => item.id))
   return shuffle(ITEM_POOL.filter((item) => !scheduledIds.has(item.id))).slice(0, count).map((item) => ({ ...item }))
 }

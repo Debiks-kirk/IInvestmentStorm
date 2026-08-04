@@ -278,7 +278,7 @@ describe('道具卡结算', () => {
 
   it('改拍令只公开下一轮拍品被改写，不影响当前轮结算', () => {
     const result = settle(players([20, 20, 20]), [
-      { ...turn('p1', 9), cardUses: [{ cardId: 'prizeReroll', prizeReroll: { originalItemId: 'old', offeredItemIds: ['a', 'b', 'c'], chosenItemId: 'a' } }] },
+      { ...turn('p1', 9), cardUses: [{ cardId: 'prizeReroll', prizeReroll: { originalItemId: 'old', offeredItemIds: ['a', 'b', 'c', 'd', 'e', 'f'], chosenItemId: 'a' } }] },
       turn('p2', 7),
       turn('p3', 2),
     ]).result
@@ -316,11 +316,11 @@ describe('道具卡结算', () => {
 })
 
 describe('道具发放', () => {
-  it('改拍令从未安排拍品中一次抽取三张，并只替换实际下一轮拍品', () => {
+  it('改拍令从未安排拍品中一次抽取六张，并只替换实际下一轮拍品', () => {
     const scheduled = ITEM_POOL.slice(0, 6)
     const offers = drawPrizeRerollOffers(scheduled)
-    expect(offers).toHaveLength(3)
-    expect(new Set(offers.map((entry) => entry.id)).size).toBe(3)
+    expect(offers).toHaveLength(6)
+    expect(new Set(offers.map((entry) => entry.id)).size).toBe(6)
     expect(offers.some((entry) => scheduled.some((planned) => planned.id === entry.id))).toBe(false)
     const replaced = replaceNextPrize(scheduled, 1, offers[0])
     expect(replaced[2]).toEqual(offers[0])
