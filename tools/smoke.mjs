@@ -89,7 +89,20 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
 
   for (let index = 0; index < playerCount; index += 1) {
     await holdToEnter(page)
-    if (index === 0) await assertNoHorizontalOverflow(page, `${playerCount} 人私密操作页`)
+    if (index === 0) {
+      await assertNoHorizontalOverflow(page, `${playerCount} 人私密操作页`)
+      const identityButton = page.getByRole('button', { name: '长按查看身份详情' })
+      await identityButton.scrollIntoViewIfNeeded()
+      const identityBox = await identityButton.boundingBox()
+      if (!identityBox) throw new Error('未能定位身份详情长按入口。')
+      await page.mouse.move(identityBox.x + identityBox.width / 2, identityBox.y + identityBox.height / 2)
+      await page.mouse.down()
+      await page.waitForTimeout(700)
+      await page.mouse.up()
+      await page.getByText('身份档案', { exact: true }).waitFor()
+      await page.getByRole('button', { name: '收起身份详情' }).click()
+      await page.getByText('身份技能', { exact: true }).waitFor()
+    }
     if (verifyPrivateRestore && index === 0) {
       await page.reload()
       await page.getByRole('button', { name: /继续第 1 轮/ }).click()

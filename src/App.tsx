@@ -306,6 +306,28 @@ function BalanceReveal({ units }: { units: number }) {
   )
 }
 
+function IdentityReveal() {
+  const [detailOpen, setDetailOpen] = useState(false)
+  const holdTimer = useRef<number | null>(null)
+  const clearHold = () => {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current)
+    holdTimer.current = null
+  }
+  const startHold = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    holdTimer.current = window.setTimeout(() => {
+      holdTimer.current = null
+      setDetailOpen(true)
+    }, 650)
+  }
+  return <>
+    <button className="identity-reveal" aria-label="长按查看身份详情" onPointerDown={startHold} onPointerUp={clearHold} onPointerCancel={clearHold} onContextMenu={(event) => event.preventDefault()}>
+      <span><small>身份已隐藏</small><strong>长按查看身份</strong></span><i aria-hidden="true">?</i>
+    </button>
+    {detailOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-detail-title"><div className="identity-detail-sheet"><span className="identity-detail-mark">?</span><p className="eyebrow">仅自己可见</p><h2 id="identity-detail-title">身份档案</h2><div className="identity-detail-placeholder"><small>当前身份</small><strong>身份系统即将开放</strong><p>这里将展示身份名称、背景、被动效果、主动技能与使用限制。</p></div><button className="button button--primary" onClick={() => setDetailOpen(false)}>收起身份详情</button></div></div>}
+  </>
+}
+
 function PrivateTurn({ session, onSubmit, onAcknowledgeGrant }: { session: GameSession; onSubmit: (turn: RoundTurn) => void; onAcknowledgeGrant: (playerId: string) => void }) {
   const player = session.players[session.currentTurnIndex]
   const item = session.itemDeck[session.roundIndex]
@@ -326,7 +348,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant }: { session: GameS
   const fixedAssets = calculateFixedAssets(player.items).filter((asset) => asset.itemCount > 0)
   return (
     <section className="private-turn">
-      <div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>你的回合</h1></div><BalanceReveal units={player.balanceUnits} /></div>
+      <div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>你的回合</h1></div><div className="private-overview"><BalanceReveal units={player.balanceUnits} /><IdentityReveal /></div></div>
       <div className="turn-grid">
         <div className="bid-panel panel">
           <PrizeCard item={item} compact />
@@ -352,6 +374,10 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant }: { session: GameS
           const items = player.items.filter(({ item: wonItem }) => wonItem.category === asset.category)
           return <article key={asset.category} className="private-asset-row"><span>{config.symbol}</span><div><strong>{config.name} · {asset.itemCount} 件</strong><small>{items.map(({ item: wonItem }) => `${wonItem.emoji}${wonItem.name}`).join(' · ')}</small></div><div className="private-asset-value">{asset.units > 0 ? <><CoinValue units={asset.units} signed /><small>当前终局加成</small></> : <><strong>再收 {2 - asset.itemCount} 件</strong><small>即可触发加成</small></>}</div></article>
         })}</div>}
+      </section>
+      <section className="identity-skills panel">
+        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>身份技能</h2></div><span>身份系统预留区域</span></div>
+        <div className="identity-skill-placeholder"><span>◎</span><div><strong>等待身份技能配置</strong><small>未来可在此查看技能说明、目标选择与本轮技能操作。</small></div><button className="button" disabled>技能操作</button></div>
       </section>
       <section className="card-inventory panel">
         <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮最多使用一张</span></div>
