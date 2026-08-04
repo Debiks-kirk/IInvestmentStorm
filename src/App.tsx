@@ -318,8 +318,8 @@ function BotThinking({ player, allBots }: { player: Player; allBots: boolean }) 
   return <section className="bot-thinking screen-center"><div className="privacy-seal"><span>✦</span></div><p className="eyebrow">Bot 正在行动</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">正在分析拍品、局势与可用技能。</p><div className="bot-thinking__dots" aria-label="Bot 正在思考"><i /><i /><i /></div>{allBots && <small className="privacy-note">观战模式会自动推进至终局</small>}</section>
 }
 
-function SpectatorControls({ paused, speed, onToggle, onSpeed }: { paused: boolean; speed: number; onToggle: () => void; onSpeed: (speed: number) => void }) {
-  return <div className="spectator-controls"><span>Bot 观战</span><button className="text-button" onClick={onToggle}>{paused ? '继续' : '暂停'}</button><select aria-label="观战速度" value={speed} onChange={(event) => onSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></div>
+function SpectatorControls({ paused, speed, onToggle, onSpeed, onTakeOver }: { paused: boolean; speed: number; onToggle: () => void; onSpeed: (speed: number) => void; onTakeOver: () => void }) {
+  return <div className="spectator-controls" aria-label="Bot 观战控制"><span>Bot 观战</span><button className="text-button" onClick={onToggle}>{paused ? '继续自动' : '暂停'}</button><select aria-label="观战速度" value={speed} onChange={(event) => onSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select>{paused && <button className="text-button spectator-controls__takeover" onClick={onTakeOver}>接管当前 Bot</button>}</div>
 }
 
 function IdentityHandoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
@@ -475,7 +475,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           const card = getCardDefinition(cardId)
           const unavailable = card.needsTarget && (cardId === 'swap' ? cardTargetPlayers.length === 0 : targetPlayers.length === 0)
           const confirmed = confirmedCardUses.find((use) => use.cardId === cardId)
-          return <button key={cardId} className={cx('card-choice', (selectedCardId === cardId || confirmed) && 'is-selected')} disabled={!confirmed && (unavailable || cardSlotsRemaining === 0)} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } if (card.needsTarget) { setSelectedCardId(cardId); setSelectedTargetId(null); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{confirmed ? '本轮已安排，点击取消。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(selectedCardId === cardId || confirmed) ? '✓' : ''}</i></button>
+          const fateCoinLocked = cardId === 'fateCoin' && Boolean(confirmed)
+          return <button key={cardId} className={cx('card-choice', (selectedCardId === cardId || confirmed) && 'is-selected')} disabled={fateCoinLocked || (!confirmed && (unavailable || cardSlotsRemaining === 0))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } if (card.needsTarget) { setSelectedCardId(cardId); setSelectedTargetId(null); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{confirmed ? fateCoinLocked ? '硬币结果已锁定，本轮不能重掷。' : '本轮已安排，点击取消。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(selectedCardId === cardId || confirmed) ? '✓' : ''}</i></button>
         })}</div>}
         {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择任意一名其他玩家，结算时交换排名金额'}</strong><div>{cardTargetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => { setSelectedTargetId(candidate.id); openCardConfirmation({ cardId: selectedCardId as CardId, targetPlayerId: candidate.id }) }}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
       </section>
@@ -490,7 +491,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           </div>
         </div>
       )}
-      {cardConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="card-confirm-title"><div className="confirm-sheet card-use-confirm"><p className="eyebrow">确认使用道具</p><h2 id="card-confirm-title">{getCardDefinition(cardConfirming.cardId).name}</h2>{cardConfirming.cardId === 'fateCoin' ? <div className="fate-coin-wrap"><div className={cx('fate-coin', coinFlipResult && 'is-settled')}><span>{coinFlipResult === 'heads' ? '正' : coinFlipResult === 'tails' ? '反' : '?'}</span></div><p>{coinFlipResult === null ? '硬币正在翻转…' : coinFlipResult === 'heads' ? '正面朝上：本轮获得 6 金币。' : '反面朝上：本轮损失 4 金币。'}</p></div> : <p>确认后，这张卡会安排在本轮结算时使用。{cardConfirming.targetPlayerId ? ` 目标：${playerName(session.players, cardConfirming.targetPlayerId)}。` : ''}</p>}<div><button className="button button--paper" onClick={() => { setCardConfirming(null); setCoinFlipResult(null) }}>取消</button><button className="button button--primary" disabled={cardConfirming.cardId === 'fateCoin' && coinFlipResult === null} onClick={confirmCardUse}>确认使用</button></div></div></div>}
+      {cardConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="card-confirm-title"><div className="confirm-sheet card-use-confirm"><p className="eyebrow">{cardConfirming.cardId === 'fateCoin' ? '已使用命运硬币' : '确认使用道具'}</p><h2 id="card-confirm-title">{getCardDefinition(cardConfirming.cardId).name}</h2>{cardConfirming.cardId === 'fateCoin' ? <div className="fate-coin-wrap"><div className={cx('fate-coin', coinFlipResult && 'is-settled')}><span>{coinFlipResult === 'heads' ? '正' : coinFlipResult === 'tails' ? '反' : '?'}</span></div><p>{coinFlipResult === null ? '硬币正在翻转…' : coinFlipResult === 'heads' ? '正面朝上：本轮获得 6 金币。结果已锁定。' : '反面朝上：本轮损失 4 金币。结果已锁定。'}</p></div> : <p>确认后，这张卡会安排在本轮结算时使用。{cardConfirming.targetPlayerId ? ` 目标：${playerName(session.players, cardConfirming.targetPlayerId)}。` : ''}</p>}<div>{cardConfirming.cardId !== 'fateCoin' && <button className="button button--paper" onClick={() => { setCardConfirming(null); setCoinFlipResult(null) }}>取消</button>}<button className="button button--primary" disabled={cardConfirming.cardId === 'fateCoin' && coinFlipResult === null} onClick={confirmCardUse}>{cardConfirming.cardId === 'fateCoin' ? coinFlipResult === null ? '正在掷硬币…' : '确认结果' : '确认使用'}</button></div></div></div>}
       {grant && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="grant-title"><div className="card-grant-sheet"><span>{getCardDefinition(grant.cardId).symbol}</span><p className="eyebrow">秘密支援</p><h2 id="grant-title">你获得了{getCardDefinition(grant.cardId).name}</h2><p>{getCardDefinition(grant.cardId).description}</p><small>这张卡已加入你的库存。请勿告诉其他人。</small><button className="button button--primary" onClick={() => onAcknowledgeGrant(player.id)}>收下道具卡</button></div></div>}
       {session.pendingIdentityNotices.filter((notice) => notice.playerId === player.id).map((notice) => <div key={notice.id} className="modal-backdrop" role="dialog" aria-modal="true"><div className="card-grant-sheet"><span>!</span><p className="eyebrow">身份提示</p><h2>{notice.title}</h2><p>{notice.detail}</p><button className="button button--primary" onClick={() => onAcknowledgeNotice(notice.id)}>知道了</button></div></div>)}
     </section>
@@ -620,6 +621,7 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
 function Game({ session, setSession, onExit, onNewGame }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void }) {
   const [botPaused, setBotPaused] = useState(false)
   const [botSpeed, setBotSpeed] = useState(1)
+  const [autoPausedRound, setAutoPausedRound] = useState<number | null>(null)
   const patch = (changes: Partial<GameSession>) => setSession({ ...session, ...changes, updatedAt: new Date().toISOString() })
   const chooseIdentity = (identityId: IdentityId) => {
     const draft = session.identityDraft
@@ -792,8 +794,25 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
   const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
   const currentPlayer = session.players[session.currentTurnIndex]
   const auctionBidder = session.merchantAuction ? session.players.filter((player) => player.id !== session.merchantAuction?.merchantId)[session.merchantAuction.bidderIndex] : undefined
+  const takeOverBot = () => {
+    const target = session.phase === 'identityHandoff' || session.phase === 'identityDraft'
+      ? session.players[session.identityDraft?.playerIndex ?? 0]
+      : session.phase === 'auctionHandoff' || session.phase === 'auctionBid'
+        ? auctionBidder
+        : session.phase === 'roundResult' || session.phase === 'roundIntro'
+          ? session.players[0]
+          : currentPlayer
+    if (!target || !isBot(target)) return
+    patch({ players: session.players.map((player) => player.id === target.id ? { ...player, controller: { kind: 'human' } } : player) })
+    setBotPaused(false)
+  }
   useEffect(() => {
     if (allBots && botPaused) return
+    if (allBots && session.phase === 'roundResult' && autoPausedRound !== session.roundIndex) {
+      setBotPaused(true)
+      setAutoPausedRound(session.roundIndex)
+      return
+    }
     const timer = window.setTimeout(() => {
       if (session.phase === 'identityHandoff') {
         const draftPlayer = session.players[session.identityDraft?.playerIndex ?? 0]
@@ -830,14 +849,14 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       }
     }, allBots ? Math.max(45, (session.settings.animationSpeed === 'reduced' ? 80 : 350) / botSpeed) : 550)
     return () => window.clearTimeout(timer)
-  }, [session, botPaused, botSpeed])
+  }, [session, botPaused, botSpeed, autoPausedRound])
   const acknowledgeGrant = (playerId: string) => patch({ pendingCardGrants: session.pendingCardGrants.map((grant) => grant.playerId === playerId ? { ...grant, announced: true } : grant) })
   const acknowledgeNotice = (noticeId: string) => patch({ pendingIdentityNotices: session.pendingIdentityNotices.filter((notice) => notice.id !== noticeId) })
   const result = session.results[session.results.length - 1]
   return (
     <AppShell quiet={session.phase === 'handoff' || session.phase === 'identityHandoff' || session.phase === 'auctionHandoff'}>
       {session.phase !== 'finalResult' && <GameHeader session={session} onExit={onExit} />}
-      {allBots && session.phase !== 'finalResult' && <SpectatorControls paused={botPaused} speed={botSpeed} onToggle={() => setBotPaused((value) => !value)} onSpeed={setBotSpeed} />}
+      {allBots && session.phase !== 'finalResult' && <SpectatorControls paused={botPaused} speed={botSpeed} onToggle={() => setBotPaused((value) => !value)} onSpeed={setBotSpeed} onTakeOver={takeOverBot} />}
       {session.phase === 'identityHandoff' && <IdentityHandoff session={session} onReady={() => patch({ phase: 'identityDraft' })} />}
       {session.phase === 'identityDraft' && (isBot(session.players[session.identityDraft?.playerIndex ?? 0]) ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots={allBots} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
       {session.phase === 'auctionIntro' && <AuctionIntro session={session} onContinue={() => patch({ phase: 'auctionHandoff' })} />}

@@ -251,6 +251,8 @@ async function runBotSpectatorFlow(page) {
   await page.locator('#motion').selectOption('reduced')
   for (let index = 1; index <= 3; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
   await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.getByRole('button', { name: '继续自动' }).waitFor({ timeout: 15000 })
+  await page.getByRole('button', { name: '继续自动' }).click()
   await page.getByText('全局结束', { exact: true }).waitFor({ timeout: 15000 })
   await page.getByText('Bot 档案', { exact: true }).waitFor()
   await page.getByText('逐轮复盘', { exact: true }).waitFor()
