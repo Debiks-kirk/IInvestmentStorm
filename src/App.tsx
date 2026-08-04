@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { ASSET_CATEGORY_CONFIGS, categoryConfig } from './game/assets'
+import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig } from './game/assets'
 import { CARD_DEFINITIONS, getCardDefinition } from './game/cards'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
@@ -323,6 +323,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant }: { session: GameS
   const peekedTurn = selectedCardId === 'peek' && selectedTargetId ? previousTurns.find((turn) => turn.playerId === selectedTargetId) : undefined
   const cardUse: CardUse | undefined = selectedCardId ? { cardId: selectedCardId, ...(selectedCard?.needsTarget && selectedTargetId ? { targetPlayerId: selectedTargetId } : {}) } : undefined
   const canSubmitCard = !selectedCard?.needsTarget || Boolean(selectedTargetId)
+  const fixedAssets = calculateFixedAssets(player.items).filter((asset) => asset.itemCount > 0)
   return (
     <section className="private-turn">
       <div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>你的回合</h1></div><BalanceReveal units={player.balanceUnits} /></div>
@@ -344,6 +345,14 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant }: { session: GameS
           </div>
         </div>
       </div>
+      <section className="private-assets panel">
+        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的固定资产</h2></div><span>只在终局计入总资产</span></div>
+        {fixedAssets.length === 0 ? <p className="empty-assets">还没有拍下任何物品。收集同类拍品达到 2 件后即可触发固定资产加成。</p> : <div className="private-asset-list">{fixedAssets.map((asset) => {
+          const config = categoryConfig(asset.category)
+          const items = player.items.filter(({ item: wonItem }) => wonItem.category === asset.category)
+          return <article key={asset.category} className="private-asset-row"><span>{config.symbol}</span><div><strong>{config.name} · {asset.itemCount} 件</strong><small>{items.map(({ item: wonItem }) => `${wonItem.emoji}${wonItem.name}`).join(' · ')}</small></div><div className="private-asset-value">{asset.units > 0 ? <><CoinValue units={asset.units} signed /><small>当前终局加成</small></> : <><strong>再收 {2 - asset.itemCount} 件</strong><small>即可触发加成</small></>}</div></article>
+        })}</div>}
+      </section>
       <section className="card-inventory panel">
         <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮最多使用一张</span></div>
         {player.cardInventory.length === 0 ? <p className="empty-cards">暂时没有道具卡。落后时，下一轮可能得到秘密支援。</p> : <div className="card-list">{player.cardInventory.map((cardId) => {
