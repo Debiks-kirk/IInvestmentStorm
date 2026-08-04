@@ -57,6 +57,24 @@ async function startRound(page) {
   await page.getByRole('button', { name: /开始传递/ }).click()
 }
 
+async function disableIdentities(page) {
+  const toggle = page.locator('.identity-setting-group input[type="checkbox"]').first()
+  if (await toggle.isChecked()) await toggle.uncheck()
+}
+
+async function chooseIdentities(page, playerCount) {
+  for (let index = 0; index < playerCount; index += 1) {
+    await page.getByRole('button', { name: '选择身份' }).click()
+    await page.locator('.identity-choice-card').first().click()
+    const targets = page.locator('.identity-target-list button')
+    if (await targets.count() > 0) await targets.first().click()
+    const cards = page.locator('.merchant-offer-list button')
+    if (await cards.count() > 0) await cards.first().click()
+    await page.getByRole('button', { name: /确认身份与准备/ }).click()
+  }
+  await page.getByRole('button', { name: '启动抽奖机' }).waitFor()
+}
+
 async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard = false) {
   await enterPrivateTurn(page)
   if (predictionIndex !== null) await page.locator('.prediction-list button').nth(predictionIndex).click()
@@ -79,6 +97,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await setRange(page.locator('#player-count'), playerCount)
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
   await page.locator('#motion').selectOption('reduced')
   await assertNoHorizontalOverflow(page, `${playerCount} 人设置页`)
   if (playerCount === 10) await page.screenshot({ path: '.artifacts/setup-10-mobile.png', fullPage: true })
@@ -124,6 +143,7 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.locator('#rounds').fill('2')
   await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
   await page.locator('#motion').selectOption('reduced')
   await page.locator('#card-probability').fill('100')
   await page.getByRole('button', { name: /开始这局/ }).click()
@@ -175,6 +195,22 @@ async function runPresetFlow(page) {
   await assertNoHorizontalOverflow(page, '配置预设页')
 }
 
+async function runIdentityFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await chooseIdentities(page, 3)
+  await assertNoHorizontalOverflow(page, '身份选角后的首轮页')
+  await startRound(page)
+  for (let index = 0; index < 3; index += 1) await submitPrivateTurn(page, index + 1)
+  await page.getByRole('button', { name: '揭晓本轮结果' }).click()
+  await page.getByRole('button', { name: /查看最终排行榜/ }).click()
+  await page.getByText('身份档案', { exact: true }).waitFor()
+}
+
 async function runAssetFinalFlow(page) {
   await page.goto('http://127.0.0.1:5181')
   await page.evaluate(() => {
@@ -208,6 +244,7 @@ try {
   await runGame(page, 10)
   await runCardFlow(page)
   await runPresetFlow(page)
+  await runIdentityFlow(page)
   await runAssetFinalFlow(page)
   await page.setViewportSize({ width: 1366, height: 768 })
   await page.evaluate(() => localStorage.clear())

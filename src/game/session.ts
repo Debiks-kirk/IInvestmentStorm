@@ -1,5 +1,6 @@
 import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck } from './cards'
+import { dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, shuffle } from './items'
 import type { CardGrant, CardId, GameSession, GameSettings, Player, RoundTurn } from './types'
 
@@ -17,6 +18,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     revealBalanceLeader: false,
     cardGrantProbability: 80,
     disabledCardIds: [],
+    identitySettings: defaultIdentitySettings(true),
     animationSpeed: 'full',
   }
 }
@@ -37,14 +39,21 @@ export function createSession(names: string[], settings: GameSettings): GameSess
     cardInventory: [],
   }))
   return {
-    version: 3,
+    version: 4,
     id: createId('game'),
-    phase: 'roundIntro',
-    settings: { ...settings, playerCount: names.length, rewardMultipliers: [...settings.rewardMultipliers] },
+    phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
+    settings: { ...settings, playerCount: names.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
     itemDeck: createItemDeck(settings.rounds),
     cardDeck: createCardDeck(settings.disabledCardIds),
     pendingCardGrants: [],
+    identityAvailableIds: enabledIdentityIds(settings.identitySettings),
+    identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices(enabledIdentityIds(settings.identitySettings), settings.identitySettings) } : null,
+    pendingIdentityCardAwards: [],
+    pendingIdentityNotices: [],
+    identityContracts: [],
+    identityEvents: [],
+    merchantAuction: null,
     cardRulesStartRound: 1,
     fairnessOrderIds: shuffle(players.map((player) => player.id)),
     roundIndex: 0,

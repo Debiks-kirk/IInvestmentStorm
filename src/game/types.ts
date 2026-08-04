@@ -1,4 +1,9 @@
 export type GamePhase =
+  | 'identityHandoff'
+  | 'identityDraft'
+  | 'auctionIntro'
+  | 'auctionHandoff'
+  | 'auctionBid'
   | 'roundIntro'
   | 'handoff'
   | 'privateTurn'
@@ -9,6 +14,9 @@ export type GamePhase =
 export type AnimationSpeed = 'full' | 'fast' | 'reduced'
 
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black'
+
+export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
+export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst'
 
 export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
 
@@ -39,8 +47,81 @@ export interface GameSettings {
   revealBalanceLeader: boolean
   cardGrantProbability: number
   disabledCardIds: CardId[]
+  identitySettings: IdentitySettings
   animationSpeed: AnimationSpeed
 }
+
+export interface IdentitySettings {
+  enabled: boolean
+  disabledIdentityIds: IdentityId[]
+  gamblerCorrectBonusMultiplier: number
+  gamblerSkipPenaltyMultiplier: number
+  assassinSuccessCoins: number
+  assassinFailureCoins: number
+  thiefSuccessProbability: number
+  thiefMaxSteals: number
+  merchantInitialOfferCount: number
+  lobbyistFirstRoundFree: boolean
+  lobbyistFeeCoins: number
+  lobbyistFailurePaymentCoins: number
+}
+
+export interface PlayerIdentity {
+  id: IdentityId
+  targetPlayerId?: string
+  collectorCategory?: AssetCategory
+  thiefSuccesses: number
+  merchantAuctionUsed: boolean
+  lobbyistNextFree: boolean
+  lobbyistLastIssuedRound: number | null
+}
+
+export interface IdentityDraftState {
+  playerIndex: number
+  choiceIds: IdentityId[]
+  selectedIdentityId?: IdentityId
+  merchantCardOfferIds?: CardId[]
+}
+
+export interface IdentityNotice {
+  id: string
+  playerId: string
+  title: string
+  detail: string
+}
+
+export interface IdentityEvent {
+  playerId: string
+  identityId: IdentityId
+  roundIndex: number | null
+  title: string
+  detail: string
+  deltaUnits: number
+}
+
+export interface LobbyistContract {
+  id: string
+  issuerId: string
+  targetPlayerId: string
+  taskType: LobbyistTaskType
+  comparisonPlayerId?: string
+  issuedRoundIndex: number
+  executeRoundIndex: number
+  status: 'pending' | 'success' | 'failed'
+  paymentUnits: number
+}
+
+export interface MerchantAuction {
+  merchantId: string
+  cardId: CardId
+  roundIndex: number
+  bidderIndex: number
+  bids: Array<{ playerId: string; bidUnits: number }>
+}
+
+export type IdentityAction =
+  | { type: 'merchantAuction' }
+  | { type: 'lobbyistContract'; targetPlayerId: string; taskType: LobbyistTaskType; comparisonPlayerId?: string }
 
 export interface Item {
   id: string
@@ -63,6 +144,7 @@ export interface Player {
   balanceUnits: number
   items: WonItem[]
   cardInventory: CardId[]
+  identity?: PlayerIdentity
 }
 
 export interface RoundTurn {
@@ -70,6 +152,7 @@ export interface RoundTurn {
   bidUnits: number
   predictedPlayerId: string | null
   cardUse?: CardUse
+  identityAction?: IdentityAction
 }
 
 export interface RankingEntry {
@@ -78,6 +161,7 @@ export interface RankingEntry {
   bidUnits: number
   actualBidUnits: number
   rewardUnits: number
+  publicRewardUnits: number
 }
 
 export type PredictionStatus = 'skipped' | 'correct' | 'wrong'
@@ -94,6 +178,7 @@ export interface PlayerRoundDelta {
   rewardUnits: number
   predictionUnits: number
   cardUnits: number
+  identityUnits: number
   publicDeltaUnits: number
 }
 
@@ -114,10 +199,11 @@ export interface RoundResult {
   balanceLeaderIds: string[]
   deltas: PlayerRoundDelta[]
   balancesAfter: Record<string, number>
+  identityEvents: IdentityEvent[]
 }
 
 export interface GameSession {
-  version: 3
+  version: 4
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -125,6 +211,13 @@ export interface GameSession {
   itemDeck: Item[]
   cardDeck: CardId[]
   pendingCardGrants: CardGrant[]
+  identityAvailableIds: IdentityId[]
+  identityDraft: IdentityDraftState | null
+  pendingIdentityCardAwards: Array<{ playerId: string; cardId: CardId }>
+  pendingIdentityNotices: IdentityNotice[]
+  identityContracts: LobbyistContract[]
+  identityEvents: IdentityEvent[]
+  merchantAuction: MerchantAuction | null
   cardRulesStartRound: number
   fairnessOrderIds: string[]
   roundIndex: number

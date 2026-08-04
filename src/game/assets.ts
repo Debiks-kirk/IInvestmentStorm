@@ -29,15 +29,16 @@ export function fixedAssetCoins(category: AssetCategory, itemCount: number): num
   return config.tiers[2] + Math.max(0, itemCount - 4) * config.additionalUnit
 }
 
-export function calculateFixedAssets(items: WonItem[]): FixedAssetBreakdown[] {
+export function calculateFixedAssets(items: WonItem[], bonusCategory?: AssetCategory): FixedAssetBreakdown[] {
   const counts = new Map<AssetCategory, number>()
   for (const { item } of items) counts.set(item.category, (counts.get(item.category) ?? 0) + 1)
+  if (bonusCategory) counts.set(bonusCategory, (counts.get(bonusCategory) ?? 0) + 1)
   return ASSET_CATEGORY_CONFIGS.map((config) => {
     const itemCount = counts.get(config.category) ?? 0
     return { category: config.category, itemCount, units: fixedAssetCoins(config.category, itemCount) * COIN_UNITS }
   })
 }
 
-export function fixedAssetTotalUnits(items: WonItem[]): number {
-  return calculateFixedAssets(items).reduce((total, entry) => total + entry.units, 0)
+export function fixedAssetTotalUnits(items: WonItem[], bonusCategory?: AssetCategory): number {
+  return calculateFixedAssets(items, bonusCategory).reduce((total, entry) => total + entry.units, 0)
 }

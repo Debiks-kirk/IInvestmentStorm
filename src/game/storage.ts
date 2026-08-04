@@ -1,6 +1,7 @@
 import { createCardDeck } from './cards'
 import { normalizeItem } from './items'
 import { cloneSettings } from './presets'
+import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
 import type { CardId, GamePreset, GameSession, GameSettings, Player, RoundResult } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
@@ -20,10 +21,13 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4)) return null
     const migrated = migrateSession(parsed)
-    const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const } : migrated
-    if (parsed.version !== 3 || migrated.phase !== safeSession.phase) saveSession(safeSession)
+    const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
+      : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
+        : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
+          : migrated
+    if (parsed.version !== 4 || migrated.phase !== safeSession.phase) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -44,26 +48,48 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     cardGrantProbability: oldSettings.cardGrantProbability ?? 80,
     disabledCardIds: (oldSettings.disabledCardIds ?? []) as CardId[],
     animationSpeed: oldSettings.animationSpeed ?? 'full',
+    identitySettings: session.version === 4 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
-  const players = (session.players ?? []).map((player) => ({
-    ...(player as Player),
-    items: ((player as Player).items ?? []).map((won) => ({ ...won, item: normalizeItem(won.item) })),
-    cardInventory: [...((player as Player).cardInventory ?? [])],
-  }))
+  const players: Player[] = (session.players ?? []).map((player) => {
+    const legacy = player as Player
+    const identity = legacy.identity
+    return {
+      ...legacy,
+      items: (legacy.items ?? []).map((won) => ({ ...won, item: normalizeItem(won.item) })),
+      cardInventory: [...(legacy.cardInventory ?? [])],
+      identity: identity ? {
+        id: identity.id,
+        targetPlayerId: identity.targetPlayerId,
+        collectorCategory: identity.collectorCategory,
+        thiefSuccesses: identity.thiefSuccesses ?? 0,
+        merchantAuctionUsed: identity.merchantAuctionUsed ?? false,
+        lobbyistNextFree: identity.lobbyistNextFree ?? false,
+        lobbyistLastIssuedRound: identity.lobbyistLastIssuedRound ?? null,
+      } : undefined,
+    }
+  })
   const results = ((session.results ?? []) as RoundResult[]).map((result) => ({
     ...result,
     item: normalizeItem(result.item),
     redistributionTransferUnits: result.redistributionTransferUnits ?? null,
+    identityEvents: result.identityEvents ?? [],
   }))
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 3,
+    version: 4,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
     results,
     cardDeck: [...(session.cardDeck ?? createCardDeck(settings.disabledCardIds))],
     pendingCardGrants: [...(session.pendingCardGrants ?? [])],
+    identityAvailableIds: [...(session.identityAvailableIds ?? enabledIdentityIds(settings.identitySettings))],
+    identityDraft: session.identityDraft ?? (settings.identitySettings.enabled && (session.roundIndex ?? 0) === 0 && !players.some((player) => player.identity) ? { playerIndex: 0, choiceIds: dealIdentityChoices(enabledIdentityIds(settings.identitySettings), settings.identitySettings) } : null),
+    pendingIdentityCardAwards: [...(session.pendingIdentityCardAwards ?? [])],
+    pendingIdentityNotices: [...(session.pendingIdentityNotices ?? [])],
+    identityContracts: [...(session.identityContracts ?? [])],
+    identityEvents: [...(session.identityEvents ?? [])],
+    merchantAuction: session.merchantAuction ?? null,
     cardRulesStartRound: session.cardRulesStartRound ?? Math.max((session.roundIndex ?? 0) + 1, 1),
   }
   return migrated

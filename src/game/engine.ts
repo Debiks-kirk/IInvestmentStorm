@@ -1,9 +1,12 @@
 import { calculateFixedAssets } from './assets'
+import { defaultIdentitySettings, taskLabel } from './identities'
 import type {
   CardEffect,
   CardId,
   FinalStanding,
   GameSettings,
+  IdentityEvent,
+  IdentitySettings,
   Item,
   Player,
   PlayerRoundDelta,
@@ -11,6 +14,7 @@ import type {
   RankingEntry,
   RoundResult,
   RoundTurn,
+  LobbyistContract,
 } from './types'
 
 export const COIN_UNIT = 2
@@ -60,6 +64,8 @@ interface SettlementInput {
   correctPredictionMultiplier: number
   wrongPredictionMultiplier: number
   fairnessOrderIds: string[]
+  identitySettings?: IdentitySettings
+  identityContracts?: LobbyistContract[]
 }
 
 function rotate<T>(values: T[], amount: number): T[] {
@@ -101,18 +107,22 @@ function valueFactor(turns: RoundTurn[]): number {
   }, 1)
 }
 
-export function settleRound(input: SettlementInput): { players: Player[]; result: RoundResult } {
+export function settleRound(input: SettlementInput): { players: Player[]; result: RoundResult; identityContracts: LobbyistContract[]; identityEvents: IdentityEvent[] } {
   const { playersAfterBids, turns, item, roundIndex, rewardMultipliers, correctPredictionMultiplier, wrongPredictionMultiplier, fairnessOrderIds } = input
-  const players = playersAfterBids.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory] }))
+  const identitySettings = input.identitySettings ?? defaultIdentitySettings(false)
+  const identityContracts = (input.identityContracts ?? []).map((contract) => ({ ...contract }))
+  const players = playersAfterBids.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
   const playerById = new Map(players.map((player) => [player.id, player]))
   const deltaByPlayer = new Map<string, PlayerRoundDelta>(players.map((player) => [player.id, {
     playerId: player.id,
     rewardUnits: 0,
     predictionUnits: 0,
     cardUnits: 0,
+    identityUnits: 0,
     publicDeltaUnits: 0,
   }]))
   const cardEffects: CardEffect[] = []
+  const identityEvents: IdentityEvent[] = []
 
   let redistributionTransferUnits: number | null = null
   const redistributionUse = turns.find((turn) => turn.cardUse?.cardId === 'redistribute')
@@ -169,22 +179,28 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   for (const turn of rankingTurns) bidCounts.set(turn.rankingBidUnits, (bidCounts.get(turn.rankingBidUnits) ?? 0) + 1)
   const sortedUniqueTurns = rankingTurns.filter((turn) => bidCounts.get(turn.rankingBidUnits) === 1).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)
   const tiedPlayerIds = rankingTurns.filter((turn) => (bidCounts.get(turn.rankingBidUnits) ?? 0) > 1).map((turn) => turn.playerId)
-  const rankings: RankingEntry[] = sortedUniqueTurns.slice(0, rewardMultipliers.length).map((turn, index) => ({
-    playerId: turn.playerId,
-    place: index + 1,
-    bidUnits: turn.rankingBidUnits,
-    actualBidUnits: turn.bidUnits,
-    rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]),
-  }))
+  const rankings: RankingEntry[] = sortedUniqueTurns.slice(0, rewardMultipliers.length).map((turn, index) => {
+    const player = playerById.get(turn.playerId)
+    const place = index + 1
+    const identityRewardIndex = player?.identity?.id === 'reverser' ? (place === 1 ? rewardMultipliers.length - 1 : place - 2) : index
+    return { playerId: turn.playerId, place, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[identityRewardIndex]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }
+  })
   const winnerId = sortedUniqueTurns[0]?.playerId ?? null
+  const reverserSecond = rankings.find((ranking) => ranking.place === 2 && playerById.get(ranking.playerId)?.identity?.id === 'reverser')
+  const itemWinnerId = reverserSecond?.playerId ?? winnerId
 
   for (const ranking of rankings) {
     const player = playerById.get(ranking.playerId)
     const delta = deltaByPlayer.get(ranking.playerId)
     if (!player || !delta) continue
     player.balanceUnits += ranking.rewardUnits
-    delta.rewardUnits += ranking.rewardUnits
-    if (ranking.place === 1) player.items.push({ item, roundIndex })
+    delta.rewardUnits += ranking.publicRewardUnits
+    if (ranking.rewardUnits !== ranking.publicRewardUnits) {
+      const hiddenChange = ranking.rewardUnits - ranking.publicRewardUnits
+      delta.identityUnits += hiddenChange
+      identityEvents.push({ playerId: player.id, identityId: 'reverser', roundIndex, title: '逆行者奖励重排', detail: `实际获得 ${formatCoins(ranking.rewardUnits)} 金币。`, deltaUnits: hiddenChange })
+    }
+    if (ranking.playerId === itemWinnerId) player.items.push({ item, roundIndex })
   }
 
   const predictionOutcomes: PredictionOutcome[] = []
@@ -194,6 +210,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const delta = deltaByPlayer.get(turn.playerId)
     if (!player || !delta) continue
     if (turn.predictedPlayerId === null) {
+      if (player.identity?.id === 'gambler') {
+        const due = floorToHalfUnits(effectiveValueUnits * identitySettings.gamblerSkipPenaltyMultiplier)
+        const paid = Math.min(player.balanceUnits, due)
+        player.balanceUnits -= paid
+        delta.identityUnits -= paid
+        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '跳过预测', detail: `支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+      }
       predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: null, status: 'skipped', deltaUnits: 0 })
     } else if (winnerId !== null && turn.predictedPlayerId === winnerId) {
       correctTurns.push(turn)
@@ -229,6 +252,80 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     }
   }
 
+  for (const turn of correctTurns) {
+    const player = playerById.get(turn.playerId)
+    const delta = deltaByPlayer.get(turn.playerId)
+    if (!player || !delta || player.identity?.id !== 'gambler') continue
+    const bonus = floorToHalfUnits(effectiveValueUnits * identitySettings.gamblerCorrectBonusMultiplier)
+    player.balanceUnits += bonus
+    delta.identityUnits += bonus
+    identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '预测加注奖励', detail: `猜中额外获得 ${formatCoins(bonus)} 金币。`, deltaUnits: bonus })
+  }
+
+  for (const turn of turns) {
+    const player = playerById.get(turn.playerId)
+    const delta = deltaByPlayer.get(turn.playerId)
+    if (!player || !delta || player.identity?.id !== 'assassin' || !player.identity.targetPlayerId) continue
+    const targetTurn = turns.find((candidate) => candidate.playerId === player.identity?.targetPlayerId)
+    const success = Boolean(targetTurn && turn.bidUnits > targetTurn.bidUnits)
+    const amount = coinsToUnits(success ? identitySettings.assassinSuccessCoins : identitySettings.assassinFailureCoins)
+    const paid = success ? amount : Math.min(player.balanceUnits, amount)
+    player.balanceUnits += success ? paid : -paid
+    delta.identityUnits += success ? paid : -paid
+    identityEvents.push({ playerId: player.id, identityId: 'assassin', roundIndex, title: success ? '刺客得手' : '刺客失手', detail: success ? `投资超过目标，获得 ${formatCoins(paid)} 金币。` : `投资未超过目标，失去 ${formatCoins(paid)} 金币。`, deltaUnits: success ? paid : -paid })
+  }
+
+  const executable = identityContracts.filter((contract) => contract.status === 'pending' && contract.executeRoundIndex === roundIndex)
+  const turnById = new Map(turns.map((turn) => [turn.playerId, turn]))
+  const rankingIds = new Set(rankings.map((ranking) => ranking.playerId))
+  const failedContracts: LobbyistContract[] = []
+  for (const contract of executable) {
+    const own = turnById.get(contract.targetPlayerId)
+    const comparison = contract.comparisonPlayerId ? turnById.get(contract.comparisonPlayerId) : undefined
+    const success = contract.taskType === 'outbid' ? Boolean(own && comparison && own.bidUnits > comparison.bidUnits)
+      : contract.taskType === 'underbid' ? Boolean(own && comparison && own.bidUnits < comparison.bidUnits)
+        : contract.taskType === 'avoidPrize' ? !rankingIds.has(contract.targetPlayerId)
+          : winnerId === contract.targetPlayerId
+    contract.status = success ? 'success' : 'failed'
+    if (success) {
+      identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务完成', detail: taskLabel(contract.taskType), deltaUnits: 0 })
+      continue
+    }
+    failedContracts.push(contract)
+  }
+
+  const failedByTarget = new Map<string, LobbyistContract[]>()
+  for (const contract of failedContracts) {
+    const existing = failedByTarget.get(contract.targetPlayerId) ?? []
+    existing.push(contract)
+    failedByTarget.set(contract.targetPlayerId, existing)
+  }
+  const fairRank = new Map(rotate(fairnessOrderIds, roundIndex).map((id, index) => [id, index]))
+  const due = coinsToUnits(identitySettings.lobbyistFailurePaymentCoins)
+  for (const [targetId, contracts] of failedByTarget) {
+    const target = playerById.get(targetId)
+    const totalAvailable = Math.min(target?.balanceUnits ?? 0, due * contracts.length)
+    const ordered = [...contracts].sort((left, right) => (fairRank.get(left.issuerId) ?? Number.MAX_SAFE_INTEGER) - (fairRank.get(right.issuerId) ?? Number.MAX_SAFE_INTEGER))
+    const basePayment = Math.floor(totalAvailable / ordered.length)
+    const remainder = totalAvailable % ordered.length
+    if (target) {
+      target.balanceUnits -= totalAvailable
+      ;(deltaByPlayer.get(target.id) as PlayerRoundDelta).identityUnits -= totalAvailable
+    }
+    ordered.forEach((contract, index) => {
+      const paid = basePayment + (index < remainder ? 1 : 0)
+      const issuer = playerById.get(contract.issuerId)
+      if (issuer) {
+        issuer.balanceUnits += paid
+        ;(deltaByPlayer.get(issuer.id) as PlayerRoundDelta).identityUnits += paid
+        if (issuer.identity?.id === 'lobbyist') issuer.identity.lobbyistNextFree = true
+      }
+      contract.paymentUnits = paid
+      identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务未完成', detail: `${taskLabel(contract.taskType)}，支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+      identityEvents.push({ playerId: contract.issuerId, identityId: 'lobbyist', roundIndex, title: '收到违约款', detail: `获得 ${formatCoins(paid)} 金币。`, deltaUnits: paid })
+    })
+  }
+
   const outcomeOrder = new Map(turns.map((turn, index) => [turn.playerId, index]))
   predictionOutcomes.sort((left, right) => (outcomeOrder.get(left.playerId) ?? 0) - (outcomeOrder.get(right.playerId) ?? 0))
   const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
@@ -254,13 +351,14 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     balanceLeaderIds,
     deltas,
     balancesAfter: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
+    identityEvents,
   }
-  return { players, result }
+  return { players, result, identityContracts, identityEvents }
 }
 
 export function rankFinalPlayers(players: Player[]): FinalStanding[] {
   const enriched = players.map((player) => {
-    const fixedAssets = calculateFixedAssets(player.items)
+    const fixedAssets = calculateFixedAssets(player.items, player.identity?.id === 'collector' && player.identity.collectorCategory ? player.identity.collectorCategory : undefined)
     const fixedAssetUnits = fixedAssets.reduce((total, entry) => total + entry.units, 0)
     return { player, cashUnits: player.balanceUnits, fixedAssetUnits, totalAssetUnits: player.balanceUnits + fixedAssetUnits, fixedAssets }
   }).sort((left, right) => right.totalAssetUnits - left.totalAssetUnits)

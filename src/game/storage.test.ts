@@ -49,7 +49,8 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(3)
+    expect(migrated?.version).toBe(4)
+    expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.itemDeck[0].category).toBeTruthy()
     expect(migrated?.players[0].items[0].item.category).toBeTruthy()
