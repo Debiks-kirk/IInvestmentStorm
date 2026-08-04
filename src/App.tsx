@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig } from './game/assets'
 import { CARD_DEFINITIONS, getCardDefinition } from './game/cards'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
@@ -269,19 +269,6 @@ function RoundIntro({ session, onContinue }: { session: GameSession; onContinue:
   )
 }
 
-function HoldButton({ onComplete, children }: { onComplete: () => void; children: ReactNode }) {
-  const [holding, setHolding] = useState(false)
-  const timer = useRef<number | null>(null)
-  const clear = () => { if (timer.current) window.clearTimeout(timer.current); timer.current = null; setHolding(false) }
-  const start = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId)
-    setHolding(true)
-    timer.current = window.setTimeout(() => { setHolding(false); onComplete() }, 750)
-  }
-  useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current) }, [])
-  return <button className={cx('hold-button', holding && 'is-holding')} onPointerDown={start} onPointerUp={clear} onPointerCancel={clear} onContextMenu={(event) => event.preventDefault()}><span>{children}</span><i /></button>
-}
-
 function Handoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
   const player = session.players[session.currentTurnIndex]
   return (
@@ -289,9 +276,9 @@ function Handoff({ session, onReady }: { session: GameSession; onReady: () => vo
       <div className="privacy-seal"><span>私</span></div>
       <p className="eyebrow">请把设备交给</p>
       <h1 style={{ color: player.color }}>{player.name}</h1>
-      <p className="lead">其他人请移开视线。准备好后，由本人长按进入。</p>
-      <HoldButton onComplete={onReady}>长按进入私密操作</HoldButton>
-      <small className="privacy-note">松手或滑开可以取消</small>
+      <p className="lead">其他人请移开视线。准备好后，由本人点击进入。</p>
+      <button className="handoff-enter" onClick={onReady}>进入私密操作 <span>→</span></button>
+      <small className="privacy-note">点击后请立即开始自己的私密操作</small>
     </section>
   )
 }
@@ -308,21 +295,9 @@ function BalanceReveal({ units }: { units: number }) {
 
 function IdentityReveal() {
   const [detailOpen, setDetailOpen] = useState(false)
-  const holdTimer = useRef<number | null>(null)
-  const clearHold = () => {
-    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current)
-    holdTimer.current = null
-  }
-  const startHold = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId)
-    holdTimer.current = window.setTimeout(() => {
-      holdTimer.current = null
-      setDetailOpen(true)
-    }, 650)
-  }
   return <>
-    <button className="identity-reveal" aria-label="长按查看身份详情" onPointerDown={startHold} onPointerUp={clearHold} onPointerCancel={clearHold} onContextMenu={(event) => event.preventDefault()}>
-      <span><small>身份已隐藏</small><strong>长按查看身份</strong></span><i aria-hidden="true">?</i>
+    <button className="identity-reveal" aria-label="查看身份详情" onClick={() => setDetailOpen(true)}>
+      <span><small>身份已隐藏</small><strong>点击查看身份</strong></span><i aria-hidden="true">?</i>
     </button>
     {detailOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-detail-title"><div className="identity-detail-sheet"><span className="identity-detail-mark">?</span><p className="eyebrow">仅自己可见</p><h2 id="identity-detail-title">身份档案</h2><div className="identity-detail-placeholder"><small>当前身份</small><strong>身份系统即将开放</strong><p>这里将展示身份名称、背景、被动效果、主动技能与使用限制。</p></div><button className="button button--primary" onClick={() => setDetailOpen(false)}>收起身份详情</button></div></div>}
   </>

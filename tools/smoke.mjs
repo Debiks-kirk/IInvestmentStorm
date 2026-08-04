@@ -31,10 +31,9 @@ async function waitForServer() {
   throw new Error('Vite 开发服务器未能按时启动。')
 }
 
-async function holdToEnter(page) {
-  const button = page.getByRole('button', { name: '长按进入私密操作' })
-  await button.dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 0 })
-  await page.waitForTimeout(820)
+async function enterPrivateTurn(page) {
+  const button = page.getByRole('button', { name: '进入私密操作' })
+  await button.click()
   await page.getByText('你的回合', { exact: true }).waitFor()
 }
 
@@ -59,7 +58,7 @@ async function startRound(page) {
 }
 
 async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard = false) {
-  await holdToEnter(page)
+  await enterPrivateTurn(page)
   if (predictionIndex !== null) await page.locator('.prediction-list button').nth(predictionIndex).click()
   if (useCard) {
     await page.locator('.card-choice').first().click()
@@ -88,17 +87,11 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await startRound(page)
 
   for (let index = 0; index < playerCount; index += 1) {
-    await holdToEnter(page)
+    await enterPrivateTurn(page)
     if (index === 0) {
       await assertNoHorizontalOverflow(page, `${playerCount} 人私密操作页`)
-      const identityButton = page.getByRole('button', { name: '长按查看身份详情' })
-      await identityButton.scrollIntoViewIfNeeded()
-      const identityBox = await identityButton.boundingBox()
-      if (!identityBox) throw new Error('未能定位身份详情长按入口。')
-      await page.mouse.move(identityBox.x + identityBox.width / 2, identityBox.y + identityBox.height / 2)
-      await page.mouse.down()
-      await page.waitForTimeout(700)
-      await page.mouse.up()
+      const identityButton = page.getByRole('button', { name: '查看身份详情' })
+      await identityButton.click()
       await page.getByText('身份档案', { exact: true }).waitFor()
       await page.getByRole('button', { name: '收起身份详情' }).click()
       await page.getByText('身份技能', { exact: true }).waitFor()
@@ -107,7 +100,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
       await page.reload()
       await page.getByRole('button', { name: /继续第 1 轮/ }).click()
       await page.getByText('请把设备交给', { exact: true }).waitFor()
-      await holdToEnter(page)
+      await enterPrivateTurn(page)
     }
     await setRange(page.getByLabel('秘密下注'), index + 1)
     await page.getByRole('button', { name: '确认我的选择' }).click()
@@ -142,14 +135,14 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: /进入下一轮/ }).click()
   await startRound(page)
   await submitPrivateTurn(page, 2)
-  await holdToEnter(page)
+  await enterPrivateTurn(page)
   await page.getByText('我的固定资产', { exact: true }).waitFor()
   if (await page.locator('.private-asset-row').count() < 1) throw new Error('已拍下物品的玩家未看到自己的固定资产分类。')
   await assertNoHorizontalOverflow(page, '私密固定资产页')
   await setRange(page.getByLabel('秘密下注'), 4)
   await page.getByRole('button', { name: '确认我的选择' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
-  await holdToEnter(page)
+  await enterPrivateTurn(page)
   await page.getByText(/你获得了/).waitFor()
   await page.screenshot({ path: '.artifacts/card-private-mobile.png', fullPage: true })
   await page.getByRole('button', { name: '收下道具卡' }).click()
