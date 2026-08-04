@@ -737,7 +737,7 @@ function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: Ga
     const duration = session.settings.animationSpeed === 'fast' ? 420 : 820
     const timer = window.setTimeout(() => setRevealedCount((count) => Math.min(standings.length, count + 1)), duration)
     return () => window.clearTimeout(timer)
-  }, [fullyRevealed, reducedMotion, session.settings.animationSpeed, standings.length])
+  }, [fullyRevealed, reducedMotion, revealedCount, session.settings.animationSpeed, standings.length])
 
   const standingCard = (standing: ReturnType<typeof rankFinalPlayers>[number], index: number) => <article key={standing.player.id} className={cx(standing.place === 1 && 'is-first')} style={{ '--delay': `${index * 90}ms`, '--player-color': standing.player.color } as React.CSSProperties}><span className="standing-place">{standing.place}</span><div className="standing-avatar">{standing.player.name.slice(0, 1)}</div><div className="standing-copy"><strong>{standing.player.name}</strong><small>{standing.player.items.length > 0 ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有收藏品'}</small>{standing.fixedAssets.some((asset) => asset.units > 0) && <div className="asset-breakdown">{standing.fixedAssets.filter((asset) => asset.units > 0).map((asset) => <span key={asset.category}>{ASSET_CATEGORY_CONFIGS.find((entry) => entry.category === asset.category)?.symbol} {categoryConfig(asset.category).name} {asset.itemCount} 件 +{formatCoins(asset.units)}</span>)}</div>}</div><div className="standing-balance"><CoinValue units={standing.totalAssetUnits} /><small>总资产</small><span>现金 {formatCoins(standing.cashUnits)} · 固定资产 +{formatCoins(standing.fixedAssetUnits)}</span></div></article>
 

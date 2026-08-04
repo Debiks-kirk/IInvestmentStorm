@@ -51,7 +51,11 @@ async function assertNoHorizontalOverflow(page, label) {
   if (sizes.scrollWidth > sizes.width) throw new Error(`${label} 存在横向溢出：${sizes.scrollWidth}px > ${sizes.width}px。`)
 }
 
-async function finishFinalReveal(page) {
+async function finishFinalReveal(page, expectedCount, waitForAnimation = false) {
+  if (waitForAnimation) {
+    await page.locator('.podium-list article').nth(expectedCount - 1).waitFor({ timeout: 8000 })
+    return
+  }
   const skip = page.getByRole('button', { name: '跳过揭晓' })
   if (await skip.count() > 0) await skip.click()
 }
@@ -113,7 +117,7 @@ async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard
   await page.getByRole('button', { name: '确定提交' }).click()
 }
 
-async function runGame(page, playerCount, verifyPrivateRestore = false) {
+async function runGame(page, playerCount, verifyPrivateRestore = false, motion = 'reduced') {
   await page.goto('http://127.0.0.1:5181')
   await page.evaluate(() => localStorage.clear())
   await page.reload()
@@ -124,7 +128,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await page.getByRole('button', { name: /高级设置/ }).click()
   await disableIdentities(page)
   await disableFirstRoundSystemAuction(page)
-  await page.locator('#motion').selectOption('reduced')
+  await page.locator('#motion').selectOption(motion)
   await assertNoHorizontalOverflow(page, `${playerCount} 人设置页`)
   if (playerCount === 10) await page.screenshot({ path: '.artifacts/setup-10-mobile.png', fullPage: true })
   await page.getByRole('button', { name: /开始这局/ }).click()
@@ -157,7 +161,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await assertNoHorizontalOverflow(page, `${playerCount} 人结算页`)
   await page.getByRole('button', { name: /查看最终排行榜/ }).click()
   await page.getByText('全局结束', { exact: true }).waitFor()
-  await finishFinalReveal(page)
+  await finishFinalReveal(page, playerCount, motion !== 'reduced')
   await assertNoHorizontalOverflow(page, `${playerCount} 人终局页`)
   const standings = page.locator('.podium-list article')
   if (await standings.count() !== playerCount) throw new Error(`${playerCount} 人局最终榜人数不正确。`)
@@ -479,7 +483,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
   await runGame(page, 3, true)
-  await runGame(page, 6)
+  await runGame(page, 6, false, 'fast')
   await runGame(page, 10)
   await runTutorialFlow(page)
   await runCardFlow(page)
