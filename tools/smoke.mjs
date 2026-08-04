@@ -247,6 +247,46 @@ async function runIdentityFlow(page) {
   await page.getByText('身份公开', { exact: true }).waitFor()
 }
 
+async function runLobbyistTaskFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('2')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
+  await page.locator('#motion').selectOption('reduced')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.evaluate(() => {
+    const raw = localStorage.getItem('who-is-raising:session:v1')
+    if (!raw) throw new Error('未找到说客测试对局')
+    const session = JSON.parse(raw)
+    session.players[0].identity = { id: 'lobbyist', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    localStorage.setItem('who-is-raising:session:v1', JSON.stringify(session))
+  })
+  await page.reload()
+  await page.getByRole('button', { name: /继续第 1 轮/ }).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  await page.getByRole('button', { name: '选择任务卡' }).click()
+  await page.getByText('选择要发布的任务', { exact: true }).waitFor()
+  await page.getByRole('button', { name: /获得第二名/ }).click()
+  await page.getByText('选择任务对象', { exact: true }).waitFor()
+  await page.locator('.target-picker-grid button').first().click()
+  await page.getByRole('button', { name: /已安排：获得第二名/ }).waitFor()
+  await page.getByRole('button', { name: /已安排：获得第二名/ }).click()
+  await page.getByRole('button', { name: '选择任务卡' }).click()
+  await page.getByRole('button', { name: /下注高于某人/ }).click()
+  await page.locator('.target-picker-grid button').first().click()
+  await page.getByText('选择比较对象', { exact: true }).waitFor()
+  const comparisonCards = page.locator('.target-picker-grid button')
+  if (await comparisonCards.count() < 2) throw new Error('说客的比较对象应包含说客本人和其他非任务对象玩家。')
+  await comparisonCards.first().click()
+  await page.getByRole('button', { name: /已安排：下注高于某人/ }).waitFor()
+  await assertNoHorizontalOverflow(page, '说客任务卡与人物卡流程')
+}
+
 async function runAssetFinalFlow(page) {
   await page.goto('http://127.0.0.1:5181')
   await page.evaluate(() => {
@@ -348,6 +388,7 @@ try {
   await runFirstPlayerBananaFlow(page)
   await runPresetFlow(page)
   await runIdentityFlow(page)
+  await runLobbyistTaskFlow(page)
   await runAssetFinalFlow(page)
   await runBotSpectatorFlow(page)
   await page.setViewportSize({ width: 1366, height: 768 })

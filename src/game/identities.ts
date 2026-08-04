@@ -89,14 +89,34 @@ export function createPlayerIdentity(id: IdentityId, config: { targetPlayerId?: 
   return { id, ...config, thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
 }
 
+export interface LobbyistTaskDefinition {
+  type: LobbyistTaskType
+  label: string
+  detail: string
+  needsComparison?: boolean
+}
+
+export const LOBBYIST_TASKS: LobbyistTaskDefinition[] = [
+  { type: 'winFirst', label: '拿到第一名', detail: '本轮结算时成为唯一第一名。' },
+  { type: 'winSecond', label: '获得第二名', detail: '本轮结算时位列第二名。' },
+  { type: 'avoidPrize', label: '不进入获奖区', detail: '本轮不要获得任何排名奖励。' },
+  { type: 'bidZero', label: '保持观望', detail: '本轮实际下注必须为 0。' },
+  { type: 'outbid', label: '下注高于某人', detail: '本轮实际下注必须严格高于指定玩家。', needsComparison: true },
+  { type: 'underbid', label: '下注低于某人', detail: '本轮实际下注必须严格低于指定玩家。', needsComparison: true },
+]
+
 export function taskLabel(type: LobbyistTaskType): string {
-  return { outbid: '下注高于指定玩家', underbid: '下注低于指定玩家', avoidPrize: '不进入获奖区', winFirst: '拿到第一名' }[type]
+  return LOBBYIST_TASKS.find((task) => task.type === type)?.label ?? type
+}
+
+export function taskRequiresComparison(type: LobbyistTaskType): boolean {
+  return Boolean(LOBBYIST_TASKS.find((task) => task.type === type)?.needsComparison)
 }
 
 export function randomLobbyistTask(playerIds: string[], targetPlayerId: string, roll = Math.random): { taskType: LobbyistTaskType; comparisonPlayerId?: string } {
-  const taskTypes: LobbyistTaskType[] = ['outbid', 'underbid', 'avoidPrize', 'winFirst']
+  const taskTypes = LOBBYIST_TASKS.map((task) => task.type)
   const taskType = taskTypes[Math.min(taskTypes.length - 1, Math.floor(roll() * taskTypes.length))]
-  if (taskType !== 'outbid' && taskType !== 'underbid') return { taskType }
+  if (!taskRequiresComparison(taskType)) return { taskType }
   const comparisonIds = playerIds.filter((id) => id !== targetPlayerId)
   if (comparisonIds.length === 0) return { taskType: 'avoidPrize' }
   return { taskType, comparisonPlayerId: comparisonIds[Math.min(comparisonIds.length - 1, Math.floor(roll() * comparisonIds.length))] }

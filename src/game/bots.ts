@@ -2,7 +2,7 @@ import { calculateFixedAssets } from './assets'
 import { getCardDefinition } from './cards'
 import { coinsToUnits } from './engine'
 import { getIdentityDefinition } from './identities'
-import type { AssetCategory, BotDifficulty, BotMemory, BotProfileId, CardId, CardUse, GameSession, IdentityAction, IdentityId, Player, StrategyMode } from './types'
+import type { AssetCategory, BotDifficulty, BotMemory, BotProfileId, CardId, CardUse, GameSession, IdentityAction, IdentityId, LobbyistTaskType, Player, StrategyMode } from './types'
 
 export interface BotProfile {
   id: BotProfileId
@@ -87,7 +87,7 @@ export interface BotObservation {
   publicRounds: PublicRoundObservation[]
   balanceEstimates: CashEstimate[]
   cardDeckSize: number
-  activeTask?: { type: 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst'; comparisonPlayerId?: string }
+  activeTask?: { type: LobbyistTaskType; comparisonPlayerId?: string }
   nextItem?: GameSession['itemDeck'][number]
   intel?: { playerId: string; lowUnits: number; highUnits: number }
   legalPeek?: { playerId: string; bidUnits: number }
@@ -249,6 +249,7 @@ function candidateBids(observation: BotObservation, mode: StrategyMode, rankingM
   }
   if (mode === 'comeback' || mode === 'finalSprint' || mode === 'pressure') values.add(budget)
   if (observation.activeTask?.type === 'avoidPrize') values.add(coinsToUnits(.5))
+  if (observation.activeTask?.type === 'bidZero') values.add(0)
   return [...values].filter((value) => value <= budget).sort((left, right) => left - right)
 }
 
@@ -257,6 +258,8 @@ function taskScore(observation: BotObservation, bidUnits: number, place: number)
   if (!task) return 0
   if (task.type === 'avoidPrize') return place > observation.rewardMultipliers.length ? coinsToUnits(3) : -coinsToUnits(3)
   if (task.type === 'winFirst') return place === 1 ? coinsToUnits(3) : -coinsToUnits(3)
+  if (task.type === 'winSecond') return place === 2 ? coinsToUnits(3) : -coinsToUnits(3)
+  if (task.type === 'bidZero') return bidUnits === 0 ? coinsToUnits(3) : -coinsToUnits(3)
   if (!task.comparisonPlayerId) return 0
   const targetBid = expectedCurrentBid(observation, task.comparisonPlayerId)
   if (task.type === 'outbid') return bidUnits > targetBid ? coinsToUnits(3) : -coinsToUnits(3)

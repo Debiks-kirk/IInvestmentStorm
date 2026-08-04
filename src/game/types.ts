@@ -43,7 +43,7 @@ export interface SeatConfig {
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
-export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst'
+export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
 
 export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
 

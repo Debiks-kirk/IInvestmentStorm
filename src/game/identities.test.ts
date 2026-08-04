@@ -102,9 +102,21 @@ describe('身份结算', () => {
     expect(gamblerEvents.map((event) => event.detail).join(' ')).toContain('结算页')
   })
 
-  it('说客默认任务随机且立即固定；指定任务由动作明确携带', () => {
-    expect(randomLobbyistTask(['issuer', 'target', 'other'], 'target', () => 0)).toEqual({ taskType: 'outbid', comparisonPlayerId: 'issuer' })
-    expect(randomLobbyistTask(['issuer', 'target', 'other'], 'target', () => 0.7)).toEqual({ taskType: 'avoidPrize' })
+  it('说客默认任务随机且立即固定，并允许把说客本人作为下注比较对象', () => {
+    expect(randomLobbyistTask(['issuer', 'target', 'other'], 'target', () => 0)).toEqual({ taskType: 'winFirst' })
+    expect(randomLobbyistTask(['issuer', 'target', 'other'], 'target', () => .5)).toEqual({ taskType: 'bidZero' })
+    expect(randomLobbyistTask(['issuer', 'target', 'other'], 'target', (() => { const rolls = [.8, 0]; return () => rolls.shift() as number })())).toEqual({ taskType: 'outbid', comparisonPlayerId: 'issuer' })
+  })
+
+  it('说客的第二名与零下注任务按实际结算结果判定', () => {
+    const players = [player('lobbyist'), player('second'), player('first')]
+    players[0].identity = { id: 'lobbyist', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: 0 }
+    const contracts = [
+      { id: 'second', issuerId: 'lobbyist', targetPlayerId: 'second', taskType: 'winSecond' as const, specified: true, issuedRoundIndex: 0, executeRoundIndex: 1, status: 'pending' as const, paymentUnits: 0 },
+      { id: 'zero', issuerId: 'lobbyist', targetPlayerId: 'first', taskType: 'bidZero' as const, specified: true, issuedRoundIndex: 0, executeRoundIndex: 1, status: 'pending' as const, paymentUnits: 0 },
+    ]
+    const settled = settleRound({ playersAfterBids: players, turns: [turn('lobbyist', 1), turn('second', 5), turn('first', 8)], item, roundIndex: 1, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true), identityContracts: contracts })
+    expect(settled.identityContracts.map((contract) => contract.status)).toEqual(['success', 'failed'])
   })
 
   it('绑匪盯上的玩家拿下拍品时，报销费用并把拍品转给绑匪', () => {

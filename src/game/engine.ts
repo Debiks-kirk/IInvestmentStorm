@@ -375,10 +375,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   for (const contract of executable) {
     const own = turnById.get(contract.targetPlayerId)
     const comparison = contract.comparisonPlayerId ? turnById.get(contract.comparisonPlayerId) : undefined
+    const targetRanking = rankings.find((ranking) => ranking.playerId === contract.targetPlayerId)
     const success = contract.taskType === 'outbid' ? Boolean(own && comparison && own.bidUnits > comparison.bidUnits)
       : contract.taskType === 'underbid' ? Boolean(own && comparison && own.bidUnits < comparison.bidUnits)
         : contract.taskType === 'avoidPrize' ? !rankingIds.has(contract.targetPlayerId)
-          : winnerId === contract.targetPlayerId
+          : contract.taskType === 'winSecond' ? targetRanking?.place === 2
+            : contract.taskType === 'bidZero' ? own?.bidUnits === 0
+              : winnerId === contract.targetPlayerId
     contract.status = success ? 'success' : 'failed'
     if (success) {
       identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务完成', detail: `完成「${taskLabel(contract.taskType)}」，本轮无需支付违约款。`, deltaUnits: 0 })
