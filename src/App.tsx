@@ -386,7 +386,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const previousTurns = session.turns.filter((turn) => turn.playerId !== player.id)
   const targetPlayers = previousTurns.map((turn) => session.players.find((candidate) => candidate.id === turn.playerId)).filter(Boolean) as Player[]
   const selectedCard = selectedCardId ? getCardDefinition(selectedCardId) : null
-  const cardTargetPlayers = selectedCardId === 'swap' ? session.players.filter((candidate) => candidate.id !== player.id) : targetPlayers
+  const cardTargetPlayers = selectedCardId === 'swap' || selectedCardId === 'bananaPeel'
+    ? session.players.filter((candidate) => candidate.id !== player.id)
+    : targetPlayers
   const grant = session.pendingCardGrants.find((entry) => entry.playerId === player.id && !entry.announced)
   const peekedTurn = selectedCardId === 'peek' && selectedTargetId ? previousTurns.find((turn) => turn.playerId === selectedTargetId) : undefined
   const cardSlotsRemaining = 2 - confirmedCardUses.length
@@ -473,12 +475,12 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
         <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮还可使用 {cardSlotsRemaining} 张</span></div>
         {player.cardInventory.length === 0 ? <p className="empty-cards">暂时没有道具卡。落后时，下一轮可能得到秘密支援。</p> : <div className="card-list">{player.cardInventory.map((cardId) => {
           const card = getCardDefinition(cardId)
-          const unavailable = card.needsTarget && (cardId === 'swap' ? cardTargetPlayers.length === 0 : targetPlayers.length === 0)
+          const unavailable = card.needsTarget && cardTargetPlayers.length === 0
           const confirmed = confirmedCardUses.find((use) => use.cardId === cardId)
           const fateCoinLocked = cardId === 'fateCoin' && Boolean(confirmed)
           return <button key={cardId} className={cx('card-choice', (selectedCardId === cardId || confirmed) && 'is-selected')} disabled={fateCoinLocked || (!confirmed && (unavailable || cardSlotsRemaining === 0))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } if (card.needsTarget) { setSelectedCardId(cardId); setSelectedTargetId(null); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{confirmed ? fateCoinLocked ? '硬币结果已锁定，本轮不能重掷。' : '本轮已安排，点击取消。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(selectedCardId === cardId || confirmed) ? '✓' : ''}</i></button>
         })}</div>}
-        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择任意一名其他玩家，结算时交换排名金额'}</strong><div>{cardTargetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => { setSelectedTargetId(candidate.id); openCardConfirmation({ cardId: selectedCardId as CardId, targetPlayerId: candidate.id }) }}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
+        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : selectedCardId === 'bananaPeel' ? '选择一名其他玩家：其本轮下注会作废' : '选择任意一名其他玩家，结算时交换排名金额'}</strong><div>{cardTargetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => { setSelectedTargetId(candidate.id); openCardConfirmation({ cardId: selectedCardId as CardId, targetPlayerId: candidate.id }) }}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
       </section>
       <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{confirmedCardUses.length > 0 ? confirmedCardUses.map((use) => getCardDefinition(use.cardId).name).join('、') : '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCards || !lobbyActionValid} onClick={() => setConfirming(true)}>确认我的选择</button></div>
       {confirming && (
@@ -538,11 +540,14 @@ function DeltaLabel({ units }: { units: number }) {
 
 function RoundResults({ session, result, onNext }: { session: GameSession; result: RoundResult; onNext: () => void }) {
   const [skipMotion, setSkipMotion] = useState(session.settings.animationSpeed === 'reduced')
+  const [bananaNoticeOpen, setBananaNoticeOpen] = useState(true)
   const item = result.item
   const winner = session.players.find((player) => player.id === result.winnerId)
   const valueChanged = result.effectiveValueUnits !== item.value * 2
+  const bananaEffect = result.cardEffects.find((effect) => effect.cardId === 'bananaPeel')
   return (
     <section className={cx('results-page', skipMotion && 'skip-motion')}>
+      {bananaEffect && bananaNoticeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="banana-notice-title"><div className="card-grant-sheet"><span>🍌</span><p className="eyebrow">本轮意外</p><h2 id="banana-notice-title">香蕉皮！</h2><p>{bananaEffect.description}</p><small>这笔下注已按作废结果参与本轮结算。</small><button className="button button--primary" onClick={() => setBananaNoticeOpen(false)}>知道了</button></div></div>}
       <div className="results-hero">
         <div><p className="eyebrow">第 {result.roundIndex + 1} 轮 · 结果</p><h1>{winner ? <><em>{winner.name}</em> 拿下 {item.name}</> : <>本轮物品<em>流拍</em></>}</h1><p>{winner ? '唯一排名金额胜出，获得本轮第一名奖励。' : '没有产生唯一排名金额，物品无人获得。'}</p></div>
         <div className="result-prize"><span>{item.emoji}</span><small>{valueChanged ? <>真实价值 <CoinValue units={result.effectiveValueUnits} /></> : <>价值 {item.value}</>}</small></div>
@@ -671,7 +676,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === use.targetPlayerId)
       const targetIsOtherPlayer = Boolean(use.targetPlayerId && use.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === use.targetPlayerId))
       if (needsTarget && use.cardId === 'peek' && !targetIsPrevious) return
-      if (needsTarget && use.cardId === 'swap' && !targetIsOtherPlayer) return
+      if (needsTarget && (use.cardId === 'swap' || use.cardId === 'bananaPeel') && !targetIsOtherPlayer) return
       if (use.cardId === 'fateCoin' && use.coinResult !== 'heads' && use.coinResult !== 'tails') return
     }
     let players = session.players.map((player) => {

@@ -168,6 +168,48 @@ describe('道具卡结算', () => {
     expect(result.rankings.find((entry) => entry.playerId === 'p3')).toMatchObject({ bidUnits: coinsToUnits(4), actualBidUnits: coinsToUnits(10) })
   })
 
+  it('香蕉皮让目标下注作废，并只退回一半下注费用', () => {
+    const settled = settle(players([10, 10, 10]), [
+      turn('p1', 8),
+      turn('p2', 7, null, { cardId: 'bananaPeel', targetPlayerId: 'p1' }),
+      turn('p3', 2),
+    ])
+    expect(settled.result.winnerId).toBe('p2')
+    expect(settled.result.rankings.find((entry) => entry.playerId === 'p1')).toBeUndefined()
+    expect(settled.players.find((player) => player.id === 'p1')?.balanceUnits).toBe(coinsToUnits(14))
+    expect(settled.result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(4))
+    expect(settled.result.cardEffects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: 'bananaPeel', description: '玩家1 下注时被香蕉皮滑倒了：下注失败，丢失了一半的下注费用。' }),
+    ]))
+  })
+
+  it('反弹护盾会将香蕉皮反弹给使用者本人', () => {
+    const settled = settle(players([10, 10, 10]), [
+      turn('p1', 8, null, { cardId: 'reflectShield' }),
+      turn('p2', 7, null, { cardId: 'bananaPeel', targetPlayerId: 'p1' }),
+      turn('p3', 2),
+    ])
+    expect(settled.result.winnerId).toBe('p1')
+    expect(settled.result.rankings.find((entry) => entry.playerId === 'p2')).toBeUndefined()
+    expect(settled.players.find((player) => player.id === 'p2')?.balanceUnits).toBe(coinsToUnits(13.5))
+    expect(settled.result.cardEffects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: 'reflectShield' }),
+      expect.objectContaining({ cardId: 'bananaPeel', description: '玩家2 下注时被香蕉皮滑倒了：下注失败，丢失了一半的下注费用。' }),
+    ]))
+  })
+
+  it('反弹护盾会阻止偷天换日改动被护盾保护者的排名金额', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 10, null, { cardId: 'reflectShield' }),
+      turn('p2', 4, null, { cardId: 'swap', targetPlayerId: 'p1' }),
+      turn('p3', 8),
+    ]).result
+    expect(result.winnerId).toBe('p1')
+    expect(result.rankings.find((entry) => entry.playerId === 'p2')).toMatchObject({ bidUnits: coinsToUnits(4) })
+    expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'reflectShield' })]))
+    expect(result.cardEffects.some((effect) => effect.cardId === 'swap')).toBe(false)
+  })
+
   it('偷看底牌只留下匿名结算说明，不影响排名或金币', () => {
     const result = settle(players([20, 20, 20]), [
       turn('p1', 10),
@@ -257,6 +299,8 @@ describe('道具发放', () => {
     expect(createCardDeck(['reverseRank'])).not.toContain('reverseRank')
     expect(createCardDeck([])).toContain('fateCoin')
     expect(createCardDeck(['fateCoin'])).not.toContain('fateCoin')
+    expect(createCardDeck([])).toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
+    expect(createCardDeck(['bananaPeel', 'reflectShield'])).not.toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
   })
 
   it('两张已使用道具都会在下轮前回到卡池', () => {

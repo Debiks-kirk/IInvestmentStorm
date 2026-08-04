@@ -18,6 +18,8 @@ export const CARD_DEFINITIONS: CardDefinition[] = [
   { id: 'black', name: '黑卡', symbol: '◐', description: '本轮拍品真实价值减半，奖励预览不变。', needsTarget: false },
   { id: 'reverseRank', name: '逆转排名', symbol: '↻', description: '倒转本轮获奖区内的排名；若与其他逆转叠加，偶数次会抵消。', needsTarget: false },
   { id: 'fateCoin', name: '命运硬币', symbol: '◒', description: '掷硬币：正面获得 6 金币，反面损失 4 金币。', needsTarget: false },
+  { id: 'bananaPeel', name: '香蕉皮', symbol: '🍌', description: '指定一名其他玩家：其本轮下注作废，只损失一半下注费用。', needsTarget: true },
+  { id: 'reflectShield', name: '反弹护盾', symbol: '🛡', description: '本轮若有人对你使用指定型结算道具，效果会反弹给使用者自己。', needsTarget: false },
 ]
 
 export function getCardDefinition(cardId: CardId): CardDefinition {

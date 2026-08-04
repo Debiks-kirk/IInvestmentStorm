@@ -136,6 +136,20 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const cardEffects: CardEffect[] = []
   const identityEvents: IdentityEvent[] = []
   const usedCards = turns.flatMap((turn) => cardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
+  // 偷看底牌会在私密操作页立刻给出信息，无法被回合结算时才生效的护盾追溯。
+  // 其余指定型结算道具统一在这里解析，保证反弹护盾不会受玩家操作顺序影响。
+  const shieldedPlayerIds = new Set(usedCards.filter(({ use }) => use.cardId === 'reflectShield').map(({ playerId }) => playerId))
+  const targetedCardUses = usedCards
+    .filter(({ use }) => (use.cardId === 'swap' || use.cardId === 'bananaPeel') && Boolean(use.targetPlayerId))
+    .map(({ playerId, use }) => {
+      const targetPlayerId = use.targetPlayerId as string
+      const reflected = shieldedPlayerIds.has(targetPlayerId)
+      return { playerId, use, targetPlayerId: reflected ? playerId : targetPlayerId, reflected }
+    })
+  for (const targetedUse of targetedCardUses.filter(({ reflected }) => reflected)) {
+    const cardName = targetedUse.use.cardId === 'bananaPeel' ? '香蕉皮' : '偷天换日'
+    cardEffects.push(cardEffect('reflectShield', `反弹护盾生效：${cardName}的指定效果已反弹给使用者。`))
+  }
 
   let redistributionTransferUnits: number | null = null
   const redistributionUse = usedCards.find(({ use }) => use.cardId === 'redistribute')
@@ -180,14 +194,29 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   }
 
   const rankingBids = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
-  for (const { playerId, use } of usedCards) {
-    if (use.cardId !== 'swap' || !use.targetPlayerId) continue
-    const targetBid = rankingBids.get(use.targetPlayerId)
+  const voidedBidPlayerIds = new Set<string>()
+  for (const { playerId, use, targetPlayerId, reflected } of targetedCardUses) {
+    if (use.cardId !== 'swap' || reflected || targetPlayerId === playerId) continue
+    const targetBid = rankingBids.get(targetPlayerId)
     const ownBid = rankingBids.get(playerId)
     if (targetBid === undefined || ownBid === undefined) continue
     rankingBids.set(playerId, targetBid)
-    rankingBids.set(use.targetPlayerId, ownBid)
+    rankingBids.set(targetPlayerId, ownBid)
     cardEffects.push(cardEffect('swap', '两笔投资的排名金额已互换。'))
+  }
+  // 香蕉皮在换日之后生效，确保被指定的玩家最终完全退出本轮排名。
+  for (const { use, targetPlayerId } of targetedCardUses) {
+    if (use.cardId !== 'bananaPeel') continue
+    const target = playerById.get(targetPlayerId)
+    const targetTurn = turns.find((turn) => turn.playerId === targetPlayerId)
+    const targetDelta = deltaByPlayer.get(targetPlayerId)
+    if (!target || !targetTurn || !targetDelta) continue
+    const refundUnits = floorToHalfUnits(targetTurn.bidUnits / 2)
+    target.balanceUnits += refundUnits
+    targetDelta.cardUnits += refundUnits
+    rankingBids.set(targetPlayerId, 0)
+    voidedBidPlayerIds.add(targetPlayerId)
+    cardEffects.push(cardEffect('bananaPeel', `${target.name} 下注时被香蕉皮滑倒了：下注失败，丢失了一半的下注费用。`))
   }
   for (const { playerId, use } of usedCards) {
     if (use.cardId !== 'doubleBid') continue
@@ -206,7 +235,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     if (use.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
   }
 
-  const rankingTurns = turns.map((turn) => ({ ...turn, rankingBidUnits: rankingBids.get(turn.playerId) ?? turn.bidUnits }))
+  const rankingTurns = turns
+    .filter((turn) => !voidedBidPlayerIds.has(turn.playerId))
+    .map((turn) => ({ ...turn, rankingBidUnits: rankingBids.get(turn.playerId) ?? turn.bidUnits }))
   const bidCounts = new Map<number, number>()
   for (const turn of rankingTurns) bidCounts.set(turn.rankingBidUnits, (bidCounts.get(turn.rankingBidUnits) ?? 0) + 1)
   const sortedUniqueTurns = rankingTurns.filter((turn) => bidCounts.get(turn.rankingBidUnits) === 1).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)

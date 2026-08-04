@@ -55,6 +55,7 @@ describe('对局存档迁移', () => {
     expect(migrated?.itemDeck[0].category).toBeTruthy()
     expect(migrated?.players[0].items[0].item.category).toBeTruthy()
     expect(migrated?.cardDeck).toContain('reverseRank')
+    expect(migrated?.cardDeck).toEqual(expect.arrayContaining(['fateCoin', 'bananaPeel', 'reflectShield']))
   })
 
   it('v7 存档加载时保留已开启的身份系统', () => {
