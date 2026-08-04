@@ -85,6 +85,8 @@ export interface GameSettings {
   firstRoundSystemAuction: boolean
   /** 真人竞拍与竞购的单次私密操作时限（秒）。 */
   turnTimeLimitSeconds: number
+  /** 默认关闭；开启后才对真人竞拍与竞购启用操作时限。 */
+  turnTimerEnabled: boolean
   identitySettings: IdentitySettings
   animationSpeed: AnimationSpeed
 }
@@ -259,7 +261,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 10
+  version: 11
   id: string
   phase: GamePhase
   settings: GameSettings
