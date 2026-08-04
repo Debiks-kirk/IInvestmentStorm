@@ -14,13 +14,13 @@ export interface IdentityDefinition {
 
 export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'prophet', name: '预言家', symbol: '◌', summary: '每轮偷看下一轮拍品。', repeatable: true },
-  { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚，跳过要付代价。', repeatable: true },
+  { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
   { id: 'assassin', name: '刺客', symbol: '✦', summary: '下注压过目标就领奖励。', repeatable: true, needsTarget: true },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产，永久多算 1 件。', repeatable: true, needsCategory: true },
   { id: 'thief', name: '小偷', symbol: '◒', summary: '有机会偷走目标新获得的道具。', repeatable: true, needsTarget: true },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起一次竞购。', repeatable: true, needsMerchantCard: true },
-  { id: 'reverser', name: '逆行者', symbol: '↻', summary: '名次越靠前，奖励越往后拿。', repeatable: false },
-  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '花钱给别人发布下一轮任务。', repeatable: true },
+  { id: 'reverser', name: '逆行者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: false },
+  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
 ]
 
 export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
@@ -31,8 +31,9 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
   return {
     enabled,
     disabledIdentityIds: [],
-    gamblerCorrectBonusMultiplier: 0.2,
-    gamblerSkipPenaltyMultiplier: 0.2,
+    gamblerCorrectBonusMultiplier: 0.5,
+    gamblerSkipPenaltyMultiplier: 0.5,
+    reverserActivationCoins: 6,
     assassinSuccessCoins: 4,
     assassinFailureCoins: 2,
     thiefSuccessProbability: 50,
@@ -40,13 +41,14 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     merchantInitialOfferCount: 3,
     lobbyistFirstRoundFree: true,
     lobbyistFeeCoins: 5,
+    lobbyistSpecifiedTaskFeeCoins: 5,
     lobbyistFailurePaymentCoins: 3,
   }
 }
 
 export function normalizeIdentitySettings(value: Partial<IdentitySettings> | undefined, enabled = false): IdentitySettings {
   const defaults = defaultIdentitySettings(enabled)
-  return { ...defaults, ...value, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
+  return { ...defaults, ...value, gamblerSkipPenaltyMultiplier: value?.gamblerSkipPenaltyMultiplier ?? defaults.gamblerSkipPenaltyMultiplier, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
 }
 
 export function enabledIdentityIds(settings: IdentitySettings): IdentityId[] {
@@ -85,6 +87,15 @@ export function createPlayerIdentity(id: IdentityId, config: { targetPlayerId?: 
 
 export function taskLabel(type: LobbyistTaskType): string {
   return { outbid: '下注高于指定玩家', underbid: '下注低于指定玩家', avoidPrize: '不进入获奖区', winFirst: '拿到第一名' }[type]
+}
+
+export function randomLobbyistTask(playerIds: string[], targetPlayerId: string, roll = Math.random): { taskType: LobbyistTaskType; comparisonPlayerId?: string } {
+  const taskTypes: LobbyistTaskType[] = ['outbid', 'underbid', 'avoidPrize', 'winFirst']
+  const taskType = taskTypes[Math.min(taskTypes.length - 1, Math.floor(roll() * taskTypes.length))]
+  if (taskType !== 'outbid' && taskType !== 'underbid') return { taskType }
+  const comparisonIds = playerIds.filter((id) => id !== targetPlayerId)
+  if (comparisonIds.length === 0) return { taskType: 'avoidPrize' }
+  return { taskType, comparisonPlayerId: comparisonIds[Math.min(comparisonIds.length - 1, Math.floor(roll() * comparisonIds.length))] }
 }
 
 export function routeCardAwards({

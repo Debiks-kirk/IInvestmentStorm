@@ -39,7 +39,7 @@ export function createSession(names: string[], settings: GameSettings): GameSess
     cardInventory: [],
   }))
   return {
-    version: 4,
+    version: 5,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: names.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },

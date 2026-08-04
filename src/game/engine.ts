@@ -64,6 +64,7 @@ interface SettlementInput {
   correctPredictionMultiplier: number
   wrongPredictionMultiplier: number
   fairnessOrderIds: string[]
+  totalRounds?: number
   identitySettings?: IdentitySettings
   identityContracts?: LobbyistContract[]
 }
@@ -179,15 +180,24 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   for (const turn of rankingTurns) bidCounts.set(turn.rankingBidUnits, (bidCounts.get(turn.rankingBidUnits) ?? 0) + 1)
   const sortedUniqueTurns = rankingTurns.filter((turn) => bidCounts.get(turn.rankingBidUnits) === 1).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)
   const tiedPlayerIds = rankingTurns.filter((turn) => (bidCounts.get(turn.rankingBidUnits) ?? 0) > 1).map((turn) => turn.playerId)
-  const rankings: RankingEntry[] = sortedUniqueTurns.slice(0, rewardMultipliers.length).map((turn, index) => {
-    const player = playerById.get(turn.playerId)
-    const place = index + 1
-    const identityRewardIndex = player?.identity?.id === 'reverser' ? (place === 1 ? rewardMultipliers.length - 1 : place - 2) : index
-    return { playerId: turn.playerId, place, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[identityRewardIndex]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }
-  })
-  const winnerId = sortedUniqueTurns[0]?.playerId ?? null
-  const reverserSecond = rankings.find((ranking) => ranking.place === 2 && playerById.get(ranking.playerId)?.identity?.id === 'reverser')
-  const itemWinnerId = reverserSecond?.playerId ?? winnerId
+  const reverserTurn = turns.find((turn) => turn.identityAction?.type === 'reverserInvert' && playerById.get(turn.playerId)?.identity?.id === 'reverser')
+  if (reverserTurn) {
+    const reverser = playerById.get(reverserTurn.playerId)
+    const reverserDelta = deltaByPlayer.get(reverserTurn.playerId)
+    const multiplier = roundIndex >= (input.totalRounds ?? Number.MAX_SAFE_INTEGER) - 2 ? 2 : 1
+    const due = coinsToUnits(identitySettings.reverserActivationCoins * multiplier)
+    const paid = Math.min(reverser?.balanceUnits ?? 0, due)
+    if (reverser && reverserDelta) {
+      reverser.balanceUnits -= paid
+      reverserDelta.identityUnits -= paid
+      identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '发动逆转排名', detail: `支付 ${formatCoins(paid)} 金币，获奖区名次已倒转。`, deltaUnits: -paid })
+    }
+  }
+  const winningTurns = sortedUniqueTurns.slice(0, rewardMultipliers.length)
+  const rankedTurns = reverserTurn ? [...winningTurns].reverse() : winningTurns
+  const rankings: RankingEntry[] = rankedTurns.map((turn, index) => ({ playerId: turn.playerId, place: index + 1, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }))
+  const winnerId = rankedTurns[0]?.playerId ?? null
+  const itemWinnerId = winnerId
 
   for (const ranking of rankings) {
     const player = playerById.get(ranking.playerId)
@@ -195,11 +205,6 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     if (!player || !delta) continue
     player.balanceUnits += ranking.rewardUnits
     delta.rewardUnits += ranking.publicRewardUnits
-    if (ranking.rewardUnits !== ranking.publicRewardUnits) {
-      const hiddenChange = ranking.rewardUnits - ranking.publicRewardUnits
-      delta.identityUnits += hiddenChange
-      identityEvents.push({ playerId: player.id, identityId: 'reverser', roundIndex, title: '逆行者奖励重排', detail: `实际获得 ${formatCoins(ranking.rewardUnits)} 金币。`, deltaUnits: hiddenChange })
-    }
     if (ranking.playerId === itemWinnerId) player.items.push({ item, roundIndex })
   }
 
@@ -221,11 +226,18 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     } else if (winnerId !== null && turn.predictedPlayerId === winnerId) {
       correctTurns.push(turn)
     } else {
-      const due = floorToHalfUnits(effectiveValueUnits * wrongPredictionMultiplier)
+      const gambler = player.identity?.id === 'gambler'
+      const due = floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerSkipPenaltyMultiplier : wrongPredictionMultiplier))
       const paid = Math.min(player.balanceUnits, due)
       player.balanceUnits -= paid
-      delta.predictionUnits -= paid
-      predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -paid })
+      if (gambler) {
+        delta.identityUnits -= paid
+        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '猜错预测', detail: `支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: 0 })
+      } else {
+        delta.predictionUnits -= paid
+        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -paid })
+      }
     }
   }
 

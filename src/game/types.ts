@@ -56,6 +56,7 @@ export interface IdentitySettings {
   disabledIdentityIds: IdentityId[]
   gamblerCorrectBonusMultiplier: number
   gamblerSkipPenaltyMultiplier: number
+  reverserActivationCoins: number
   assassinSuccessCoins: number
   assassinFailureCoins: number
   thiefSuccessProbability: number
@@ -63,6 +64,7 @@ export interface IdentitySettings {
   merchantInitialOfferCount: number
   lobbyistFirstRoundFree: boolean
   lobbyistFeeCoins: number
+  lobbyistSpecifiedTaskFeeCoins: number
   lobbyistFailurePaymentCoins: number
 }
 
@@ -107,6 +109,7 @@ export interface LobbyistContract {
   comparisonPlayerId?: string
   issuedRoundIndex: number
   executeRoundIndex: number
+  specified: boolean
   status: 'pending' | 'success' | 'failed'
   paymentUnits: number
 }
@@ -121,7 +124,8 @@ export interface MerchantAuction {
 
 export type IdentityAction =
   | { type: 'merchantAuction' }
-  | { type: 'lobbyistContract'; targetPlayerId: string; taskType: LobbyistTaskType; comparisonPlayerId?: string }
+  | { type: 'reverserInvert' }
+  | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
 
 export interface Item {
   id: string
@@ -203,7 +207,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 4
+  version: 5
   id: string
   phase: GamePhase
   settings: GameSettings

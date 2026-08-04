@@ -21,13 +21,13 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4 && parsed.version !== 5)) return null
     const migrated = migrateSession(parsed)
     const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated
-    if (parsed.version !== 4 || migrated.phase !== safeSession.phase) saveSession(safeSession)
+    if (parsed.version !== 5 || migrated.phase !== safeSession.phase) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -48,7 +48,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     cardGrantProbability: oldSettings.cardGrantProbability ?? 80,
     disabledCardIds: (oldSettings.disabledCardIds ?? []) as CardId[],
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: session.version === 4 || session.version === 5 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -76,7 +76,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   }))
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 4,
+    version: 5,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -87,7 +87,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     identityDraft: session.identityDraft ?? (settings.identitySettings.enabled && (session.roundIndex ?? 0) === 0 && !players.some((player) => player.identity) ? { playerIndex: 0, choiceIds: dealIdentityChoices(enabledIdentityIds(settings.identitySettings), settings.identitySettings) } : null),
     pendingIdentityCardAwards: [...(session.pendingIdentityCardAwards ?? [])],
     pendingIdentityNotices: [...(session.pendingIdentityNotices ?? [])],
-    identityContracts: [...(session.identityContracts ?? [])],
+    identityContracts: [...(session.identityContracts ?? [])].map((contract) => ({ ...contract, specified: contract.specified ?? true })),
     identityEvents: [...(session.identityEvents ?? [])],
     merchantAuction: session.merchantAuction ?? null,
     cardRulesStartRound: session.cardRulesStartRound ?? Math.max((session.roundIndex ?? 0) + 1, 1),
