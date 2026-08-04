@@ -20,8 +20,8 @@ describe('Bot 信息边界与决策', () => {
     session.turns = [{ playerId: session.players[1].id, bidUnits: 33, predictedPlayerId: null }]
     const observation = buildBotObservation(session, session.players[0].id)
     expect(observation.opponents[0]).toEqual({ id: session.players[1].id, name: '玩家乙' })
-    expect(JSON.stringify(observation)).not.toContain('77')
-    expect(JSON.stringify(observation)).not.toContain('33')
+    expect(observation).not.toHaveProperty('turns')
+    expect(JSON.stringify(observation)).not.toContain('"bidUnits":33')
     expect(observation.opponents[0]).not.toHaveProperty('cardInventory')
   })
 
@@ -69,6 +69,50 @@ describe('Bot 信息边界与决策', () => {
     const decision = decideBotTurn(buildBotObservation(session, session.players[0].id), 'comeback', 'standard', emptyBotMemory())
     const coin = decision.cardUses.find((use) => use.cardId === 'fateCoin')
     expect(coin?.coinResult === 'heads' || coin?.coinResult === 'tails').toBe(true)
+  })
+
+  it('逆行者会用较低投资挤进获奖区，再发动逆转排名', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 20 }
+    session.players[0].identity = { id: 'reverser', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: true, lobbyistLastIssuedRound: null }
+    session.players[0].balanceUnits = 100
+    const observation = buildBotObservation(session, session.players[0].id)
+    observation.balanceEstimates = [
+      { playerId: session.players[0].id, lowUnits: 100, expectedUnits: 100, highUnits: 100, expectedBidUnits: 0, categoryWins: 0 },
+      { playerId: session.players[1].id, lowUnits: 70, expectedUnits: 80, highUnits: 90, expectedBidUnits: 80, categoryWins: 0 },
+      { playerId: session.players[2].id, lowUnits: 30, expectedUnits: 40, highUnits: 50, expectedBidUnits: 40, categoryWins: 0 },
+    ]
+    const decision = decideBotTurn(observation, 'identityBot', 'expert', emptyBotMemory())
+    expect(decision.identityAction).toEqual({ type: 'reverserInvert' })
+    expect(decision.bidUnits).toBeGreaterThan(0)
+    expect(decision.bidUnits).toBeLessThan(80)
+    expect(decision.reason).toContain('先以第')
+  })
+
+  it('偷天换日会用零投资换走高投资，避免替目标抬价', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 20 }
+    session.players[0].cardInventory = ['swap']
+    session.players[0].balanceUnits = 80
+    const observation = buildBotObservation(session, session.players[0].id)
+    observation.balanceEstimates = [
+      { playerId: session.players[0].id, lowUnits: 80, expectedUnits: 80, highUnits: 80, expectedBidUnits: 0, categoryWins: 0 },
+      { playerId: session.players[1].id, lowUnits: 60, expectedUnits: 70, highUnits: 80, expectedBidUnits: 48, categoryWins: 0 },
+      { playerId: session.players[2].id, lowUnits: 10, expectedUnits: 20, highUnits: 30, expectedBidUnits: 12, categoryWins: 0 },
+    ]
+    const decision = decideBotTurn(observation, 'observer', 'expert', emptyBotMemory())
+    expect(decision.cardUses).toContainEqual({ cardId: 'swap', targetPlayerId: session.players[1].id })
+    expect(decision.bidUnits).toBe(0)
+    expect(decision.cardUses.some((use) => use.cardId === 'doubleBid')).toBe(false)
+  })
+
+  it('身份与道具的特判计划在同一观察下保持稳定', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.players[0].cardInventory = ['swap']
+    const observation = buildBotObservation(session, session.players[0].id)
+    const first = decideBotTurn(observation, 'adaptive', 'standard', emptyBotMemory())
+    const second = decideBotTurn(observation, 'adaptive', 'standard', emptyBotMemory())
+    expect(first).toEqual(second)
   })
 
   it('预设会保存 Bot 座位与难度', () => {
