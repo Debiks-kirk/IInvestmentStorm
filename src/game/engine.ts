@@ -253,20 +253,24 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         const paid = Math.min(player.balanceUnits, due)
         player.balanceUnits -= paid
         delta.identityUnits -= paid
-        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '跳过预测', detail: `支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页显示“没有预测 ±0”；实际作为赌徒支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
       }
       predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: null, status: 'skipped', deltaUnits: 0 })
     } else if (winnerId !== null && turn.predictedPlayerId === winnerId) {
       correctTurns.push(turn)
     } else {
       const gambler = player.identity?.id === 'gambler'
+      const availableBeforePrediction = player.balanceUnits
       const due = floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerSkipPenaltyMultiplier : wrongPredictionMultiplier))
-      const paid = Math.min(player.balanceUnits, due)
+      const paid = Math.min(availableBeforePrediction, due)
       player.balanceUnits -= paid
       if (gambler) {
+        const publicDue = floorToHalfUnits(effectiveValueUnits * wrongPredictionMultiplier)
+        const publicPaid = Math.min(availableBeforePrediction, publicDue)
         delta.identityUnits -= paid
-        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '猜错预测', detail: `支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
-        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: 0 })
+        delta.predictionUnits -= publicPaid
+        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜错 −${formatCoins(publicPaid)}”；实际作为赌徒只支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -publicPaid })
       } else {
         delta.predictionUnits -= paid
         predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -paid })
@@ -304,7 +308,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const bonus = floorToHalfUnits(effectiveValueUnits * identitySettings.gamblerCorrectBonusMultiplier)
     player.balanceUnits += bonus
     delta.identityUnits += bonus
-    identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '预测加注奖励', detail: `猜中额外获得 ${formatCoins(bonus)} 金币。`, deltaUnits: bonus })
+    const publicPayment = predictionOutcomes.find((outcome) => outcome.playerId === player.id && outcome.status === 'correct')?.deltaUnits ?? 0
+    identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜中 +${formatCoins(publicPayment)}”；实际共获得 ${formatCoins(publicPayment + bonus)} 金币，其中赌徒额外奖励 ${formatCoins(bonus)} 金币。`, deltaUnits: bonus })
   }
 
   for (const turn of turns) {

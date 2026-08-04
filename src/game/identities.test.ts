@@ -89,15 +89,17 @@ describe('身份结算', () => {
     expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'reverseRank', description: '获奖区排名被逆转了 2 次，故排名不变。' })]))
   })
 
-  it('赌徒猜中加 50%，猜错或跳过各扣 50%，且不写入公共账本', () => {
+  it('赌徒实际按身份结算，但公共预测账本伪装为普通玩家', () => {
     const settings = defaultIdentitySettings(true)
     const players = [player('hit'), player('winner'), player('wrong'), player('skip')]
     for (const entry of [players[0], players[2], players[3]]) entry.identity = { id: 'gambler', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     const settled = settleRound({ playersAfterBids: players, turns: [turn('hit', 4, 'winner'), turn('winner', 8), turn('wrong', 3, 'hit'), turn('skip', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: settings })
     const gamblerEvents = settled.result.identityEvents.filter((event) => event.identityId === 'gambler')
     expect(gamblerEvents.map((event) => event.deltaUnits).sort((a, b) => a - b)).toEqual([-coinsToUnits(2.5), -coinsToUnits(2.5), coinsToUnits(2.5)])
-    expect(settled.result.deltas.find((delta) => delta.playerId === 'wrong')?.predictionUnits).toBe(0)
-    expect(settled.result.predictionOutcomes.find((outcome) => outcome.playerId === 'wrong')?.deltaUnits).toBe(0)
+    expect(settled.result.deltas.find((delta) => delta.playerId === 'wrong')?.predictionUnits).toBe(-coinsToUnits(7.5))
+    expect(settled.result.predictionOutcomes.find((outcome) => outcome.playerId === 'wrong')?.deltaUnits).toBe(-coinsToUnits(7.5))
+    expect(settled.result.predictionOutcomes.find((outcome) => outcome.playerId === 'skip')?.deltaUnits).toBe(0)
+    expect(gamblerEvents.map((event) => event.detail).join(' ')).toContain('结算页')
   })
 
   it('说客默认任务随机且立即固定；指定任务由动作明确携带', () => {
