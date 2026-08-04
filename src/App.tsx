@@ -608,32 +608,57 @@ function DeltaLabel({ units }: { units: number }) {
 function RoundResults({ session, result, onNext }: { session: GameSession; result: RoundResult; onNext: () => void }) {
   const [skipMotion, setSkipMotion] = useState(session.settings.animationSpeed === 'reduced')
   const [bananaNoticeOpen, setBananaNoticeOpen] = useState(true)
+  const [revealStage, setRevealStage] = useState<'ties' | 'rankings' | 'settlement'>(session.settings.animationSpeed === 'reduced' ? 'settlement' : 'ties')
   const item = result.item
   const winner = session.players.find((player) => player.id === result.winnerId)
   const itemWasKidnapped = result.itemWinnerId !== result.winnerId
   const valueChanged = result.effectiveValueUnits !== item.value * 2
   const bananaEffect = result.cardEffects.find((effect) => effect.cardId === 'bananaPeel')
+  const stageIndex = revealStage === 'ties' ? 0 : revealStage === 'rankings' ? 1 : 2
+  const showRankings = stageIndex >= 1
+  const showSettlement = stageIndex >= 2
+  const stageCopy = revealStage === 'ties'
+    ? result.tiedPlayerIds.length > 0 ? '正在剔除并列下注' : '正在核验唯一下注'
+    : revealStage === 'rankings' ? '唯一排名金额揭晓' : '奖励与预测已经结算'
+
+  useEffect(() => {
+    if (skipMotion || session.settings.animationSpeed === 'reduced') {
+      if (revealStage !== 'settlement') setRevealStage('settlement')
+      return
+    }
+    if (revealStage === 'settlement') return
+    const duration = session.settings.animationSpeed === 'fast'
+      ? revealStage === 'ties' ? 380 : 520
+      : revealStage === 'ties' ? 900 : 1250
+    const timer = window.setTimeout(() => setRevealStage((stage) => stage === 'ties' ? 'rankings' : 'settlement'), duration)
+    return () => window.clearTimeout(timer)
+  }, [revealStage, session.settings.animationSpeed, skipMotion])
+
   return (
-    <section className={cx('results-page', skipMotion && 'skip-motion')}>
+    <section className={cx('results-page', `reveal-stage-${revealStage}`, skipMotion && 'skip-motion')} data-reveal-stage={revealStage}>
       {bananaEffect && bananaNoticeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="banana-notice-title"><div className="card-grant-sheet"><span>🍌</span><p className="eyebrow">本轮意外</p><h2 id="banana-notice-title">香蕉皮！</h2><p>{bananaEffect.description}</p><small>这笔下注已按作废结果参与本轮结算。</small><button className="button button--primary" onClick={() => setBananaNoticeOpen(false)}>知道了</button></div></div>}
       <div className="results-hero">
-        <div><p className="eyebrow">第 {result.roundIndex + 1} 轮 · 结果</p><h1>{itemWasKidnapped ? <>本轮藏品<em>被人劫走</em></> : winner ? <><em>{winner.name}</em> 拿下 {item.name}</> : <>本轮物品<em>流拍</em></>}</h1><p>{itemWasKidnapped ? '排名奖励已正常结算，藏品归属发生了变化。' : winner ? '唯一排名金额胜出，获得本轮第一名奖励。' : '没有产生唯一排名金额，物品无人获得。'}</p></div>
+        <div><p className="eyebrow">第 {result.roundIndex + 1} 轮 · 结果</p><h1>{showRankings ? itemWasKidnapped ? <>本轮藏品<em>被人劫走</em></> : winner ? <><em>{winner.name}</em> 拿下 {item.name}</> : <>本轮物品<em>流拍</em></> : <>密封标，<em>正在开封</em></>}</h1><p>{showRankings ? itemWasKidnapped ? '排名奖励已正常结算，藏品归属发生了变化。' : winner ? '唯一排名金额胜出，获得本轮第一名奖励。' : '没有产生唯一排名金额，物品无人获得。' : '先核验并列下注，再揭晓获奖名次与金币流动。'}</p></div>
         <div className="result-prize"><span>{item.emoji}</span><small>{valueChanged ? <>真实价值 <CoinValue units={result.effectiveValueUnits} /></> : <>价值 {item.value}</>}</small></div>
       </div>
-      <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>最低获奖排名额</small>{result.minWinningBidUnits === null ? <strong>—</strong> : <CoinValue units={result.minWinningBidUnits} />}</div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
-      {result.cardEffects.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">结算影响</p><h2>本轮道具与排名变化</h2></div><span>已计入本轮结果</span></div><div>{result.cardEffects.map((effect, index) => <p key={`${effect.cardId ?? effect.symbol}-${index}`}><span>{effect.symbol ?? getCardDefinition(effect.cardId as CardId).symbol}</span>{effect.description}</p>)}</div></article>}
-      <div className="result-columns">
-        <article className="panel result-ranking"><div className="panel-title"><div><p className="eyebrow">下注排名</p><h2>本轮获奖</h2></div>{result.tiedPlayerIds.length > 0 && <span>{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局</span>}</div>
-          {result.rankings.length === 0 ? <div className="empty-result">没有唯一排名金额，奖励全部落空。</div> : <ol>{result.rankings.map((entry, index) => <li key={entry.playerId} style={{ '--delay': `${index * 110}ms`, '--player-color': session.players.find((player) => player.id === entry.playerId)?.color } as React.CSSProperties}><span>{MEDALS[index]}</span><strong>{playerName(session.players, entry.playerId)}</strong>{session.settings.revealBids && <small>下注 {formatCoins(entry.actualBidUnits)}{entry.actualBidUnits !== entry.bidUnits ? ` · 排名额 ${formatCoins(entry.bidUnits)}` : ''}</small>}<CoinValue units={entry.publicRewardUnits} signed /></li>)}</ol>}
-        </article>
-        <article className="panel prediction-result"><div className="panel-title"><div><p className="eyebrow">眼光如何</p><h2>预测结算</h2></div>{result.winnerPaymentUnits > 0 && <span>第一名共支付 {formatCoins(result.winnerPaymentUnits)}</span>}</div>
-          <div className="prediction-outcomes">{result.predictionOutcomes.map((outcome, index) => <div key={outcome.playerId} style={{ '--delay': `${index * 90 + 180}ms` } as React.CSSProperties}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '没有预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选了 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>
-        </article>
+      <div className="result-reveal-stepper" aria-label={`揭晓进度：${stageCopy}`}>
+        {['并列核验', '获奖名次', '金币结算'].map((label, index) => <span key={label} className={cx(index < stageIndex && 'is-complete', index === stageIndex && 'is-current')}><i>{index < stageIndex ? '✓' : index + 1}</i>{label}</span>)}
       </div>
-      <article className="panel public-ledger"><div className="panel-title"><div><p className="eyebrow">公开账本</p><h2>本轮收益变化</h2></div><span>不含秘密下注 · 不显示余额</span></div>
+      <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>最低获奖排名额</small>{result.minWinningBidUnits === null ? <strong>—</strong> : <CoinValue units={result.minWinningBidUnits} />}</div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
+      <article className="result-tie-reveal" aria-live="polite"><span>{result.tiedPlayerIds.length > 0 ? '≠' : '✓'}</span><div><small>{stageCopy}</small><strong>{result.tiedPlayerIds.length > 0 ? `${result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局` : '没有并列下注，所有密封标保留排名资格'}</strong></div></article>
+      {showSettlement && result.cardEffects.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">结算影响</p><h2>本轮道具与排名变化</h2></div><span>已计入本轮结果</span></div><div>{result.cardEffects.map((effect, index) => <p key={`${effect.cardId ?? effect.symbol}-${index}`} data-effect={effect.cardId ?? 'general'} style={{ '--effect-delay': `${index * 110}ms` } as React.CSSProperties}><span>{effect.symbol ?? getCardDefinition(effect.cardId as CardId).symbol}</span>{effect.description}</p>)}</div></article>}
+      <div className="result-columns">
+        {showRankings && <article className="panel result-ranking"><div className="panel-title"><div><p className="eyebrow">下注排名</p><h2>本轮获奖</h2></div>{result.tiedPlayerIds.length > 0 && <span>{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局</span>}</div>
+          {result.rankings.length === 0 ? <div className="empty-result">没有唯一排名金额，奖励全部落空。</div> : <ol>{result.rankings.map((entry, index) => <li key={entry.playerId} style={{ '--delay': `${index * 110}ms`, '--player-color': session.players.find((player) => player.id === entry.playerId)?.color } as React.CSSProperties}><span>{MEDALS[index]}</span><strong>{playerName(session.players, entry.playerId)}</strong>{session.settings.revealBids && <small>下注 {formatCoins(entry.actualBidUnits)}{entry.actualBidUnits !== entry.bidUnits ? ` · 排名额 ${formatCoins(entry.bidUnits)}` : ''}</small>}<CoinValue units={entry.publicRewardUnits} signed /></li>)}</ol>}
+        </article>}
+        {showSettlement && <article className="panel prediction-result"><div className="panel-title"><div><p className="eyebrow">眼光如何</p><h2>预测结算</h2></div>{result.winnerPaymentUnits > 0 && <span>第一名共支付 {formatCoins(result.winnerPaymentUnits)}</span>}</div>
+          <div className="prediction-outcomes">{result.predictionOutcomes.map((outcome, index) => <div key={outcome.playerId} style={{ '--delay': `${index * 90 + 180}ms` } as React.CSSProperties}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '没有预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选了 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>
+        </article>}
+      </div>
+      {showSettlement && <article className="panel public-ledger"><div className="panel-title"><div><p className="eyebrow">公开账本</p><h2>本轮收益变化</h2></div><span>不含秘密下注 · 不显示余额</span></div>
         <div className="ledger-table">{session.players.map((player) => { const delta = result.deltas.find((entry) => entry.playerId === player.id)!; const turn = result.turns.find((entry) => entry.playerId === player.id); return <div key={player.id}><span className="player-dot" style={{ background: player.color }} /><strong>{player.name}</strong>{session.settings.revealBids && <small>下注 {turn ? formatCoins(turn.bidUnits) : '—'}</small>}<small>获奖 {delta.rewardUnits ? `+${formatCoins(delta.rewardUnits)}` : '±0'}</small><small>预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)}</small><DeltaLabel units={delta.publicDeltaUnits} /></div> })}</div>
-      </article>
-      {session.settings.revealBalanceLeader && <article className="balance-leader"><span>♛</span><div><small>当前余额领跑者</small><strong>{result.balanceLeaderIds.length > 1 ? '并列第一 · ' : ''}{result.balanceLeaderIds.map((id) => playerName(session.players, id)).join('、')}</strong></div><p>仅公布姓名，不公布余额</p></article>}
+      </article>}
+      {showSettlement && session.settings.revealBalanceLeader && <article className="balance-leader"><span>♛</span><div><small>当前余额领跑者</small><strong>{result.balanceLeaderIds.length > 1 ? '并列第一 · ' : ''}{result.balanceLeaderIds.map((id) => playerName(session.players, id)).join('、')}</strong></div><p>仅公布姓名，不公布余额</p></article>}
       <div className="result-actions"><button className="text-button" onClick={() => setSkipMotion(true)}>跳过动画</button><button className="button button--primary button--large" onClick={onNext}>{session.roundIndex + 1 >= session.settings.rounds ? '查看最终排行榜' : '进入下一轮'} <span>→</span></button></div>
     </section>
   )
