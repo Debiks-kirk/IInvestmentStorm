@@ -106,6 +106,23 @@ describe('Bot 信息边界与决策', () => {
     expect(decision.cardUses.some((use) => use.cardId === 'doubleBid')).toBe(false)
   })
 
+  it('绑匪会把目标胜率、同类固定资产与失败成本一起纳入抢劫决策', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 20, category: 'leisure' }
+    session.players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    session.players[0].items = [{ item: { ...session.itemDeck[0], id: 'previous-leisure', value: 4 }, roundIndex: -1 }]
+    session.players[0].balanceUnits = 100
+    const observation = buildBotObservation(session, session.players[0].id)
+    observation.balanceEstimates = [
+      { playerId: session.players[0].id, lowUnits: 100, expectedUnits: 100, highUnits: 100, expectedBidUnits: 0, categoryWins: 1 },
+      { playerId: session.players[1].id, lowUnits: 70, expectedUnits: 80, highUnits: 100, expectedBidUnits: 72, categoryWins: 2 },
+      { playerId: session.players[2].id, lowUnits: 4, expectedUnits: 8, highUnits: 12, expectedBidUnits: 6, categoryWins: 0 },
+    ]
+    const decision = decideBotTurn(observation, 'identityBot', 'expert', emptyBotMemory())
+    expect(decision.identityAction).toEqual({ type: 'kidnap', targetPlayerId: session.players[1].id })
+    expect(decision.reason).toContain('盯上')
+  })
+
   it('身份与道具的特判计划在同一观察下保持稳定', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     session.players[0].cardInventory = ['swap']

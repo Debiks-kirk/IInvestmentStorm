@@ -15,7 +15,7 @@ export interface IdentityDefinition {
 export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'prophet', name: '预言家', symbol: '◌', summary: '每轮偷看下一轮拍品。', repeatable: true },
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
-  { id: 'assassin', name: '刺客', symbol: '✦', summary: '下注压过目标就领奖励。', repeatable: true, needsTarget: true },
+  { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: false },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产，永久多算 1 件。', repeatable: true, needsCategory: true },
   { id: 'thief', name: '小偷', symbol: '◒', summary: '有机会偷走目标新获得的道具。', repeatable: true, needsTarget: true },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起一次竞购。', repeatable: true, needsMerchantCard: true },
@@ -28,7 +28,7 @@ export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
 }
 
 export function identitySkillMode(id: IdentityId): 'active' | 'passive' {
-  return id === 'merchant' || id === 'reverser' || id === 'lobbyist' ? 'active' : 'passive'
+  return id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' ? 'active' : 'passive'
 }
 
 export function defaultIdentitySettings(enabled = true): IdentitySettings {
@@ -38,8 +38,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     gamblerCorrectBonusMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
     reverserActivationCoins: 6,
-    assassinSuccessCoins: 4,
-    assassinFailureCoins: 2,
+    kidnapActivationCoins: 5,
     thiefSuccessProbability: 50,
     thiefMaxSteals: 2,
     merchantInitialOfferCount: 3,
@@ -81,6 +80,7 @@ export function identityValidationErrors(settings: IdentitySettings, playerCount
   if (playerCount > enabled.length && repeatable.length < 2) errors.push('身份卡不足时至少需要启用 2 个可重复身份')
   if (settings.thiefSuccessProbability < 0 || settings.thiefSuccessProbability > 100) errors.push('小偷成功率应为 0–100%')
   if (settings.thiefMaxSteals < 0 || settings.thiefMaxSteals > 10) errors.push('小偷上限应为 0–10 次')
+  if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
   if (settings.merchantInitialOfferCount < 1 || settings.merchantInitialOfferCount > 6) errors.push('商人初始选卡数量应为 1–6')
   return errors
 }

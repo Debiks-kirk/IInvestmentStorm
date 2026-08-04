@@ -66,8 +66,11 @@ async function chooseIdentities(page, playerCount) {
   for (let index = 0; index < playerCount; index += 1) {
     await page.getByRole('button', { name: '选择身份' }).click()
     await page.locator('.identity-choice-card').first().click()
-    const targets = page.locator('.identity-target-list button')
-    if (await targets.count() > 0) await targets.first().click()
+    const targetPicker = page.locator('.identity-setup .target-picker-trigger')
+    if (await targetPicker.count() > 0) {
+      await targetPicker.click()
+      await page.locator('.target-picker-grid button').first().click()
+    }
     const cards = page.locator('.merchant-offer-list button')
     if (await cards.count() > 0) await cards.first().click()
     await page.getByRole('button', { name: /确认身份与准备/ }).click()
@@ -172,7 +175,11 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: '收下道具卡' }).click()
   await page.locator('.card-choice').first().click()
   const targets = page.locator('.card-targets button')
-  if (await targets.count() > 0) await targets.first().click()
+  if (await targets.count() > 0) {
+    await targets.first().click()
+    const targetCards = page.locator('.target-picker-grid button')
+    if (await targetCards.count() > 0) await targetCards.first().click()
+  }
   const confirmUse = page.getByRole('button', { name: '确认使用' })
   if (await confirmUse.count() > 0) await confirmUse.click()
   await setRange(page.getByLabel('秘密下注'), 6)

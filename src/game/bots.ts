@@ -78,8 +78,7 @@ export interface BotObservation {
   correctPredictionMultiplier: number
   wrongPredictionMultiplier: number
   reverserActivationUnits: number
-  assassinSuccessUnits: number
-  assassinFailureUnits: number
+  kidnapActivationUnits: number
   item: GameSession['itemDeck'][number] | null
   self: Pick<Player, 'id' | 'name' | 'balanceUnits' | 'items' | 'cardInventory' | 'identity'>
   opponents: Array<{ id: string; name: string }>
@@ -106,8 +105,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     correctPredictionMultiplier: session.settings.correctPredictionMultiplier,
     wrongPredictionMultiplier: session.settings.wrongPredictionMultiplier,
     reverserActivationUnits: coinsToUnits(session.settings.identitySettings.reverserActivationCoins),
-    assassinSuccessUnits: coinsToUnits(session.settings.identitySettings.assassinSuccessCoins),
-    assassinFailureUnits: coinsToUnits(session.settings.identitySettings.assassinFailureCoins),
+    kidnapActivationUnits: coinsToUnits(session.settings.identitySettings.kidnapActivationCoins),
     item: session.itemDeck[session.roundIndex] ?? null,
     self: { id: player.id, name: player.name, balanceUnits: player.balanceUnits, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined },
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
@@ -363,6 +361,18 @@ function planCandidates(observation: BotObservation, mode: StrategyMode): TurnPl
       specialReason: `发动逆转排名，支付 ${observation.reverserActivationUnits * multiplier / 2} 金币后将获奖区倒序。`,
     })
   }
+  if (observation.self.identity?.id === 'assassin' && observation.self.balanceUnits >= observation.kidnapActivationUnits) {
+    for (const opponent of observation.opponents) {
+      plans.push({
+        id: `kidnap:${opponent.id}`,
+        cardUses: baseCards,
+        rankingMultiplier: baseCards.some((use) => use.cardId === 'doubleBid') ? 2 : 1,
+        identityAction: { type: 'kidnap', targetPlayerId: opponent.id },
+        reversalCount: 0,
+        specialReason: `盯上 ${opponent.name}；若他拿下拍品，就报销费用并抢走藏品。`,
+      })
+    }
+  }
   return plans
 }
 
@@ -372,19 +382,16 @@ function planBidCandidates(observation: BotObservation, mode: StrategyMode, plan
   return [0, coinsToUnits(.5), coinsToUnits(1)].filter((bid) => bid <= observation.self.balanceUnits)
 }
 
-function identityBidScore(observation: BotObservation, bidUnits: number): number {
-  const identity = observation.self.identity
-  if (identity?.id !== 'assassin' || !identity.targetPlayerId) return 0
-  // 刺客比较的是双方实际投资；偷天换日只影响排名，不能伪造刺客判定。
-  const targetBid = expectedCurrentBid(observation, identity.targetPlayerId)
-  return bidUnits > targetBid ? observation.assassinSuccessUnits : -observation.assassinFailureUnits
+function kidnapSuccessChance(observation: BotObservation, targetPlayerId: string): number {
+  const targetBid = expectedCurrentBid(observation, targetPlayerId)
+  return estimatePlaceAndChance(observation, targetBid, targetPlayerId).firstChance
 }
 
 function nearOptimalChoice(candidates: ScoredPlan[], observation: BotObservation, profile: BotProfile): ScoredPlan {
   const ordered = [...candidates].sort((left, right) => right.score - left.score || left.bidUnits - right.bidUnits || left.id.localeCompare(right.id))
   const best = ordered[0]
   // 身份和目标道具的组合应明确执行最佳计划；普通下注才在近似最优解间混合，避免可被轻易读透。
-  if (best.identityAction || best.rankingBidFromTargetId || best.reversalCount > 0) return best
+  if ((best.identityAction && best.identityAction.type !== 'kidnap') || best.rankingBidFromTargetId || best.reversalCount > 0) return best
   const tolerance = coinsToUnits(.5) + coinsToUnits(observation.item?.value ?? 0) * (.025 + profile.risk * .045)
   const close = ordered.filter((candidate) => candidate.score >= best.score - tolerance && candidate.score >= 0)
   return close[hash(`${observation.playerId}:${observation.roundIndex}:${profile.id}:${observation.publicRounds.length}`) % Math.max(1, close.length)] ?? best
@@ -410,11 +417,12 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   for (const plan of planCandidates(observation, mode)) {
     const valueMultiplier = plan.cardUses.some((use) => use.cardId === 'red') ? 2 : plan.cardUses.some((use) => use.cardId === 'black') ? .5 : 1
     const valueUnits = coinsToUnits(observation.item?.value ?? 0) * valueMultiplier
-    const reverserCost = plan.identityAction?.type === 'reverserInvert'
-      ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
-      : 0
-    for (const bidUnits of planBidCandidates(observation, mode, plan)) {
-      if (bidUnits + reverserCost > observation.self.balanceUnits) continue
+      const reverserCost = plan.identityAction?.type === 'reverserInvert'
+        ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
+        : 0
+      const kidnapCost = plan.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits : 0
+      for (const bidUnits of planBidCandidates(observation, mode, plan)) {
+      if (bidUnits + reverserCost + kidnapCost > observation.self.balanceUnits) continue
       if (bidUnits > Math.max(0, observation.self.balanceUnits - reserveUnits) && mode === 'conserve') continue
       const rankingBidUnits = (plan.rankingBidFromTargetId ? expectedCurrentBid(observation, plan.rankingBidFromTargetId) : bidUnits) * plan.rankingMultiplier
       const overrides = plan.rivalBidOverrides ? { ...plan.rivalBidOverrides } : {}
@@ -425,13 +433,21 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         ? observation.rewardMultipliers.length - estimate.place + 1
         : estimate.place
       const rewardMultiplier = observation.rewardMultipliers[effectivePlace - 1] ?? 0
-      const expectedReward = estimate.uniqueChance * (valueUnits * rewardMultiplier + assetUnits * (mode === 'collect' ? 1 : .55))
-      const cashRisk = bidUnits * (mode === 'conserve' ? 1.28 : mode === 'finalSprint' ? .78 : 1) * riskFactor + reverserCost
+      // 固定资产的跳档比单轮奖励更陡：收藏型人格会更重视同类拍品，但仍会和现金风险、唯一出价概率一起权衡。
+      const assetWeight = mode === 'collect' ? 1.3 : .35 + profile.collect * .65
+      const expectedReward = estimate.uniqueChance * (valueUnits * rewardMultiplier + assetUnits * assetWeight)
+      const kidnappedTarget = plan.identityAction?.type === 'kidnap' ? plan.identityAction.targetPlayerId : undefined
+      const kidnapChance = kidnappedTarget ? kidnapSuccessChance(observation, kidnappedTarget) : 0
+      const kidnapAssetValue = kidnappedTarget ? marginalAssetUnits(observation) + coinsToUnits((observation.item?.value ?? 0) * .28) : 0
+      const kidnapValue = kidnapChance * kidnapAssetValue
+      const kidnapRisk = kidnapCost * (1 - kidnapChance)
+      const cashRisk = bidUnits * (mode === 'conserve' ? 1.28 : mode === 'finalSprint' ? .78 : 1) * riskFactor + reverserCost + kidnapRisk
       const boldness = (mode === 'pressure' || mode === 'comeback' || mode === 'finalSprint') ? estimate.firstChance * coinsToUnits(1.25) : 0
       const blockTarget = preferredOpponent(observation, memory)
       const blockValue = blockTarget && rankingBidUnits > (overrides[blockTarget] ?? expectedCurrentBid(observation, blockTarget)) ? coinsToUnits(profile.revenge * 1.4) : 0
       const inversionSetup = plan.identityAction?.type === 'reverserInvert' && estimate.place > 1 ? coinsToUnits((estimate.place - 1) * .4) : 0
-      const score = expectedReward - cashRisk + boldness + blockValue + inversionSetup + identityBidScore(observation, bidUnits) + taskScore(observation, rankingBidUnits, estimate.place)
+      const grudgeKidnapBonus = kidnappedTarget && kidnappedTarget === preferredOpponent(observation, memory) ? coinsToUnits(profile.revenge * .7) * kidnapChance : 0
+      const score = expectedReward - cashRisk + kidnapValue + boldness + blockValue + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place)
       scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
@@ -459,7 +475,7 @@ export function decideBotIdentity({ choices, player, players, cardOfferIds }: { 
   const categories: AssetCategory[] = ['leisure', 'transport', 'luxury', 'property']
   const collectorCategory = categories.sort((left, right) => (player.items.filter((won) => won.item.category === right).length - player.items.filter((won) => won.item.category === left).length))[0]
   const merchantCardId = cardOfferIds?.sort((left, right) => getCardDefinition(right).description.length - getCardDefinition(left).description.length)[0]
-  return { identityId, ...(target && (identityId === 'assassin' || identityId === 'thief') ? { targetPlayerId: target.id } : {}), ...(identityId === 'collector' ? { collectorCategory } : {}), ...(identityId === 'merchant' && merchantCardId ? { merchantCardId } : {}), mode: 'identity', reason: `选择${getIdentityDefinition(identityId).name}以配合当前性格。` }
+  return { identityId, ...(target && identityId === 'thief' ? { targetPlayerId: target.id } : {}), ...(identityId === 'collector' ? { collectorCategory } : {}), ...(identityId === 'merchant' && merchantCardId ? { merchantCardId } : {}), mode: 'identity', reason: `选择${getIdentityDefinition(identityId).name}以配合当前性格。` }
 }
 
 export function decideBotMerchantBid(player: Player, cardId: CardId): { bidUnits: number; mode: StrategyMode; reason: string } {

@@ -101,6 +101,10 @@ function cardEffect(cardId: CardId, description: string): CardEffect {
   return { cardId, description }
 }
 
+function identityEffect(symbol: string, description: string): CardEffect {
+  return { symbol, description }
+}
+
 function cardUses(turn: RoundTurn): CardUse[] {
   return (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).slice(0, 2)
 }
@@ -261,7 +265,27 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const rankedTurns = rankingReversalCount % 2 === 1 ? [...winningTurns].reverse() : winningTurns
   const rankings: RankingEntry[] = rankedTurns.map((turn, index) => ({ playerId: turn.playerId, place: index + 1, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }))
   const winnerId = rankedTurns[0]?.playerId ?? null
-  const itemWinnerId = winnerId
+  let itemWinnerId = winnerId
+
+  const kidnapTurn = turns.find((turn) => turn.identityAction?.type === 'kidnap' && playerById.get(turn.playerId)?.identity?.id === 'assassin')
+  if (kidnapTurn?.identityAction?.type === 'kidnap') {
+    const kidnapper = playerById.get(kidnapTurn.playerId)
+    const kidnapDelta = deltaByPlayer.get(kidnapTurn.playerId)
+    const paid = Math.min(kidnapper?.balanceUnits ?? 0, coinsToUnits(identitySettings.kidnapActivationCoins))
+    if (kidnapper && kidnapDelta) {
+      kidnapper.balanceUnits -= paid
+      kidnapDelta.identityUnits -= paid
+      if (winnerId === kidnapTurn.identityAction.targetPlayerId) {
+        kidnapper.balanceUnits += paid
+        kidnapDelta.identityUnits += paid
+        itemWinnerId = kidnapper.id
+        cardEffects.push(identityEffect('⛓', '有人抢劫了本回合的藏品。'))
+        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫成功', detail: `抢走了 ${item.emoji}${item.name}，并报销上回合花费的 ${formatCoins(paid)} 金币。`, deltaUnits: 0 })
+      } else {
+        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫失败', detail: `上回合花费了 ${formatCoins(paid)} 金币，但目标没有拿下本轮拍品。`, deltaUnits: -paid })
+      }
+    }
+  }
 
   for (const ranking of rankings) {
     const player = playerById.get(ranking.playerId)
@@ -269,8 +293,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     if (!player || !delta) continue
     player.balanceUnits += ranking.rewardUnits
     delta.rewardUnits += ranking.publicRewardUnits
-    if (ranking.playerId === itemWinnerId) player.items.push({ item, roundIndex })
   }
+  if (itemWinnerId) playerById.get(itemWinnerId)?.items.push({ item, roundIndex })
 
   const predictionOutcomes: PredictionOutcome[] = []
   const correctTurns: RoundTurn[] = []
@@ -343,19 +367,6 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜中 +${formatCoins(publicPayment)}”；实际共获得 ${formatCoins(publicPayment + bonus)} 金币，其中赌徒额外奖励 ${formatCoins(bonus)} 金币。`, deltaUnits: bonus })
   }
 
-  for (const turn of turns) {
-    const player = playerById.get(turn.playerId)
-    const delta = deltaByPlayer.get(turn.playerId)
-    if (!player || !delta || player.identity?.id !== 'assassin' || !player.identity.targetPlayerId) continue
-    const targetTurn = turns.find((candidate) => candidate.playerId === player.identity?.targetPlayerId)
-    const success = Boolean(targetTurn && turn.bidUnits > targetTurn.bidUnits)
-    const amount = coinsToUnits(success ? identitySettings.assassinSuccessCoins : identitySettings.assassinFailureCoins)
-    const paid = success ? amount : Math.min(player.balanceUnits, amount)
-    player.balanceUnits += success ? paid : -paid
-    delta.identityUnits += success ? paid : -paid
-    identityEvents.push({ playerId: player.id, identityId: 'assassin', roundIndex, title: success ? '刺客得手' : '刺客失手', detail: success ? `投资超过目标，获得 ${formatCoins(paid)} 金币。` : `投资未超过目标，失去 ${formatCoins(paid)} 金币。`, deltaUnits: success ? paid : -paid })
-  }
-
   const executable = identityContracts.filter((contract) => contract.status === 'pending' && contract.executeRoundIndex === roundIndex)
   const turnById = new Map(turns.map((turn) => [turn.playerId, turn]))
   const rankingIds = new Set(rankings.map((ranking) => ranking.playerId))
@@ -424,6 +435,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     rankings,
     tiedPlayerIds,
     winnerId,
+    itemWinnerId,
     totalBidUnits: turns.reduce((total, turn) => total + turn.bidUnits, 0),
     minWinningBidUnits: rankings.length > 0 ? Math.min(...rankings.map((ranking) => ranking.bidUnits)) : null,
     predictionOutcomes,

@@ -60,7 +60,8 @@ export interface CardGrant {
 }
 
 export interface CardEffect {
-  cardId: CardId
+  cardId?: CardId
+  symbol?: string
   description: string
 }
 
@@ -85,8 +86,7 @@ export interface IdentitySettings {
   gamblerCorrectBonusMultiplier: number
   gamblerSkipPenaltyMultiplier: number
   reverserActivationCoins: number
-  assassinSuccessCoins: number
-  assassinFailureCoins: number
+  kidnapActivationCoins: number
   thiefSuccessProbability: number
   thiefMaxSteals: number
   merchantInitialOfferCount: number
@@ -153,6 +153,7 @@ export interface MerchantAuction {
 export type IdentityAction =
   | { type: 'merchantAuction' }
   | { type: 'reverserInvert' }
+  | { type: 'kidnap'; targetPlayerId: string }
   | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
 
 export interface Item {
@@ -225,6 +226,7 @@ export interface RoundResult {
   rankings: RankingEntry[]
   tiedPlayerIds: string[]
   winnerId: string | null
+  itemWinnerId: string | null
   totalBidUnits: number
   minWinningBidUnits: number | null
   predictionOutcomes: PredictionOutcome[]
