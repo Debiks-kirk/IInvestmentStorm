@@ -351,6 +351,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const previousTurns = session.turns.filter((turn) => turn.playerId !== player.id)
   const targetPlayers = previousTurns.map((turn) => session.players.find((candidate) => candidate.id === turn.playerId)).filter(Boolean) as Player[]
   const selectedCard = selectedCardId ? getCardDefinition(selectedCardId) : null
+  const cardTargetPlayers = selectedCardId === 'swap' ? session.players.filter((candidate) => candidate.id !== player.id) : targetPlayers
   const grant = session.pendingCardGrants.find((entry) => entry.playerId === player.id && !entry.announced)
   const peekedTurn = selectedCardId === 'peek' && selectedTargetId ? previousTurns.find((turn) => turn.playerId === selectedTargetId) : undefined
   const cardUse: CardUse | undefined = selectedCardId ? { cardId: selectedCardId, ...(selectedCard?.needsTarget && selectedTargetId ? { targetPlayerId: selectedTargetId } : {}) } : undefined
@@ -408,10 +409,10 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
         <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮最多使用一张</span></div>
         {player.cardInventory.length === 0 ? <p className="empty-cards">暂时没有道具卡。落后时，下一轮可能得到秘密支援。</p> : <div className="card-list">{player.cardInventory.map((cardId) => {
           const card = getCardDefinition(cardId)
-          const unavailable = card.needsTarget && targetPlayers.length === 0
+          const unavailable = card.needsTarget && (cardId === 'swap' ? cardTargetPlayers.length === 0 : targetPlayers.length === 0)
           return <button key={cardId} className={cx('card-choice', selectedCardId === cardId && 'is-selected')} disabled={unavailable} onClick={() => { setSelectedCardId(selectedCardId === cardId ? null : cardId); setSelectedTargetId(null) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{unavailable ? '本轮尚无已投资玩家，可留到后续回合使用。' : card.description}</small></div><i>{selectedCardId === cardId ? '✓' : ''}</i></button>
         })}</div>}
-        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择要交换排名金额的玩家'}</strong><div>{targetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => setSelectedTargetId(candidate.id)}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
+        {selectedCard?.needsTarget && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '选择要查看的玩家' : '选择任意一名其他玩家，结算时交换排名金额'}</strong><div>{cardTargetPlayers.map((candidate) => <button key={candidate.id} className={cx(selectedTargetId === candidate.id && 'is-selected')} onClick={() => setSelectedTargetId(candidate.id)}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span>{candidate.name}{selectedTargetId === candidate.id && <i>✓</i>}</button>)}</div>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
       </section>
       <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{selectedCard?.name ?? '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCard || !lobbyActionValid} onClick={() => setConfirming(true)}>确认我的选择</button></div>
       {confirming && (
@@ -558,7 +559,9 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       if (!currentPlayer.cardInventory.includes(turn.cardUse.cardId)) return
       const needsTarget = getCardDefinition(turn.cardUse.cardId).needsTarget
       const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === turn.cardUse?.targetPlayerId)
-      if (needsTarget && !targetIsPrevious) return
+      const targetIsOtherPlayer = Boolean(turn.cardUse.targetPlayerId && turn.cardUse.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === turn.cardUse?.targetPlayerId))
+      if (needsTarget && turn.cardUse.cardId === 'peek' && !targetIsPrevious) return
+      if (needsTarget && turn.cardUse.cardId === 'swap' && !targetIsOtherPlayer) return
     }
     let players = session.players.map((player) => player.id === turn.playerId ? {
       ...player,

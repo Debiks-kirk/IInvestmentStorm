@@ -77,6 +77,8 @@ async function chooseIdentities(page, playerCount) {
 
 async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard = false) {
   await enterPrivateTurn(page)
+  while (await page.getByRole('button', { name: '知道了' }).count() > 0) await page.getByRole('button', { name: '知道了' }).last().click()
+  while (await page.getByRole('button', { name: '收下道具卡' }).count() > 0) await page.getByRole('button', { name: '收下道具卡' }).last().click()
   if (predictionIndex !== null) await page.locator('.prediction-list button').nth(predictionIndex).click()
   if (useCard) {
     await page.locator('.card-choice').first().click()

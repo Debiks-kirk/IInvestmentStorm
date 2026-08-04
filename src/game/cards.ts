@@ -12,7 +12,7 @@ export interface CardDefinition {
 export const CARD_DEFINITIONS: CardDefinition[] = [
   { id: 'red', name: '红卡', symbol: '◆', description: '本轮拍品真实价值翻倍，奖励预览不变。', needsTarget: false },
   { id: 'peek', name: '偷看底牌', symbol: '◉', description: '查看一名已投资玩家的实际投资额。', needsTarget: true },
-  { id: 'swap', name: '偷天换日', symbol: '↔', description: '与一名已投资玩家交换排名用投资额。', needsTarget: true },
+  { id: 'swap', name: '偷天换日', symbol: '↔', description: '与任意一名其他玩家交换本轮排名用投资额。', needsTarget: true },
   { id: 'redistribute', name: '劫富济贫', symbol: '⚖', description: '结算前由最富者向最穷者转移金币。', needsTarget: false },
   { id: 'doubleBid', name: '反客为主', symbol: '↑', description: '本轮投资以双倍金额参与排名。', needsTarget: false },
   { id: 'black', name: '黑卡', symbol: '◐', description: '本轮拍品真实价值减半，奖励预览不变。', needsTarget: false },

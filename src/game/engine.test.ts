@@ -157,6 +157,17 @@ describe('道具卡结算', () => {
     expect(result.rankings.find((entry) => entry.playerId === 'p2')).toMatchObject({ bidUnits: coinsToUnits(10), actualBidUnits: coinsToUnits(4) })
   })
 
+  it('偷天换日可指定尚未操作的玩家，并在统一结算时交换排名金额', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 4, null, { cardId: 'swap', targetPlayerId: 'p3' }),
+      turn('p2', 8),
+      turn('p3', 10),
+    ]).result
+    expect(result.winnerId).toBe('p1')
+    expect(result.rankings.find((entry) => entry.playerId === 'p1')).toMatchObject({ bidUnits: coinsToUnits(10), actualBidUnits: coinsToUnits(4) })
+    expect(result.rankings.find((entry) => entry.playerId === 'p3')).toMatchObject({ bidUnits: coinsToUnits(4), actualBidUnits: coinsToUnits(10) })
+  })
+
   it('偷看底牌只留下匿名结算说明，不影响排名或金币', () => {
     const result = settle(players([20, 20, 20]), [
       turn('p1', 10),
