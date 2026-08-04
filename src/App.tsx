@@ -3,7 +3,7 @@ import { ASSET_CATEGORY_CONFIGS, categoryConfig } from './game/assets'
 import { CARD_DEFINITIONS, getCardDefinition } from './game/cards'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
-import { createDefaultSettings, createSession, prepareCardGrants, validateNames } from './game/session'
+import { createDefaultSettings, createSession, prepareCardGrants, recycleUsedCards, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import type { CardId, CardUse, GamePreset, GameSession, GameSettings, Player, RoundResult, RoundTurn } from './game/types'
 
@@ -98,7 +98,7 @@ function Rules({ onBack }: { onBack: () => void }) {
           <article><span className="rule-number">01</span><h2>秘密下注</h2><p>轮流拿设备，下注会立刻消耗金币。余额只有本人长按才能看见。</p></article>
           <article><span className="rule-number">02</span><h2>避开并列</h2><p>所有相同出价都出局。剩下的唯一出价从高到低重新排名。</p></article>
           <article><span className="rule-number">03</span><h2>顺手猜人</h2><p>可猜谁会第一。猜错扣半个物品价值；猜中则由第一名向你付款。</p></article>
-          <article><span className="rule-number">04</span><h2>资产翻盘</h2><p>拍品会组成四类固定资产。终局按金币与固定资产总和排名，道具仍可匿名翻盘。</p></article>
+          <article><span className="rule-number">04</span><h2>资产翻盘</h2><p>拍品会组成四类固定资产。用过的道具会回到卡池，留着不用则一直由你保管。</p></article>
         </div>
         <div className="rule-example">
           <div><small>四人下注</small><strong>10 · 10 · 9 · 8</strong></div>
@@ -192,7 +192,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                 <label className="switch-row"><span><strong>公开个人下注</strong><small>只在每轮结算后显示</small></span><input type="checkbox" checked={settings.revealBids} onChange={(event) => setSettings({ ...settings, revealBids: event.target.checked })} /></label>
                 <label className="switch-row"><span><strong>公布余额领跑者</strong><small>每轮只公布第一名姓名，不显示余额</small></span><input type="checkbox" checked={settings.revealBalanceLeader} onChange={(event) => setSettings({ ...settings, revealBalanceLeader: event.target.checked })} /></label>
                 <div className="setting-row"><label htmlFor="card-probability">道具发放概率</label><div><input id="card-probability" type="number" min="0" max="100" value={settings.cardGrantProbability} onChange={(event) => setSettings({ ...settings, cardGrantProbability: Number(event.target.value) })} /><span>%</span></div></div>
-                <div className="card-setting-group"><strong>禁用道具卡</strong><small>未勾选的卡会加入本局不放回牌堆</small><div>{CARD_DEFINITIONS.map((card) => <label key={card.id}><input type="checkbox" checked={!settings.disabledCardIds.includes(card.id)} onChange={(event) => setSettings({ ...settings, disabledCardIds: event.target.checked ? settings.disabledCardIds.filter((id) => id !== card.id) : [...settings.disabledCardIds, card.id] })} /><span>{card.symbol} {card.name}</span></label>)}</div></div>
+                <div className="card-setting-group"><strong>禁用道具卡</strong><small>未勾选的卡会加入本局循环卡池；使用后回池，未使用会留在手中</small><div>{CARD_DEFINITIONS.map((card) => <label key={card.id}><input type="checkbox" checked={!settings.disabledCardIds.includes(card.id)} onChange={(event) => setSettings({ ...settings, disabledCardIds: event.target.checked ? settings.disabledCardIds.filter((id) => id !== card.id) : [...settings.disabledCardIds, card.id] })} /><span>{card.symbol} {card.name}</span></label>)}</div></div>
                 <div className="setting-row"><label htmlFor="motion">动画速度</label><select id="motion" value={settings.animationSpeed} onChange={(event) => setSettings({ ...settings, animationSpeed: event.target.value as GameSettings['animationSpeed'] })}><option value="full">完整</option><option value="fast">快速</option><option value="reduced">极简</option></select></div>
               </div>
             )}
@@ -466,12 +466,13 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult' })
     else {
       const nextRoundIndex = session.roundIndex + 1
+      const recycledCardDeck = recycleUsedCards(session.cardDeck, session.turns)
       const grants = nextRoundIndex >= session.cardRulesStartRound ? prepareCardGrants({
         players: session.players,
-        cardDeck: session.cardDeck,
+        cardDeck: recycledCardDeck,
         roundIndex: nextRoundIndex,
         probability: session.settings.cardGrantProbability,
-      }) : { players: session.players, cardDeck: session.cardDeck, pendingCardGrants: [] }
+      }) : { players: session.players, cardDeck: recycledCardDeck, pendingCardGrants: [] }
       patch({ phase: 'roundIntro', roundIndex: nextRoundIndex, currentTurnIndex: 0, turns: [], players: grants.players, cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants })
     }
   }

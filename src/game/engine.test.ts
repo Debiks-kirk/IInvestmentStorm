@@ -4,7 +4,7 @@ import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './e
 import { createCardDeck } from './cards'
 import { ITEM_POOL } from './items'
 import { SYSTEM_PRESETS } from './presets'
-import { createDefaultSettings, prepareCardGrants } from './session'
+import { createDefaultSettings, prepareCardGrants, recycleUsedCards } from './session'
 import type { CardUse, Item, Player, RoundTurn } from './types'
 
 const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000', category: 'leisure' }
@@ -198,13 +198,13 @@ describe('道具卡结算', () => {
 })
 
 describe('道具发放', () => {
-  it('禁用卡不会进入本局不放回牌堆', () => {
+  it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
     expect(new Set(deck).size).toBe(deck.length)
   })
 
-  it('唯一最低者必中时获得不放回卡牌', () => {
+  it('唯一最低者必中时从卡池获得卡牌', () => {
     const base = players([3, 8, 10])
     const granted = prepareCardGrants({ players: base, cardDeck: ['red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
     expect(granted.pendingCardGrants).toEqual([{ playerId: 'p1', cardId: 'red', announced: false }])
@@ -224,6 +224,16 @@ describe('道具发放', () => {
     const granted = prepareCardGrants({ players: players([0, 8, 10]), cardDeck: ['peek', 'red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
     expect(granted.pendingCardGrants[0]?.cardId).toBe('red')
     expect(granted.cardDeck).toEqual(['peek', 'black'])
+  })
+
+  it('已使用卡会在回合结束后回洗进卡池，未使用卡不会被归还或重复', () => {
+    const recycled = recycleUsedCards(['black'], [
+      turn('p1', 5, null, { cardId: 'red' }),
+      turn('p2', 3, null, { cardId: 'red' }),
+    ])
+    expect(recycled).toHaveLength(2)
+    expect(new Set(recycled)).toEqual(new Set(['red', 'black']))
+    expect(recycleUsedCards(['black'], [turn('p1', 5)])).toEqual(['black'])
   })
 })
 

@@ -1,7 +1,7 @@
 import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck } from './cards'
 import { createItemDeck, shuffle } from './items'
-import type { CardGrant, CardId, GameSession, GameSettings, Player } from './types'
+import type { CardGrant, CardId, GameSession, GameSettings, Player, RoundTurn } from './types'
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
@@ -60,6 +60,16 @@ export interface CardGrantPreparation {
   players: Player[]
   cardDeck: CardId[]
   pendingCardGrants: CardGrant[]
+}
+
+/** 已使用卡在结算后的下一轮开始前回洗；未使用库存始终不动。 */
+export function recycleUsedCards(cardDeck: CardId[], turns: RoundTurn[]): CardId[] {
+  const returnedCards = [...new Set(
+    turns
+      .flatMap((turn) => turn.cardUse ? [turn.cardUse.cardId] : [])
+      .filter((cardId) => !cardDeck.includes(cardId)),
+  )]
+  return returnedCards.length > 0 ? shuffle([...cardDeck, ...returnedCards]) : [...cardDeck]
 }
 
 export function prepareCardGrants({
