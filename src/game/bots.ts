@@ -79,6 +79,7 @@ export interface BotObservation {
   wrongPredictionMultiplier: number
   reverserActivationUnits: number
   kidnapActivationUnits: number
+  lobbyistFeeUnits: number
   item: GameSession['itemDeck'][number] | null
   self: Pick<Player, 'id' | 'name' | 'balanceUnits' | 'items' | 'cardInventory' | 'identity'>
   opponents: Array<{ id: string; name: string }>
@@ -106,6 +107,9 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     wrongPredictionMultiplier: session.settings.wrongPredictionMultiplier,
     reverserActivationUnits: coinsToUnits(session.settings.identitySettings.reverserActivationCoins),
     kidnapActivationUnits: coinsToUnits(session.settings.identitySettings.kidnapActivationCoins),
+    lobbyistFeeUnits: ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || player.identity?.lobbyistNextFree)
+      ? 0
+      : coinsToUnits(session.settings.identitySettings.lobbyistFeeCoins),
     item: session.itemDeck[session.roundIndex] ?? null,
     self: { id: player.id, name: player.name, balanceUnits: player.balanceUnits, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined },
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
@@ -476,7 +480,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const identity = observation.self.identity
   let identityAction: IdentityAction | undefined = best.identityAction
   if (identity?.id === 'merchant' && !identity.merchantAuctionUsed && observation.cardDeckSize > 0 && (mode === 'cards' || mode === 'finalSprint')) identityAction = { type: 'merchantAuction' }
-  if (identity?.id === 'lobbyist' && observation.roundIndex < observation.totalRounds - 1 && target) identityAction = { type: 'lobbyistContract', targetPlayerId: target }
+  if (identity?.id === 'lobbyist' && observation.roundIndex < observation.totalRounds - 1 && target && best.bidUnits + observation.lobbyistFeeUnits <= observation.self.balanceUnits) identityAction = { type: 'lobbyistContract', targetPlayerId: target }
   const intel = observation.intel ? `模糊情报：${observation.opponents.find((opponent) => opponent.id === observation.intel?.playerId)?.name ?? '一名对手'} 的投资约为 ${observation.intel.lowUnits / 2}–${observation.intel.highUnits / 2}。` : undefined
   const predictionText = prediction.playerId ? `预测 ${observation.opponents.find((opponent) => opponent.id === prediction.playerId)?.name ?? '对手'} 的期望收益 ${Math.round(prediction.expectedUnits) / 2}。` : '预测期望不够，选择跳过。'
   const specialText = best.specialReason ? `${best.specialReason}${best.identityAction?.type === 'reverserInvert' ? ` 预计先以第 ${best.place} 名进入获奖区，再倒转为第 ${best.effectivePlace} 名。` : ''}` : ''

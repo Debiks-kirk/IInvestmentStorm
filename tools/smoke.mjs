@@ -274,8 +274,6 @@ async function runBotSpectatorFlow(page) {
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级设置/ }).click()
-  await disableIdentities(page)
-  await disableFirstRoundSystemAuction(page)
   await page.locator('#motion').selectOption('reduced')
   for (let index = 1; index <= 3; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
   await page.getByRole('button', { name: /开始这局/ }).click()

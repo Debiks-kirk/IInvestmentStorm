@@ -708,28 +708,28 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
   }
   const submitTurn = (turn: RoundTurn, botRecord?: { mode: import('./game/types').StrategyMode; reason: string; intel?: string }) => {
     const currentPlayer = session.players.find((player) => player.id === turn.playerId)
-    if (!currentPlayer || turn.bidUnits < 0 || turn.bidUnits > currentPlayer.balanceUnits) return
+    if (!currentPlayer || turn.bidUnits < 0 || turn.bidUnits > currentPlayer.balanceUnits) return false
     if (turn.identityAction?.type === 'reverserInvert') {
       const isLastTwoRounds = session.roundIndex >= session.settings.rounds - 2
       const costUnits = Math.round(session.settings.identitySettings.reverserActivationCoins * (isLastTwoRounds ? 4 : 2))
-      if (currentPlayer.identity?.id !== 'reverser' || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return
+      if (currentPlayer.identity?.id !== 'reverser' || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return false
     }
     if (turn.identityAction?.type === 'kidnap') {
       const action = turn.identityAction
       const costUnits = Math.round(session.settings.identitySettings.kidnapActivationCoins * 2)
       const targetValid = action.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === action.targetPlayerId)
-      if (currentPlayer.identity?.id !== 'assassin' || !targetValid || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return
+      if (currentPlayer.identity?.id !== 'assassin' || !targetValid || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return false
     }
     const cardUses = turnCardUses(turn)
-    if (cardUses.length > 2 || new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return
+    if (cardUses.length > 2 || new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return false
     for (const use of cardUses) {
-      if (!currentPlayer.cardInventory.includes(use.cardId)) return
+      if (!currentPlayer.cardInventory.includes(use.cardId)) return false
       const needsTarget = getCardDefinition(use.cardId).needsTarget
       const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === use.targetPlayerId)
       const targetIsOtherPlayer = Boolean(use.targetPlayerId && use.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === use.targetPlayerId))
-      if (needsTarget && use.cardId === 'peek' && !targetIsPrevious) return
-      if (needsTarget && (use.cardId === 'swap' || use.cardId === 'bananaPeel') && !targetIsOtherPlayer) return
-      if (use.cardId === 'fateCoin' && use.coinResult !== 'heads' && use.coinResult !== 'tails') return
+      if (needsTarget && use.cardId === 'peek' && !targetIsPrevious) return false
+      if (needsTarget && (use.cardId === 'swap' || use.cardId === 'bananaPeel') && !targetIsOtherPlayer) return false
+      if (use.cardId === 'fateCoin' && use.coinResult !== 'heads' && use.coinResult !== 'tails') return false
     }
     let players = session.players.map((player) => {
       if (player.id !== turn.playerId) return player
@@ -744,23 +744,23 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     let resolvedTurn = turn
     let merchantAuction = session.merchantAuction
     if (turn.identityAction?.type === 'merchantAuction') {
-      if (currentPlayer.identity?.id !== 'merchant' || currentPlayer.identity.merchantAuctionUsed || session.roundIndex >= session.settings.rounds - 1 || session.cardDeck.length === 0) return
+      if (currentPlayer.identity?.id !== 'merchant' || currentPlayer.identity.merchantAuctionUsed || session.roundIndex >= session.settings.rounds - 1 || session.cardDeck.length === 0) return false
       const merchant = players.find((player) => player.id === turn.playerId)
-      if (!merchant?.identity) return
+      if (!merchant?.identity) return false
       merchant.identity = { ...merchant.identity, merchantAuctionUsed: true }
       merchantAuction = { source: 'merchant', merchantId: turn.playerId, cardId: session.cardDeck[0], roundIndex: session.roundIndex + 1, bidderIndex: 0, bids: [] }
     }
     if (turn.identityAction?.type === 'lobbyistContract') {
-      if (currentPlayer.identity?.id !== 'lobbyist' || session.roundIndex >= session.settings.rounds - 1 || currentPlayer.identity.lobbyistLastIssuedRound === session.roundIndex) return
+      if (currentPlayer.identity?.id !== 'lobbyist' || session.roundIndex >= session.settings.rounds - 1 || currentPlayer.identity.lobbyistLastIssuedRound === session.roundIndex) return false
       const action = turn.identityAction
-      if (action.targetPlayerId === turn.playerId || !session.players.some((player) => player.id === action.targetPlayerId)) return
+      if (action.targetPlayerId === turn.playerId || !session.players.some((player) => player.id === action.targetPlayerId)) return false
       const resolvedTask = action.specified && action.taskType ? { taskType: action.taskType, comparisonPlayerId: action.comparisonPlayerId } : randomLobbyistTask(session.players.map((player) => player.id), action.targetPlayerId)
-      if ((resolvedTask.taskType === 'outbid' || resolvedTask.taskType === 'underbid') && (!resolvedTask.comparisonPlayerId || resolvedTask.comparisonPlayerId === action.targetPlayerId || !session.players.some((player) => player.id === resolvedTask.comparisonPlayerId))) return
+      if ((resolvedTask.taskType === 'outbid' || resolvedTask.taskType === 'underbid') && (!resolvedTask.comparisonPlayerId || resolvedTask.comparisonPlayerId === action.targetPlayerId || !session.players.some((player) => player.id === resolvedTask.comparisonPlayerId))) return false
       const identity = currentPlayer.identity
       const isFree = (session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || identity.lobbyistNextFree
       const feeUnits = (isFree ? 0 : Math.round(session.settings.identitySettings.lobbyistFeeCoins * 2)) + (action.specified ? Math.round(session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins * 2) : 0)
       const actor = players.find((player) => player.id === turn.playerId)
-      if (!actor || actor.balanceUnits < feeUnits) return
+      if (!actor || actor.balanceUnits < feeUnits) return false
       actor.balanceUnits -= feeUnits
       actor.identity = { ...identity, lobbyistNextFree: false, lobbyistLastIssuedRound: session.roundIndex }
       identityContracts.push({ id: `contract-${session.roundIndex}-${turn.playerId}-${Date.now()}`, issuerId: turn.playerId, targetPlayerId: action.targetPlayerId, taskType: resolvedTask.taskType, comparisonPlayerId: resolvedTask.comparisonPlayerId, specified: Boolean(action.specified), issuedRoundIndex: session.roundIndex, executeRoundIndex: session.roundIndex + 1, status: 'pending', paymentUnits: 0 })
@@ -769,6 +769,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     const turns = [...session.turns, resolvedTurn]
     const isLast = session.currentTurnIndex >= session.players.length - 1
     patch({ players, turns, identityContracts, merchantAuction, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : session.currentTurnIndex + 1 })
+    return true
   }
   const reveal = () => {
     if (session.phase !== 'revealReady') return
@@ -896,7 +897,9 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
         const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
         const observation = buildBotObservation(session, currentPlayer.id)
         const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
-        submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
+        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
+        // 防线：未来新增身份/道具时，即使 Bot 计划与提交校验暂不同步，也必须安全地交出一个合法回合，不能永久停在分析页。
+        if (!accepted) submitTurn({ playerId: currentPlayer.id, bidUnits: 0, predictedPlayerId: null, cardUses: [] }, { ...decision, reason: `${decision.reason} 计划未通过校验，已改为保守跳过。` })
       } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
         patch({ phase: 'auctionBid' })
       } else if (session.phase === 'auctionBid' && isBot(auctionBidder) && session.merchantAuction) {
