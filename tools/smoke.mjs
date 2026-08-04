@@ -107,10 +107,15 @@ async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard
   if (predictionIndex !== null) await page.locator('.prediction-list button').nth(predictionIndex).click()
   if (useCard) {
     await page.locator('.card-choice').first().click()
-    const targets = page.locator('.card-targets button')
-    if (await targets.count() > 0) await targets.first().click()
-    const confirmUse = page.getByRole('button', { name: '确认使用' })
-    if (await confirmUse.count() > 0) await confirmUse.click()
+    const targetConfirm = page.getByRole('button', { name: '确认并选择玩家' })
+    if (await targetConfirm.count() > 0) {
+      await targetConfirm.click()
+      await page.locator('.target-picker-grid button').first().click()
+    } else {
+      const confirmUse = page.getByRole('button', { name: '确认使用' })
+      if (await confirmUse.count() > 0) await confirmUse.click()
+    }
+    if (await page.getByText('你看到了底牌', { exact: true }).count() > 0) await page.getByRole('button', { name: '知道了' }).click()
   }
   await setRange(page.getByLabel('秘密下注'), bidUnits)
   await page.getByRole('button', { name: '确认我的选择' }).click()
@@ -248,9 +253,9 @@ async function runCardFlow(page) {
   await page.getByRole('button', { name: '收下道具卡' }).click()
   const usableCards = page.locator('.card-choice:not([disabled])')
   if (await usableCards.count() > 0) await usableCards.first().click()
-  const targets = page.locator('.card-targets button')
-  if (await targets.count() > 0) {
-    await targets.first().click()
+  const targetConfirm = page.getByRole('button', { name: '确认并选择玩家' })
+  if (await targetConfirm.count() > 0) {
+    await targetConfirm.click()
     const targetCards = page.locator('.target-picker-grid button')
     if (await targetCards.count() > 0) await targetCards.first().click()
   }
@@ -263,6 +268,7 @@ async function runCardFlow(page) {
     if (await rerollOptions.count() !== 6) throw new Error('改拍令确认后应锁定展示 6 张候选拍品。')
     await rerollOptions.first().click()
   }
+  if (await page.getByText('你看到了底牌', { exact: true }).count() > 0) await page.getByRole('button', { name: '知道了' }).click()
   await setRange(page.getByLabel('秘密下注'), 6)
   await page.getByRole('button', { name: '确认我的选择' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
@@ -334,7 +340,7 @@ async function runLobbyistTaskFlow(page) {
   await page.getByRole('button', { name: /继续第 1 轮/ }).click()
   await startRound(page)
   await enterPrivateTurn(page)
-  await page.getByRole('button', { name: '选择任务卡' }).click()
+  await page.getByRole('button', { name: '发动技能' }).click()
   await page.getByText('选择要发布的任务', { exact: true }).waitFor()
   await page.getByRole('button', { name: /获得第二名/ }).click()
   await page.getByText('选择任务对象', { exact: true }).waitFor()
@@ -342,7 +348,7 @@ async function runLobbyistTaskFlow(page) {
   await page.getByRole('button', { name: '确认安排' }).click()
   await page.getByRole('button', { name: /已安排：获得第二名/ }).waitFor()
   await page.getByRole('button', { name: /已安排：获得第二名/ }).click()
-  await page.getByRole('button', { name: '选择任务卡' }).click()
+  await page.getByRole('button', { name: '发动技能' }).click()
   await page.getByRole('button', { name: /下注高于某人/ }).click()
   await page.locator('.target-picker-grid button').first().click()
   await page.getByText('选择比较对象', { exact: true }).waitFor()
@@ -440,9 +446,30 @@ async function runFirstPlayerBananaFlow(page) {
   const banana = page.locator('.card-choice').filter({ hasText: '香蕉皮' })
   if (await banana.isDisabled()) throw new Error('第一位玩家持有香蕉皮时不应被禁用')
   await banana.click()
-  await page.getByRole('button', { name: '打开玩家卡片选择目标' }).click()
+  await page.getByRole('button', { name: '确认并选择玩家' }).click()
   if (await page.locator('.target-picker-grid button').count() !== 2) throw new Error('香蕉皮应允许第一位玩家选择全部两名其他玩家')
   await assertNoHorizontalOverflow(page, '首位香蕉皮目标选择')
+}
+
+async function runTurnTimeoutFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
+  await page.locator('#turn-time-limit').fill('5')
+  await page.locator('#motion').selectOption('reduced')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  await page.getByText('本次操作剩余', { exact: true }).waitFor()
+  await page.waitForTimeout(5600)
+  await page.getByText('请把设备交给', { exact: true }).waitFor()
+  const firstTurn = await page.evaluate(() => JSON.parse(localStorage.getItem('who-is-raising:session:v1')).turns[0])
+  if (!firstTurn || firstTurn.bidUnits !== 0 || firstTurn.predictedPlayerId !== null) throw new Error('超时应按当前已确认的默认选择自动提交')
 }
 
 async function runPrizeRerollFlow(page) {
@@ -492,6 +519,7 @@ try {
   await runCardFlow(page)
   await runSystemAuctionFlow(page)
   await runFirstPlayerBananaFlow(page)
+  await runTurnTimeoutFlow(page)
   await runPrizeRerollFlow(page)
   await runPresetFlow(page)
   await runIdentityFlow(page)

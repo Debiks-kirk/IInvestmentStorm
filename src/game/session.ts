@@ -20,6 +20,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     cardGrantProbability: 80,
     disabledCardIds: [],
     firstRoundSystemAuction: true,
+    turnTimeLimitSeconds: 20,
     identitySettings: defaultIdentitySettings(true),
     animationSpeed: 'full',
   }
@@ -50,7 +51,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     ? { source: 'system' as const, merchantId: null, cardId: initialCardDeck[0], roundIndex: 0, bidderIndex: 0, bids: [] }
     : null
   return {
-    version: 9,
+    version: 10,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -67,6 +68,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     identityContracts: [],
     identityEvents: [],
     merchantAuction: systemAuction,
+    operationDeadlineAt: null,
     cardRulesStartRound: 1,
     fairnessOrderIds: shuffle(players.map((player) => player.id)),
     roundIndex: 0,

@@ -21,6 +21,7 @@ afterEach(() => {
 
 describe('配置预设存储', () => {
   it('新局默认说客违约付款为 5 金币', () => {
+    expect(createDefaultSettings(3)).toMatchObject({ turnTimeLimitSeconds: 20 })
     expect(createDefaultSettings(3).identitySettings).toMatchObject({ lobbyistFailurePaymentCoins: 5, gamblerCorrectBonusMultiplier: .5, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, merchantAuctionLimit: 2 })
   })
 
@@ -64,6 +65,15 @@ describe('对局存档迁移', () => {
     expect(loadSession()?.merchantAuction).toBeNull()
   })
 
+  it('旧存档补齐默认操作时限，并保留已经开始的绝对截止时间', () => {
+    const legacy = JSON.parse(JSON.stringify(createSession(['甲', '乙', '丙'], createDefaultSettings(3))))
+    legacy.version = 9
+    delete legacy.settings.turnTimeLimitSeconds
+    legacy.operationDeadlineAt = 123456789
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    expect(loadSession()).toMatchObject({ version: 10, operationDeadlineAt: 123456789, settings: { turnTimeLimitSeconds: 20 } })
+  })
+
   it('v2 存档补齐拍品分类而不改写已有规则数值', () => {
     const settings = createDefaultSettings(3)
     settings.wrongPredictionMultiplier = 0.5
@@ -74,7 +84,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(9)
+    expect(migrated?.version).toBe(10)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)
@@ -82,6 +92,7 @@ describe('对局存档迁移', () => {
     expect(migrated?.players[0].items[0].item.category).toBeTruthy()
     expect(migrated?.cardDeck).toContain('reverseRank')
     expect(migrated?.cardDeck).toEqual(expect.arrayContaining(['fateCoin', 'bananaPeel', 'reflectShield']))
+    expect(migrated?.settings.turnTimeLimitSeconds).toBe(20)
   })
 
   it('v7 存档加载时保留已开启的身份系统', () => {

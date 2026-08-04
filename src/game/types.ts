@@ -83,6 +83,8 @@ export interface GameSettings {
   disabledCardIds: CardId[]
   /** 首轮在拍品抽取前由系统发起一张公开道具的秘密竞购。 */
   firstRoundSystemAuction: boolean
+  /** 真人竞拍与竞购的单次私密操作时限（秒）。 */
+  turnTimeLimitSeconds: number
   identitySettings: IdentitySettings
   animationSpeed: AnimationSpeed
 }
@@ -257,7 +259,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 9
+  version: 10
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -282,6 +284,8 @@ export interface GameSession {
   identityContracts: LobbyistContract[]
   identityEvents: IdentityEvent[]
   merchantAuction: MerchantAuction | null
+  /** 已进入私密竞拍/竞购后的绝对截止时间；刷新降级为传递页时保留。 */
+  operationDeadlineAt: number | null
   cardRulesStartRound: number
   fairnessOrderIds: string[]
   roundIndex: number
