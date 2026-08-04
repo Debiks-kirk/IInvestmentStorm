@@ -78,6 +78,34 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   }
 }
 
+/** Starts fresh with the same seats and rules; revenge mode carries only Bot grudges keyed to the new seat IDs. */
+export function createRematchSession(previous: GameSession, keepBotGrudges = false): GameSession {
+  const seats: SeatConfig[] = previous.players.map((player) => ({
+    name: player.name,
+    controller: player.controller?.kind === 'bot' ? { ...player.controller } : { kind: 'human' },
+  }))
+  const settings: GameSettings = {
+    ...previous.settings,
+    rewardMultipliers: [...previous.settings.rewardMultipliers],
+    disabledCardIds: [...previous.settings.disabledCardIds],
+    identitySettings: { ...previous.settings.identitySettings, disabledIdentityIds: [...previous.settings.identitySettings.disabledIdentityIds] },
+  }
+  const next = createSession(seats, settings)
+  if (!keepBotGrudges) return next
+  const oldToNewId = new Map(previous.players.map((player, index) => [player.id, next.players[index]?.id]))
+  return {
+    ...next,
+    players: next.players.map((player, index) => {
+      const previousPlayer = previous.players[index]
+      if (player.controller?.kind !== 'bot' || !previousPlayer?.botMemory) return player
+      const grudgeByPlayerId = Object.fromEntries(Object.entries(previousPlayer.botMemory.grudgeByPlayerId)
+        .map(([oldId, score]) => [oldToNewId.get(oldId), score] as const)
+        .filter(([playerId]) => Boolean(playerId))) as Record<string, number>
+      return { ...player, botMemory: { ...emptyBotMemory(), grudgeByPlayerId } }
+    }),
+  }
+}
+
 /** Draw fresh candidates outside the scheduled deck, preventing duplicate prizes after replacement. */
 export function drawPrizeRerollOffers(itemDeck: Item[], count = 6): Item[] {
   const scheduledIds = new Set(itemDeck.map((item) => item.id))

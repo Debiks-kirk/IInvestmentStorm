@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig } from './game/assets'
 import { CARD_DEFINITIONS, cardTargetScope, getCardDefinition } from './game/cards'
+import { createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
-import { createDefaultSettings, createSession, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, validateNames } from './game/session'
+import { createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
@@ -620,6 +621,7 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
   const stageCopy = revealStage === 'ties'
     ? result.tiedPlayerIds.length > 0 ? '正在剔除并列下注' : '正在核验唯一下注'
     : revealStage === 'rankings' ? '唯一排名金额揭晓' : '奖励与预测已经结算'
+  const roundBulletin = createRoundBulletin(result, session.results.at(-2), session.settings.revealBalanceLeader)
 
   useEffect(() => {
     if (skipMotion || session.settings.animationSpeed === 'reduced') {
@@ -646,6 +648,7 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
       </div>
       <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>最低获奖排名额</small>{result.minWinningBidUnits === null ? <strong>—</strong> : <CoinValue units={result.minWinningBidUnits} />}</div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
       <article className="result-tie-reveal" aria-live="polite"><span>{result.tiedPlayerIds.length > 0 ? '≠' : '✓'}</span><div><small>{stageCopy}</small><strong>{result.tiedPlayerIds.length > 0 ? `${result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局` : '没有并列下注，所有密封标保留排名资格'}</strong></div></article>
+      {showSettlement && <aside className="round-bulletin" aria-live="polite"><span>🎙</span><div><small>局势播报</small><strong>{roundBulletin}</strong></div></aside>}
       {showSettlement && result.cardEffects.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">结算影响</p><h2>本轮道具与排名变化</h2></div><span>已计入本轮结果</span></div><div>{result.cardEffects.map((effect, index) => <p key={`${effect.cardId ?? effect.symbol}-${index}`} data-effect={effect.cardId ?? 'general'} style={{ '--effect-delay': `${index * 110}ms` } as React.CSSProperties}><span>{effect.symbol ?? getCardDefinition(effect.cardId as CardId).symbol}</span>{effect.description}</p>)}</div></article>}
       <div className="result-columns">
         {showRankings && <article className="panel result-ranking"><div className="panel-title"><div><p className="eyebrow">下注排名</p><h2>本轮获奖</h2></div>{result.tiedPlayerIds.length > 0 && <span>{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局</span>}</div>
@@ -701,7 +704,7 @@ function RoundReview({ session }: { session: GameSession }) {
   )
 }
 
-function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: () => void }) {
+function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: GameSession; onNewGame: () => void; onRematch: () => void; onRevenge: () => void }) {
   const standings = rankFinalPlayers(session.players)
   const topAssets = standings[0]?.totalAssetUnits ?? 0
   const reducedMotion = session.settings.animationSpeed === 'reduced'
@@ -710,6 +713,7 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
   const fullyRevealed = revealedCount >= standings.length
   const nextStanding = reversedStandings[revealedCount]
   const medalists = [standings[2], standings[1], standings[0]].filter(Boolean)
+  const highlights = createGameHighlights(session)
 
   useEffect(() => {
     if (reducedMotion || fullyRevealed) return
@@ -726,14 +730,15 @@ function FinalResult({ session, onNewGame }: { session: GameSession; onNewGame: 
       <div className="final-reveal-progress" aria-live="polite"><span>{revealedCount} / {standings.length} 已揭晓</span>{!fullyRevealed && <button className="text-button" onClick={() => setRevealedCount(standings.length)}>跳过揭晓</button>}</div>
       <div className="podium-list">{reversedStandings.slice(0, revealedCount).map(standingCard)}</div>
       {fullyRevealed && <section className="champion-podium" aria-label="冠亚季军领奖台"><p className="eyebrow">荣耀时刻</p><h2>前三名登上领奖台</h2><div>{medalists.map((standing, index) => <article key={standing.player.id} className={cx(`champion-podium__place--${3 - index}`, standing.place === 1 && 'is-champion')} style={{ '--delay': `${index * 420}ms`, '--player-color': standing.player.color } as React.CSSProperties}><span>{index === 0 ? '季军' : index === 1 ? '亚军' : '冠军'}</span><div>{standing.player.name.slice(0, 1)}</div><strong>{standing.player.name}</strong><small>第 {standing.place} 名 · {formatCoins(standing.totalAssetUnits)}</small></article>)}</div></section>}
+      {fullyRevealed && <details className="game-highlights panel"><summary><span>✦</span><div><small>终局收官</small><strong>本局名场面 · 5 张</strong></div><i>展开</i></summary><div className="game-highlights__grid">{highlights.map((highlight) => <article key={highlight.id}><span>{highlight.symbol}</span><div><strong>{highlight.title}</strong><p>{highlight.detail}</p></div></article>)}</div></details>}
       {fullyRevealed && session.settings.identitySettings.enabled && <section className="identity-final panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>身份公开</h2></div><span>所有身份与开局配置</span></div><div>{session.players.map((player) => { const identity = player.identity ? getIdentityDefinition(player.identity.id) : null; const config = player.identity?.id === 'thief' && player.identity.targetPlayerId ? `目标：${playerName(session.players, player.identity.targetPlayerId)}` : player.identity?.collectorCategory ? `收藏类别：${categoryConfig(player.identity.collectorCategory).name}` : ''; return <article key={player.id}><span>{identity?.symbol ?? '—'}</span><div><strong>{player.name} · {identity?.name ?? '未选择身份'}</strong><small>{identity?.summary ?? '本局未启用身份。'}{config ? ` ${config}` : ''}</small></div></article> })}</div></section>}
       {fullyRevealed && session.players.some((player) => isBot(player)) && <section className="bot-reveal panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>Bot 档案</h2></div><span>性格、难度和本局恩怨</span></div>{session.players.filter((player) => player.controller?.kind === 'bot').map((player) => { const controller = player.controller as Extract<Player['controller'], { kind: 'bot' }>; const profile = BOT_PROFILES.find((entry) => entry.id === controller.profileId); const grudges = Object.entries(player.botMemory?.grudgeByPlayerId ?? {}).filter(([, score]) => score > 0).sort((a, b) => b[1] - a[1]); return <article key={player.id}><strong>{player.name} · {profile?.name}</strong><small>{profile?.summary} · {controller.difficulty === 'easy' ? '简单' : controller.difficulty === 'expert' ? '高手' : '标准'}难度</small><p>{grudges.length ? `本局最在意：${grudges.slice(0, 2).map(([id]) => playerName(session.players, id)).join('、')}` : '本局没有形成明显恩怨。'}</p></article> })}</section>}
-      {fullyRevealed && <><RoundReview session={session} /><div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div><button className="button button--primary button--large" onClick={onNewGame}>再开一局</button></>}
+      {fullyRevealed && <><RoundReview session={session} /><div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div><div className="final-actions"><button className="button button--paper button--large" onClick={onRematch}>原班再来一局</button><button className="button button--primary button--large" onClick={onRevenge}>复仇局 <span>⚡</span></button><button className="text-button" onClick={onNewGame}>重新设置</button></div><small className="rematch-note">复仇局沿用座位与规则，只继承 Bot 对公开事件形成的恩怨。</small></>}
     </section>
   )
 }
 
-function Game({ session, setSession, onExit, onNewGame }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void }) {
+function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void; onRematch: () => void; onRevenge: () => void }) {
   const [botPaused, setBotPaused] = useState(false)
   const [botSpeed, setBotSpeed] = useState(1)
   const [autoPausedRound, setAutoPausedRound] = useState<number | null>(null)
@@ -1032,7 +1037,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={submitTurn} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} />)}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
       {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
-      {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} />}
+      {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}
     </AppShell>
   )
 }
@@ -1054,9 +1059,10 @@ export default function App() {
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
+  const rematch = (keepBotGrudges: boolean) => { if (session) begin(createRematchSession(session, keepBotGrudges)) }
 
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
   if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} />
-  if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} />
+  if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} />
   return <Home saved={saved} onQuickStart={quickStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onDelete={removeSaved} />
 }

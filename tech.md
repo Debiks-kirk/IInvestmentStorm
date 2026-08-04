@@ -156,3 +156,9 @@
 
 - `FinalResult` 只维护本地 `revealedCount`，按 `rankFinalPlayers` 的逆序从末位到首位挂载榜单条目，不会写回会话或影响最终资产计算。完整/快速/降低动态效果分别使用不同节奏；任意时候可跳过到完整状态。
 - 当全部名次出现后，前三个最终条目按第 3、2、1 名次顺序进入 `champion-podium`。领奖台只表现终局演出，仍按总资产与共享名次显示；身份公开、Bot 档案和逐轮复盘在榜单揭晓完成后才挂载。
+
+## 终局叙事与复仇局
+
+- `highlights.ts` 是无 UI 依赖的展示纯函数层：`createGameHighlights` 从已结算回合和 `rankFinalPlayers` 产出固定五张名场面；`createRoundBulletin` 以优先级生成一条公开、无数值的结算播报。二者不写入会话，也不参与任何金额计算。
+- `FinalResult` 只在榜单完整揭晓后挂载默认折叠的名场面 `<details>`，并把两种再开局操作收在终局底部；这避免在进行中的竞价或主排行榜堆叠额外信息。
+- `createRematchSession(previous, keepBotGrudges)` 通过既有 `createSession` 重建所有局内牌堆、金币、身份与记录。复仇模式仅复制 Bot 的 `grudgeByPlayerId`，并以玩家座位把旧 ID 映射到新 ID；缺失旧控制器按真人兼容，历史 `decisionLog` 不复制。

@@ -338,6 +338,9 @@ async function runBotSpectatorFlow(page) {
   await page.getByText('全局结束', { exact: true }).waitFor({ timeout: 15000 })
   await page.getByText('Bot 档案', { exact: true }).waitFor()
   await page.getByText('逐轮复盘', { exact: true }).waitFor()
+  await page.getByText('本局名场面 · 5 张', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '原班再来一局' }).waitFor()
+  await page.getByRole('button', { name: /复仇局/ }).waitFor()
   await assertNoHorizontalOverflow(page, '全 Bot 观战终局页')
 }
 
