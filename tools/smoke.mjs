@@ -210,6 +210,7 @@ async function runTutorialFlow(page) {
   await page.locator('.card-choice').filter({ hasText: '反客为主' }).click()
   await page.getByRole('button', { name: '确认使用' }).click()
   await page.getByRole('button', { name: /花费 4 金币发动/ }).click()
+  await page.getByRole('button', { name: '确认安排' }).click()
   await page.getByRole('button', { name: /已安排逆转排名/ }).waitFor()
   await assertNoHorizontalOverflow(page, '新手引导道具与主动技能页')
 }
@@ -338,6 +339,7 @@ async function runLobbyistTaskFlow(page) {
   await page.getByRole('button', { name: /获得第二名/ }).click()
   await page.getByText('选择任务对象', { exact: true }).waitFor()
   await page.locator('.target-picker-grid button').first().click()
+  await page.getByRole('button', { name: '确认安排' }).click()
   await page.getByRole('button', { name: /已安排：获得第二名/ }).waitFor()
   await page.getByRole('button', { name: /已安排：获得第二名/ }).click()
   await page.getByRole('button', { name: '选择任务卡' }).click()
@@ -347,6 +349,7 @@ async function runLobbyistTaskFlow(page) {
   const comparisonCards = page.locator('.target-picker-grid button')
   if (await comparisonCards.count() < 2) throw new Error('说客的比较对象应包含说客本人和其他非任务对象玩家。')
   await comparisonCards.first().click()
+  await page.getByRole('button', { name: '确认安排' }).click()
   await page.getByRole('button', { name: /已安排：下注高于某人/ }).waitFor()
   await assertNoHorizontalOverflow(page, '说客任务卡与人物卡流程')
 }

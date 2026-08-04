@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('配置预设存储', () => {
   it('新局默认说客违约付款为 5 金币', () => {
-    expect(createDefaultSettings(3).identitySettings.lobbyistFailurePaymentCoins).toBe(5)
+    expect(createDefaultSettings(3).identitySettings).toMatchObject({ lobbyistFailurePaymentCoins: 5, gamblerCorrectBonusMultiplier: .5, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, merchantAuctionLimit: 2 })
   })
 
   it('保存、加载与覆盖配置时保留姓名和全部高级设置', () => {
@@ -74,9 +74,10 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(8)
+    expect(migrated?.version).toBe(9)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
+    expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)
     expect(migrated?.itemDeck[0].category).toBeTruthy()
     expect(migrated?.players[0].items[0].item.category).toBeTruthy()
     expect(migrated?.cardDeck).toContain('reverseRank')
@@ -87,6 +88,16 @@ describe('对局存档迁移', () => {
     const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     values.set('who-is-raising:session:v1', JSON.stringify(session))
     expect(loadSession()?.settings.identitySettings.enabled).toBe(true)
+  })
+
+  it('旧商人一次性状态迁移为已发动一次', () => {
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    session.players[0].identity = { id: 'merchant', thiefSuccesses: 0, merchantAuctionUsed: true, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const legacy = JSON.parse(JSON.stringify(session))
+    delete legacy.players[0].identity.merchantAuctionCount
+    delete legacy.players[0].identity.merchantLastAuctionRound
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    expect(loadSession()?.players[0].identity).toMatchObject({ merchantAuctionCount: 1, merchantLastAuctionRound: null })
   })
 
   it('旧存档补齐预言牌堆并将改拍令加入可用循环卡池', () => {

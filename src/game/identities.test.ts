@@ -8,12 +8,14 @@ const player = (id: string, balance = 20): Player => ({ id, name: id, color: '#0
 const turn = (playerId: string, bid: number, predictedPlayerId: string | null = null): RoundTurn => ({ playerId, bidUnits: coinsToUnits(bid), predictedPlayerId })
 
 describe('身份选角与私密卡牌', () => {
-  it('从未被选走身份中给出二选一，并在不足时补可重复身份', () => {
+  it('身份候选同次不重复，普通池内身份最多出现两次，说客只出现一次', () => {
     const settings = defaultIdentitySettings(true)
-    expect(dealIdentityChoices(['prophet', 'reverser'], settings)).toHaveLength(2)
-    const fallback = dealIdentityChoices([], settings)
-    expect(fallback).toHaveLength(2)
-    expect(fallback).not.toContain('reverser')
+    const fresh = dealIdentityChoices([], settings, () => 0)
+    expect(new Set(fresh).size).toBe(2)
+    const selected = ['prophet', 'prophet', 'gambler', 'gambler', 'assassin', 'assassin', 'collector', 'collector', 'thief', 'thief', 'merchant', 'merchant', 'reverser', 'reverser', 'lobbyist'] as const
+    const fallback = dealIdentityChoices([...selected], settings, () => 0)
+    expect(fallback).toEqual(['prophet', 'gambler'])
+    expect(fallback).not.toContain('lobbyist')
   })
 
   it('同一张新卡只会被一名成功小偷偷走', () => {
@@ -50,6 +52,18 @@ describe('身份结算', () => {
     players[2].identity = { id: 'gambler', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     const settled = settleRound({ playersAfterBids: players, turns: [turn('gambler', 4, 'winner'), turn('winner', 8), turn('skip', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: settings })
     expect(settled.result.identityEvents.filter((event) => event.identityId === 'gambler')).toHaveLength(2)
+  })
+
+  it('赌徒猜错与跳过使用各自的设置倍率', () => {
+    const settings = defaultIdentitySettings(true)
+    settings.gamblerWrongPenaltyMultiplier = .2
+    settings.gamblerSkipPenaltyMultiplier = .6
+    const players = [player('wrong'), player('winner'), player('skip')]
+    players[0].identity = { id: 'gambler', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    players[2].identity = { id: 'gambler', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({ playersAfterBids: players, turns: [turn('wrong', 2, 'skip'), turn('winner', 8), turn('skip', 1)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: settings })
+    const deltas = settled.result.identityEvents.filter((event) => event.identityId === 'gambler').map((event) => event.deltaUnits).sort((a, b) => a - b)
+    expect(deltas).toEqual([-coinsToUnits(3), -coinsToUnits(1)])
   })
 
   it('收藏家的类别额外一件只进入终局资产', () => {

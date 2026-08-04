@@ -50,7 +50,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     ? { source: 'system' as const, merchantId: null, cardId: initialCardDeck[0], roundIndex: 0, bidderIndex: 0, bids: [] }
     : null
   return {
-    version: 8,
+    version: 9,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -61,7 +61,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     cardDeck: systemAuction ? initialCardDeck.slice(1) : initialCardDeck,
     pendingCardGrants: [],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),
-    identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices(enabledIdentityIds(settings.identitySettings), settings.identitySettings) } : null,
+    identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices([], settings.identitySettings) } : null,
     pendingIdentityCardAwards: [],
     pendingIdentityNotices: [],
     identityContracts: [],

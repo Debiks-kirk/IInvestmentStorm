@@ -1,4 +1,3 @@
-import { shuffle } from './items'
 import type { AssetCategory, CardId, IdentityEvent, IdentityId, IdentityNotice, IdentitySettings, LobbyistContract, LobbyistTaskType, Player, PlayerIdentity } from './types'
 
 export interface IdentityDefinition {
@@ -15,12 +14,12 @@ export interface IdentityDefinition {
 export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'prophet', name: '预言家', symbol: '◌', summary: '每轮偷看下一轮拍品。', repeatable: true },
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
-  { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: false },
+  { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: true },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产，永久多算 1 件。', repeatable: true, needsCategory: true },
   { id: 'thief', name: '小偷', symbol: '◒', summary: '有机会偷走目标新获得的道具。', repeatable: true, needsTarget: true },
-  { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起一次竞购。', repeatable: true, needsMerchantCard: true },
-  { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: false },
-  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
+  { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起两次竞购。', repeatable: true, needsMerchantCard: true },
+  { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
+  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: false },
 ]
 
 export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
@@ -36,12 +35,14 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     enabled,
     disabledIdentityIds: [],
     gamblerCorrectBonusMultiplier: 0.5,
+    gamblerWrongPenaltyMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
     reverserActivationCoins: 6,
     kidnapActivationCoins: 5,
     thiefSuccessProbability: 50,
     thiefMaxSteals: 2,
     merchantInitialOfferCount: 3,
+    merchantAuctionLimit: 2,
     lobbyistFirstRoundFree: true,
     lobbyistFeeCoins: 5,
     lobbyistSpecifiedTaskFeeCoins: 5,
@@ -51,7 +52,8 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
 
 export function normalizeIdentitySettings(value: Partial<IdentitySettings> | undefined, enabled = false): IdentitySettings {
   const defaults = defaultIdentitySettings(enabled)
-  return { ...defaults, ...value, gamblerSkipPenaltyMultiplier: value?.gamblerSkipPenaltyMultiplier ?? defaults.gamblerSkipPenaltyMultiplier, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
+  const legacyPenalty = value?.gamblerSkipPenaltyMultiplier ?? defaults.gamblerSkipPenaltyMultiplier
+  return { ...defaults, ...value, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
 }
 
 export function enabledIdentityIds(settings: IdentitySettings): IdentityId[] {
@@ -64,29 +66,45 @@ export function repeatableIdentityIds(settings: IdentitySettings): IdentityId[] 
   return IDENTITY_DEFINITIONS.filter((identity) => identity.repeatable && enabled.has(identity.id)).map((identity) => identity.id)
 }
 
-export function dealIdentityChoices(availableIds: IdentityId[], settings: IdentitySettings): IdentityId[] {
-  const choices = shuffle(availableIds).slice(0, 2)
-  if (choices.length >= 2) return choices
-  const repeats = shuffle(repeatableIdentityIds(settings).filter((id) => !choices.includes(id)))
-  return [...choices, ...repeats.slice(0, 2 - choices.length)]
+export function dealIdentityChoices(selectedIds: IdentityId[], settings: IdentitySettings, roll = Math.random): IdentityId[] {
+  const enabled = enabledIdentityIds(settings)
+  const counts = new Map<IdentityId, number>()
+  selectedIds.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1))
+  const normal = enabled.filter((id) => id === 'lobbyist' ? (counts.get(id) ?? 0) === 0 : (counts.get(id) ?? 0) < 2)
+  const pick = (pool: IdentityId[], current: IdentityId[]) => {
+    const candidates = pool.filter((id) => !current.includes(id))
+    if (candidates.length === 0) return null
+    return candidates[Math.min(candidates.length - 1, Math.floor(roll() * candidates.length))]
+  }
+  const choices: IdentityId[] = []
+  while (choices.length < 2) {
+    const normalPick = pick(normal, choices)
+    if (normalPick) { choices.push(normalPick); continue }
+    const fallback = enabled.filter((id) => id !== 'lobbyist').filter((id) => !choices.includes(id))
+      .sort((left, right) => (counts.get(left) ?? 0) - (counts.get(right) ?? 0))
+    const next = pick(fallback, choices)
+    if (!next) break
+    choices.push(next)
+  }
+  return choices
 }
 
-export function identityValidationErrors(settings: IdentitySettings, playerCount: number): string[] {
+export function identityValidationErrors(settings: IdentitySettings, _playerCount: number): string[] {
   if (!settings.enabled) return []
   const enabled = enabledIdentityIds(settings)
-  const repeatable = repeatableIdentityIds(settings)
   const errors: string[] = []
   if (enabled.length < 2) errors.push('身份系统至少需要启用 2 个身份')
-  if (playerCount > enabled.length && repeatable.length < 2) errors.push('身份卡不足时至少需要启用 2 个可重复身份')
+  if (enabled.filter((id) => id !== 'lobbyist').length < 2) errors.push('身份系统至少需要启用 2 个非说客身份，才能持续提供不同候选')
   if (settings.thiefSuccessProbability < 0 || settings.thiefSuccessProbability > 100) errors.push('小偷成功率应为 0–100%')
   if (settings.thiefMaxSteals < 0 || settings.thiefMaxSteals > 10) errors.push('小偷上限应为 0–10 次')
   if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
   if (settings.merchantInitialOfferCount < 1 || settings.merchantInitialOfferCount > 6) errors.push('商人初始选卡数量应为 1–6')
+  if (settings.merchantAuctionLimit < 1 || settings.merchantAuctionLimit > 5) errors.push('商人拍卖次数应为 1–5 次')
   return errors
 }
 
 export function createPlayerIdentity(id: IdentityId, config: { targetPlayerId?: string; collectorCategory?: AssetCategory } = {}): PlayerIdentity {
-  return { id, ...config, thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+  return { id, ...config, thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
 }
 
 export interface LobbyistTaskDefinition {

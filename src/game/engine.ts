@@ -324,7 +324,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     } else {
       const gambler = player.identity?.id === 'gambler'
       const availableBeforePrediction = player.balanceUnits
-      const due = floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerSkipPenaltyMultiplier : wrongPredictionMultiplier))
+      const due = floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerWrongPenaltyMultiplier : wrongPredictionMultiplier))
       const paid = Math.min(availableBeforePrediction, due)
       player.balanceUnits -= paid
       if (gambler) {

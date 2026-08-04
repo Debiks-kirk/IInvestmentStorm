@@ -22,13 +22,13 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated
-    if (parsed.version !== 8 || migrated.phase !== safeSession.phase || parsed.settings?.firstRoundSystemAuction === undefined || !Array.isArray(parsed.prophecyDeck) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 9 || migrated.phase !== safeSession.phase || parsed.settings?.firstRoundSystemAuction === undefined || !Array.isArray(parsed.prophecyDeck) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -51,7 +51,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     // 已进行的旧存档不补插首轮竞购；新开局会由默认设置明确写入 true。
     firstRoundSystemAuction: oldSettings.firstRoundSystemAuction ?? false,
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -65,7 +65,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         targetPlayerId: identity.targetPlayerId,
         collectorCategory: identity.collectorCategory,
         thiefSuccesses: identity.thiefSuccesses ?? 0,
-        merchantAuctionUsed: identity.merchantAuctionUsed ?? false,
+        merchantAuctionCount: identity.merchantAuctionCount ?? (identity.merchantAuctionUsed ? 1 : 0),
+        merchantLastAuctionRound: identity.merchantLastAuctionRound ?? null,
         lobbyistNextFree: identity.lobbyistNextFree ?? false,
         lobbyistLastIssuedRound: identity.lobbyistLastIssuedRound ?? null,
       } : undefined,
@@ -89,7 +90,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     .reduce((deck, cardId) => addNewCard(deck, cardId), originalCardDeck)
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 8,
+    version: 9,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -103,8 +104,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     turns: (session.turns ?? []).map((turn) => ({ ...turn, cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
     cardDeck,
     pendingCardGrants: [...(session.pendingCardGrants ?? [])],
-    identityAvailableIds: [...(session.identityAvailableIds ?? enabledIdentityIds(settings.identitySettings))],
-    identityDraft: session.identityDraft ?? (settings.identitySettings.enabled && (session.roundIndex ?? 0) === 0 && !players.some((player) => player.identity) ? { playerIndex: 0, choiceIds: dealIdentityChoices(enabledIdentityIds(settings.identitySettings), settings.identitySettings) } : null),
+    identityAvailableIds: enabledIdentityIds(settings.identitySettings),
+    identityDraft: session.identityDraft ?? (settings.identitySettings.enabled && (session.roundIndex ?? 0) === 0 && !players.some((player) => player.identity) ? { playerIndex: 0, choiceIds: dealIdentityChoices([], settings.identitySettings) } : null),
     pendingIdentityCardAwards: [...(session.pendingIdentityCardAwards ?? [])],
     pendingIdentityNotices: [...(session.pendingIdentityNotices ?? [])],
     identityContracts: [...(session.identityContracts ?? [])].map((contract) => ({ ...contract, specified: contract.specified ?? true })),

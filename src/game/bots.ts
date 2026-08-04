@@ -95,6 +95,9 @@ export interface BotObservation {
   rewardMultipliers: number[]
   correctPredictionMultiplier: number
   wrongPredictionMultiplier: number
+  gamblerWrongPenaltyMultiplier: number
+  gamblerSkipPenaltyMultiplier: number
+  merchantAuctionLimit: number
   reverserActivationUnits: number
   kidnapActivationUnits: number
   lobbyistFeeUnits: number
@@ -124,6 +127,9 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     rewardMultipliers: [...session.settings.rewardMultipliers],
     correctPredictionMultiplier: session.settings.correctPredictionMultiplier,
     wrongPredictionMultiplier: session.settings.wrongPredictionMultiplier,
+    gamblerWrongPenaltyMultiplier: session.settings.identitySettings.gamblerWrongPenaltyMultiplier,
+    gamblerSkipPenaltyMultiplier: session.settings.identitySettings.gamblerSkipPenaltyMultiplier,
+    merchantAuctionLimit: session.settings.identitySettings.merchantAuctionLimit,
     reverserActivationUnits: coinsToUnits(session.settings.identitySettings.reverserActivationCoins),
     kidnapActivationUnits: coinsToUnits(session.settings.identitySettings.kidnapActivationCoins),
     lobbyistFeeUnits: ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || player.identity?.lobbyistNextFree)
@@ -288,8 +294,8 @@ function taskScore(observation: BotObservation, bidUnits: number, place: number)
 function predictionDecision(observation: BotObservation, ownRankingBidUnits: number, profile: BotProfile, mode: StrategyMode): { playerId: string | null; expectedUnits: number } {
   const valueUnits = coinsToUnits(observation.item?.value ?? 0)
   const gambler = observation.self.identity?.id === 'gambler'
-  const wrongPenalty = valueUnits * (gambler ? .5 : observation.wrongPredictionMultiplier)
-  const skipValue = gambler ? -valueUnits * .5 : 0
+  const wrongPenalty = valueUnits * (gambler ? observation.gamblerWrongPenaltyMultiplier : observation.wrongPredictionMultiplier)
+  const skipValue = gambler ? -valueUnits * observation.gamblerSkipPenaltyMultiplier : 0
   let best = { playerId: null as string | null, expectedUnits: skipValue }
   for (const opponent of observation.opponents) {
     const targetBid = expectedCurrentBid(observation, opponent.id)
@@ -520,7 +526,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const target = preferredOpponent(observation, memory) ?? observation.publicRounds.at(-1)?.winnerId ?? observation.opponents[0]?.id ?? null
   const identity = observation.self.identity
   let identityAction: IdentityAction | undefined = best.identityAction
-  if (identity?.id === 'merchant' && !identity.merchantAuctionUsed && observation.cardDeckSize > 0 && (mode === 'cards' || mode === 'finalSprint')) identityAction = { type: 'merchantAuction' }
+  if (identity?.id === 'merchant' && (identity.merchantAuctionCount ?? (identity.merchantAuctionUsed ? 1 : 0)) < observation.merchantAuctionLimit && identity.merchantLastAuctionRound !== observation.roundIndex && observation.cardDeckSize > 0 && (mode === 'cards' || mode === 'finalSprint')) identityAction = { type: 'merchantAuction' }
   if (identity?.id === 'lobbyist' && observation.roundIndex < observation.totalRounds - 1 && target && best.bidUnits + observation.lobbyistFeeUnits <= observation.self.balanceUnits) identityAction = { type: 'lobbyistContract', targetPlayerId: target }
   const intel = observation.intel ? `模糊情报：${observation.opponents.find((opponent) => opponent.id === observation.intel?.playerId)?.name ?? '一名对手'} 的投资约为 ${observation.intel.lowUnits / 2}–${observation.intel.highUnits / 2}。` : undefined
   const predictionText = prediction.playerId ? `预测 ${observation.opponents.find((opponent) => opponent.id === prediction.playerId)?.name ?? '对手'} 的期望收益 ${Math.round(prediction.expectedUnits) / 2}。` : '预测期望不够，选择跳过。'

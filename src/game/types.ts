@@ -91,12 +91,14 @@ export interface IdentitySettings {
   enabled: boolean
   disabledIdentityIds: IdentityId[]
   gamblerCorrectBonusMultiplier: number
+  gamblerWrongPenaltyMultiplier: number
   gamblerSkipPenaltyMultiplier: number
   reverserActivationCoins: number
   kidnapActivationCoins: number
   thiefSuccessProbability: number
   thiefMaxSteals: number
   merchantInitialOfferCount: number
+  merchantAuctionLimit: number
   lobbyistFirstRoundFree: boolean
   lobbyistFeeCoins: number
   lobbyistSpecifiedTaskFeeCoins: number
@@ -108,7 +110,10 @@ export interface PlayerIdentity {
   targetPlayerId?: string
   collectorCategory?: AssetCategory
   thiefSuccesses: number
-  merchantAuctionUsed: boolean
+  /** Legacy save compatibility. New sessions use merchantAuctionCount. */
+  merchantAuctionUsed?: boolean
+  merchantAuctionCount?: number
+  merchantLastAuctionRound?: number | null
   lobbyistNextFree: boolean
   lobbyistLastIssuedRound: number | null
 }
@@ -252,7 +257,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 8
+  version: 9
   id: string
   phase: GamePhase
   settings: GameSettings
