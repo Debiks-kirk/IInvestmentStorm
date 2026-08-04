@@ -19,7 +19,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产，永久多算 1 件。', repeatable: true, needsCategory: true },
   { id: 'thief', name: '小偷', symbol: '◒', summary: '有机会偷走目标新获得的道具。', repeatable: true, needsTarget: true },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起一次竞购。', repeatable: true, needsMerchantCard: true },
-  { id: 'reverser', name: '逆行者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: false },
+  { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: false },
   { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
 ]
 
