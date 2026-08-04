@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { calculateFixedAssets, fixedAssetCoins } from './assets'
 import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './engine'
-import { createCardDeck } from './cards'
+import { CARD_DEFINITIONS, cardTargetScope, createCardDeck } from './cards'
 import { ITEM_POOL } from './items'
 import { SYSTEM_PRESETS } from './presets'
 import { createDefaultSettings, prepareCardGrants, recycleUsedCards } from './session'
@@ -124,6 +124,13 @@ describe('配置与终局', () => {
 })
 
 describe('道具卡结算', () => {
+  it('逐张卡的目标范围明确：香蕉皮和换日均可指定任意其他玩家', () => {
+    expect(CARD_DEFINITIONS.map((card) => [card.id, cardTargetScope(card.id)])).toEqual([
+      ['red', 'none'], ['peek', 'previous'], ['swap', 'other'], ['redistribute', 'none'], ['doubleBid', 'none'],
+      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'],
+    ])
+  })
+
   it('红卡与黑卡相乘后回到原价值，并使用修改后的价值结算预测', () => {
     const result = settle(players([20, 20, 20]), [
       turn('p1', 9, null, { cardId: 'red' }),
@@ -181,6 +188,17 @@ describe('道具卡结算', () => {
     expect(settled.result.cardEffects).toEqual(expect.arrayContaining([
       expect.objectContaining({ cardId: 'bananaPeel', description: '玩家1 下注时被香蕉皮滑倒了：下注失败，丢失了一半的下注费用。' }),
     ]))
+  })
+
+  it('第一位可用香蕉皮指定尚未操作的玩家，结算时仍会使其下注作废', () => {
+    const settled = settle(players([10, 10, 10]), [
+      turn('p1', 5, null, { cardId: 'bananaPeel', targetPlayerId: 'p3' }),
+      turn('p2', 6),
+      turn('p3', 9),
+    ])
+    expect(settled.result.winnerId).toBe('p2')
+    expect(settled.result.rankings.find((entry) => entry.playerId === 'p3')).toBeUndefined()
+    expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(14.5))
   })
 
   it('反弹护盾会将香蕉皮反弹给使用者本人', () => {

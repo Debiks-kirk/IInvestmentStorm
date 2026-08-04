@@ -301,6 +301,37 @@ async function runSystemAuctionFlow(page) {
   await assertNoHorizontalOverflow(page, '首轮系统竞购结束页')
 }
 
+async function runFirstPlayerBananaFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
+  await page.locator('#motion').selectOption('reduced')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.getByRole('button', { name: '启动抽奖机' }).waitFor()
+  await page.evaluate(() => {
+    const raw = localStorage.getItem('who-is-raising:session:v1')
+    if (!raw) throw new Error('未找到待测对局存档')
+    const session = JSON.parse(raw)
+    session.players[0].cardInventory = ['bananaPeel']
+    localStorage.setItem('who-is-raising:session:v1', JSON.stringify(session))
+  })
+  await page.reload()
+  await page.getByRole('button', { name: /继续第 1 轮/ }).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  const banana = page.locator('.card-choice').filter({ hasText: '香蕉皮' })
+  if (await banana.isDisabled()) throw new Error('第一位玩家持有香蕉皮时不应被禁用')
+  await banana.click()
+  await page.getByRole('button', { name: '打开玩家卡片选择目标' }).click()
+  if (await page.locator('.target-picker-grid button').count() !== 2) throw new Error('香蕉皮应允许第一位玩家选择全部两名其他玩家')
+  await assertNoHorizontalOverflow(page, '首位香蕉皮目标选择')
+}
+
 let browser
 try {
   await waitForServer()
@@ -311,6 +342,7 @@ try {
   await runGame(page, 10)
   await runCardFlow(page)
   await runSystemAuctionFlow(page)
+  await runFirstPlayerBananaFlow(page)
   await runPresetFlow(page)
   await runIdentityFlow(page)
   await runAssetFinalFlow(page)

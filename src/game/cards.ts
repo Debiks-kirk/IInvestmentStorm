@@ -9,6 +9,18 @@ export interface CardDefinition {
   needsTarget: boolean
 }
 
+/**
+ * 目标合法性的唯一来源。`previous` 仅用于偷看已经提交的底牌；其余指定型卡可指向
+ * 本轮任何其他玩家，因此第一位操作者也能正常使用。
+ */
+export type CardTargetScope = 'none' | 'previous' | 'other'
+
+export function cardTargetScope(cardId: CardId): CardTargetScope {
+  if (cardId === 'peek') return 'previous'
+  if (cardId === 'swap' || cardId === 'bananaPeel') return 'other'
+  return 'none'
+}
+
 export const CARD_DEFINITIONS: CardDefinition[] = [
   { id: 'red', name: '红卡', symbol: '◆', description: '本轮拍品真实价值翻倍，奖励预览不变。', needsTarget: false },
   { id: 'peek', name: '偷看底牌', symbol: '◉', description: '查看一名已投资玩家的实际投资额。', needsTarget: true },
