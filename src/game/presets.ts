@@ -13,7 +13,7 @@ export interface SystemPreset {
 }
 
 export function cloneSettings(settings: GameSettings): GameSettings {
-  return { ...settings, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...normalizeIdentitySettings(settings.identitySettings, false), disabledIdentityIds: [...normalizeIdentitySettings(settings.identitySettings, false).disabledIdentityIds] } }
+  return { ...settings, firstRoundSystemAuction: settings.firstRoundSystemAuction ?? false, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...normalizeIdentitySettings(settings.identitySettings, false), disabledIdentityIds: [...normalizeIdentitySettings(settings.identitySettings, false).disabledIdentityIds] } }
 }
 
 function systemPreset(id: string, name: string, playerCount: number, rounds: number, initialCoins: number): SystemPreset {

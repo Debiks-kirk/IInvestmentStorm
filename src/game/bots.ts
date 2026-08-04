@@ -397,6 +397,24 @@ function nearOptimalChoice(candidates: ScoredPlan[], observation: BotObservation
   return close[hash(`${observation.playerId}:${observation.roundIndex}:${profile.id}:${observation.publicRounds.length}`) % Math.max(1, close.length)] ?? best
 }
 
+/**
+ * 让普通竞拍在近似最优解周围做极小、可复现的扰动。以玩家 ID 和对局进度为种子，刷新不会改写
+ * 已作出的 Bot 决策；而换日、逆转排名等需要精确语义的计划绝不扰动。
+ */
+function applyBidJitter(best: ScoredPlan, observation: BotObservation): ScoredPlan {
+  if (best.rankingBidFromTargetId || best.reversalCount > 0) return best
+  const identityCost = best.identityAction?.type === 'reverserInvert'
+    ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
+    : best.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits : 0
+  const cap = Math.max(0, observation.self.balanceUnits - identityCost)
+  const offsetUnits = hash(`${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:bid-jitter`) % 3 - 1
+  const bidUnits = Math.max(0, Math.min(cap, best.bidUnits + offsetUnits))
+  if (bidUnits === best.bidUnits) return best
+  const rankingBidUnits = bidUnits * best.rankingMultiplier
+  const estimate = estimatePlaceAndChance(observation, rankingBidUnits, observation.playerId)
+  return { ...best, bidUnits, rankingBidUnits, place: estimate.place, effectivePlace: estimate.place, firstChance: estimate.firstChance }
+}
+
 export interface BotTurnDecision {
   bidUnits: number
   predictedPlayerId: string | null
@@ -451,7 +469,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
-  const best = nearOptimalChoice(scored, observation, profile)
+  const best = applyBidJitter(nearOptimalChoice(scored, observation, profile), observation)
   const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
   const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode)
   const target = preferredOpponent(observation, memory) ?? observation.publicRounds.at(-1)?.winnerId ?? observation.opponents[0]?.id ?? null

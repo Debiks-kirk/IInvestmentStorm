@@ -19,6 +19,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     revealBalanceLeader: false,
     cardGrantProbability: 80,
     disabledCardIds: [],
+    firstRoundSystemAuction: true,
     identitySettings: defaultIdentitySettings(true),
     animationSpeed: 'full',
   }
@@ -42,14 +43,19 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     controller: seat.controller,
     ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory() } : {}),
   }))
+  const initialCardDeck = createCardDeck(settings.disabledCardIds)
+  // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
+  const systemAuction = settings.firstRoundSystemAuction && initialCardDeck.length > 0
+    ? { source: 'system' as const, merchantId: null, cardId: initialCardDeck[0], roundIndex: 0, bidderIndex: 0, bids: [] }
+    : null
   return {
     version: 8,
     id: createId('game'),
-    phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
+    phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
     itemDeck: createItemDeck(settings.rounds),
-    cardDeck: createCardDeck(settings.disabledCardIds),
+    cardDeck: systemAuction ? initialCardDeck.slice(1) : initialCardDeck,
     pendingCardGrants: [],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),
     identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices(enabledIdentityIds(settings.identitySettings), settings.identitySettings) } : null,
@@ -57,7 +63,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     pendingIdentityNotices: [],
     identityContracts: [],
     identityEvents: [],
-    merchantAuction: null,
+    merchantAuction: systemAuction,
     cardRulesStartRound: 1,
     fairnessOrderIds: shuffle(players.map((player) => player.id)),
     roundIndex: 0,

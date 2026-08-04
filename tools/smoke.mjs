@@ -62,6 +62,19 @@ async function disableIdentities(page) {
   if (await toggle.isChecked()) await toggle.uncheck()
 }
 
+async function disableFirstRoundSystemAuction(page) {
+  const toggle = page.getByRole('checkbox', { name: /首轮系统道具竞购/ })
+  if (await toggle.isChecked()) await toggle.uncheck()
+}
+
+async function finishAuction(page, playerCount) {
+  await page.getByRole('button', { name: '开始秘密竞购' }).click()
+  for (let index = 0; index < playerCount; index += 1) {
+    await page.getByRole('button', { name: /报价/ }).click()
+    await page.getByRole('button', { name: /跳过竞购|确认不报价/ }).click()
+  }
+}
+
 async function chooseIdentities(page, playerCount) {
   for (let index = 0; index < playerCount; index += 1) {
     await page.getByRole('button', { name: '选择身份' }).click()
@@ -105,6 +118,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级设置/ }).click()
   await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
   await page.locator('#motion').selectOption('reduced')
   await assertNoHorizontalOverflow(page, `${playerCount} 人设置页`)
   if (playerCount === 10) await page.screenshot({ path: '.artifacts/setup-10-mobile.png', fullPage: true })
@@ -151,6 +165,7 @@ async function runCardFlow(page) {
   await page.locator('#rounds').fill('2')
   await page.getByRole('button', { name: /高级设置/ }).click()
   await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
   await page.locator('#motion').selectOption('reduced')
   await page.locator('#card-probability').fill('100')
   await page.getByRole('button', { name: /开始这局/ }).click()
@@ -216,6 +231,8 @@ async function runIdentityFlow(page) {
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableFirstRoundSystemAuction(page)
   await page.getByRole('button', { name: /开始这局/ }).click()
   await chooseIdentities(page, 3)
   await assertNoHorizontalOverflow(page, '身份选角后的首轮页')
@@ -257,6 +274,8 @@ async function runBotSpectatorFlow(page) {
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
   await page.locator('#motion').selectOption('reduced')
   for (let index = 1; index <= 3; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
   await page.getByRole('button', { name: /开始这局/ }).click()
@@ -268,6 +287,22 @@ async function runBotSpectatorFlow(page) {
   await assertNoHorizontalOverflow(page, '全 Bot 观战终局页')
 }
 
+async function runSystemAuctionFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await page.locator('#motion').selectOption('reduced')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.getByText('系统发起首轮竞购', { exact: true }).waitFor()
+  await finishAuction(page, 3)
+  await page.getByRole('button', { name: '启动抽奖机' }).waitFor()
+  await assertNoHorizontalOverflow(page, '首轮系统竞购结束页')
+}
+
 let browser
 try {
   await waitForServer()
@@ -277,6 +312,7 @@ try {
   await runGame(page, 6)
   await runGame(page, 10)
   await runCardFlow(page)
+  await runSystemAuctionFlow(page)
   await runPresetFlow(page)
   await runIdentityFlow(page)
   await runAssetFinalFlow(page)

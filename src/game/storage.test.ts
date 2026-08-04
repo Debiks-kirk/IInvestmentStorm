@@ -39,6 +39,27 @@ describe('配置预设存储', () => {
 })
 
 describe('对局存档迁移', () => {
+  it('新局默认预留首轮系统竞购卡，关闭后不进入竞购流程', () => {
+    const enabled = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    expect(enabled.merchantAuction).toMatchObject({ source: 'system', merchantId: null, roundIndex: 0, bidderIndex: 0 })
+    expect(enabled.cardDeck).not.toContain(enabled.merchantAuction?.cardId)
+    const settings = createDefaultSettings(3)
+    settings.firstRoundSystemAuction = false
+    const disabled = createSession(['甲', '乙', '丙'], settings)
+    expect(disabled.merchantAuction).toBeNull()
+    expect(disabled.phase).toBe('identityHandoff')
+  })
+
+  it('旧进行中存档不会被补插首轮系统竞购', () => {
+    const legacy = JSON.parse(JSON.stringify(createSession(['甲', '乙', '丙'], createDefaultSettings(3))))
+    delete legacy.settings.firstRoundSystemAuction
+    legacy.merchantAuction = null
+    legacy.phase = 'roundIntro'
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    expect(loadSession()?.settings.firstRoundSystemAuction).toBe(false)
+    expect(loadSession()?.merchantAuction).toBeNull()
+  })
+
   it('v2 存档补齐拍品分类而不改写已有规则数值', () => {
     const settings = createDefaultSettings(3)
     settings.wrongPredictionMultiplier = 0.5

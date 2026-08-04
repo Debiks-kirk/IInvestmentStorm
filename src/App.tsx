@@ -211,6 +211,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                 <label className="switch-row"><span><strong>公开个人下注</strong><small>只在每轮结算后显示</small></span><input type="checkbox" checked={settings.revealBids} onChange={(event) => setSettings({ ...settings, revealBids: event.target.checked })} /></label>
                 <label className="switch-row"><span><strong>公布余额领跑者</strong><small>每轮只公布第一名姓名，不显示余额</small></span><input type="checkbox" checked={settings.revealBalanceLeader} onChange={(event) => setSettings({ ...settings, revealBalanceLeader: event.target.checked })} /></label>
                 <div className="setting-row"><label htmlFor="card-probability">道具发放概率</label><div><input id="card-probability" type="number" min="0" max="100" value={settings.cardGrantProbability} onChange={(event) => setSettings({ ...settings, cardGrantProbability: Number(event.target.value) })} /><span>%</span></div></div>
+                <label className="switch-row"><span><strong>首轮系统道具竞购</strong><small>第 1 轮拍品抽取前，系统公开一张道具，所有人轮流秘密报价</small></span><input type="checkbox" checked={settings.firstRoundSystemAuction} onChange={(event) => setSettings({ ...settings, firstRoundSystemAuction: event.target.checked })} /></label>
                 <div className="card-setting-group"><strong>禁用道具卡</strong><small>未勾选的卡会加入本局循环卡池；使用后回池，未使用会留在手中</small><div>{CARD_DEFINITIONS.map((card) => <label key={card.id}><input type="checkbox" checked={!settings.disabledCardIds.includes(card.id)} onChange={(event) => setSettings({ ...settings, disabledCardIds: event.target.checked ? settings.disabledCardIds.filter((id) => id !== card.id) : [...settings.disabledCardIds, card.id] })} /><span>{card.symbol} {card.name}</span></label>)}</div></div>
                 <div className="identity-setting-group">
                   <label className="switch-row"><span><strong>启用身份系统</strong><small>开局前私密二选一身份；身份在终局才公开</small></span><input type="checkbox" checked={settings.identitySettings.enabled} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, enabled: event.target.checked } })} /></label>
@@ -555,23 +556,25 @@ function RevealReady({ session, onReveal }: { session: GameSession; onReveal: ()
 function AuctionIntro({ session, onContinue }: { session: GameSession; onContinue: () => void }) {
   const auction = session.merchantAuction as NonNullable<GameSession['merchantAuction']>
   const card = getCardDefinition(auction.cardId)
-  return <section className="round-intro screen-center"><p className="eyebrow">道具商人发起竞购</p><h1>一张公开道具，<br /><em>秘密报价。</em></h1><div className="auction-card"><span>{card.symbol}</span><strong>{card.name}</strong><small>{card.description}</small></div><p className="lead">商人不参与。最高唯一报价者获得道具，报价款归商人。</p><button className="button button--primary button--large" onClick={onContinue}>开始秘密竞购</button></section>
+  const systemAuction = auction.source === 'system'
+  return <section className="round-intro screen-center"><p className="eyebrow">{systemAuction ? '系统发起首轮竞购' : '道具商人发起竞购'}</p><h1>一张公开道具，<br /><em>秘密报价。</em></h1><div className="auction-card"><span>{card.symbol}</span><strong>{card.name}</strong><small>{card.description}</small></div><p className="lead">{systemAuction ? '所有人依次秘密报价。最高唯一正报价者获得道具，报价支付给系统。' : '所有人都会轮到报价；发起者也会经过流程，但只能报 0。最高唯一正报价者获得道具，报价款归发起者。'}</p><button className="button button--primary button--large" onClick={onContinue}>开始秘密竞购</button></section>
 }
 
 function AuctionHandoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
   const auction = session.merchantAuction as NonNullable<GameSession['merchantAuction']>
-  const bidders = session.players.filter((player) => player.id !== auction.merchantId)
+  const bidders = session.players
   const player = bidders[auction.bidderIndex]
   return <section className="handoff screen-center"><div className="privacy-seal"><span>竞</span></div><p className="eyebrow">请把设备交给</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">为公开道具秘密报价，其他人请移开视线。</p><button className="handoff-enter" onClick={onReady}>报价 <span>→</span></button></section>
 }
 
 function AuctionBid({ session, onSubmit }: { session: GameSession; onSubmit: (bidUnits: number) => void }) {
   const auction = session.merchantAuction as NonNullable<GameSession['merchantAuction']>
-  const bidders = session.players.filter((player) => player.id !== auction.merchantId)
+  const bidders = session.players
   const player = bidders[auction.bidderIndex]
   const card = getCardDefinition(auction.cardId)
+  const merchantLocked = auction.source === 'merchant' && auction.merchantId === player.id
   const [bidUnits, setBidUnits] = useState(0)
-  return <section className="private-turn"><div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>秘密竞购</h1></div><BalanceReveal units={player.balanceUnits} /></div><section className="auction-bid panel"><div className="auction-card"><span>{card.symbol}</span><strong>{card.name}</strong><small>{card.description}</small></div><p>报价只在你和系统之间可见。最高唯一正报价者获得道具。</p><label className="field-label">我的报价 <strong><CoinValue units={bidUnits} /></strong></label><input className="range range--bid" aria-label="竞购报价" type="range" min="0" max={player.balanceUnits} step="1" value={bidUnits} onChange={(event) => setBidUnits(Number(event.target.value))} /><div className="bid-shortcuts"><button onClick={() => setBidUnits(Math.max(0, bidUnits - 1))}>−0.5</button><button onClick={() => setBidUnits(Math.min(player.balanceUnits, bidUnits + 1))}>+0.5</button><button onClick={() => setBidUnits(Math.min(player.balanceUnits, bidUnits + 2))}>+1</button><button onClick={() => setBidUnits(player.balanceUnits)}>全部</button></div><button className="button button--primary button--large" onClick={() => onSubmit(bidUnits)}>{bidUnits > 0 ? '确认秘密报价' : '跳过竞购'}</button></section></section>
+  return <section className="private-turn"><div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>秘密竞购</h1></div><BalanceReveal units={player.balanceUnits} /></div><section className="auction-bid panel"><div className="auction-card"><span>{card.symbol}</span><strong>{card.name}</strong><small>{card.description}</small></div><p>{merchantLocked ? '这次竞购由你发起。为不暴露身份，你也会走完报价流程；本次只能报 0。' : '报价只在你和系统之间可见。最高唯一正报价者获得道具。'}</p><label className="field-label">我的报价 <strong><CoinValue units={merchantLocked ? 0 : bidUnits} /></strong></label><input className="range range--bid" aria-label="竞购报价" type="range" min="0" max={merchantLocked ? 0 : player.balanceUnits} step="1" value={merchantLocked ? 0 : bidUnits} disabled={merchantLocked} onChange={(event) => setBidUnits(Number(event.target.value))} /><div className="bid-shortcuts"><button disabled={merchantLocked} onClick={() => setBidUnits(Math.max(0, bidUnits - 1))}>−0.5</button><button disabled={merchantLocked} onClick={() => setBidUnits(Math.min(player.balanceUnits, bidUnits + 1))}>+0.5</button><button disabled={merchantLocked} onClick={() => setBidUnits(Math.min(player.balanceUnits, bidUnits + 2))}>+1</button><button disabled={merchantLocked} onClick={() => setBidUnits(player.balanceUnits)}>全部</button></div><button className="button button--primary button--large" onClick={() => onSubmit(merchantLocked ? 0 : bidUnits)}>{merchantLocked ? '确认不报价' : bidUnits > 0 ? '确认秘密报价' : '跳过竞购'}</button></section></section>
 }
 
 function DeltaLabel({ units }: { units: number }) {
@@ -698,7 +701,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     const nextIndex = draft.playerIndex + 1
     if (nextIndex >= players.length) {
       const routed = routeCardAwards({ players, awards: pendingAwards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex: 0 })
-      patch({ players: routed.players, cardDeck, pendingIdentityCardAwards: [], pendingIdentityNotices: [...session.pendingIdentityNotices, ...routed.notices], identityEvents: [...session.identityEvents, ...routed.events], identityAvailableIds: available, identityDraft: null, phase: 'roundIntro' })
+      patch({ players: routed.players, cardDeck, pendingIdentityCardAwards: [], pendingIdentityNotices: [...session.pendingIdentityNotices, ...routed.notices], identityEvents: [...session.identityEvents, ...routed.events], identityAvailableIds: available, identityDraft: null, phase: session.merchantAuction?.source === 'system' ? 'auctionIntro' : 'roundIntro' })
       return
     }
     patch({ players, cardDeck, pendingIdentityCardAwards: pendingAwards, identityAvailableIds: available, identityDraft: { playerIndex: nextIndex, choiceIds: dealIdentityChoices(available, session.settings.identitySettings) }, phase: 'identityHandoff' })
@@ -745,7 +748,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       const merchant = players.find((player) => player.id === turn.playerId)
       if (!merchant?.identity) return
       merchant.identity = { ...merchant.identity, merchantAuctionUsed: true }
-      merchantAuction = { merchantId: turn.playerId, cardId: session.cardDeck[0], roundIndex: session.roundIndex + 1, bidderIndex: 0, bids: [] }
+      merchantAuction = { source: 'merchant', merchantId: turn.playerId, cardId: session.cardDeck[0], roundIndex: session.roundIndex + 1, bidderIndex: 0, bids: [] }
     }
     if (turn.identityAction?.type === 'lobbyistContract') {
       if (currentPlayer.identity?.id !== 'lobbyist' || session.roundIndex >= session.settings.rounds - 1 || currentPlayer.identity.lobbyistLastIssuedRound === session.roundIndex) return
@@ -813,11 +816,13 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
   const submitAuctionBid = (bidUnits: number, botRecord?: { mode: import('./game/types').StrategyMode; reason: string }) => {
     const auction = session.merchantAuction
     if (!auction) return
-    const bidders = session.players.filter((player) => player.id !== auction.merchantId)
+    const bidders = session.players
     const bidder = bidders[auction.bidderIndex]
-    if (!bidder || bidUnits < 0 || bidUnits > bidder.balanceUnits) return
+    const merchantLocked = auction.source === 'merchant' && auction.merchantId === bidder?.id
+    const resolvedBidUnits = merchantLocked ? 0 : bidUnits
+    if (!bidder || resolvedBidUnits < 0 || resolvedBidUnits > bidder.balanceUnits) return
     const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? appendBotRecord(player, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason }) : player) : session.players
-    const bids = [...auction.bids, { playerId: bidder.id, bidUnits }]
+    const bids = [...auction.bids, { playerId: bidder.id, bidUnits: resolvedBidUnits }]
     if (auction.bidderIndex < bidders.length - 1) {
       patch({ players: recordedPlayers, merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, phase: 'auctionHandoff' })
       return
@@ -832,22 +837,25 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     let events = [...session.identityEvents]
     if (winnerBid) {
       const winner = players.find((player) => player.id === winnerBid.playerId)
-      const merchant = players.find((player) => player.id === auction.merchantId)
-      if (winner && merchant) { winner.balanceUnits -= winnerBid.bidUnits; merchant.balanceUnits += winnerBid.bidUnits }
-      events.push({ playerId: auction.merchantId, identityId: 'merchant', roundIndex: auction.roundIndex, title: '道具竞购成交', detail: `收到 ${formatCoins(winnerBid.bidUnits)} 金币。`, deltaUnits: winnerBid.bidUnits })
-      events.push({ playerId: winnerBid.playerId, identityId: 'merchant', roundIndex: auction.roundIndex, title: '竞购获得道具', detail: `支付 ${formatCoins(winnerBid.bidUnits)} 金币。`, deltaUnits: -winnerBid.bidUnits })
+      const merchant = auction.merchantId ? players.find((player) => player.id === auction.merchantId) : null
+      if (winner) winner.balanceUnits -= winnerBid.bidUnits
+      if (merchant) {
+        merchant.balanceUnits += winnerBid.bidUnits
+        events.push({ playerId: merchant.id, identityId: 'merchant', roundIndex: auction.roundIndex, title: '道具竞购成交', detail: `收到 ${formatCoins(winnerBid.bidUnits)} 金币。`, deltaUnits: winnerBid.bidUnits })
+        events.push({ playerId: winnerBid.playerId, identityId: 'merchant', roundIndex: auction.roundIndex, title: '竞购获得道具', detail: `支付 ${formatCoins(winnerBid.bidUnits)} 金币。`, deltaUnits: -winnerBid.bidUnits })
+      }
       const routed = routeCardAwards({ players, awards: [{ playerId: winnerBid.playerId, cardId: auction.cardId }], settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex: auction.roundIndex })
       players = routed.players; notices = [...notices, ...routed.notices]; events = [...events, ...routed.events]
       notices = [...notices, ...events.slice(session.identityEvents.length).map(identityFeedbackNotice)]
     } else {
       deck = shuffle([...deck, auction.cardId])
-      notices.push({ id: `merchant-auction-empty-${auction.roundIndex}-${auction.merchantId}`, playerId: auction.merchantId, title: '道具竞购无人得标', detail: '没有唯一的正向报价，道具已回到循环卡池。' })
+      if (auction.merchantId) notices.push({ id: `merchant-auction-empty-${auction.roundIndex}-${auction.merchantId}`, playerId: auction.merchantId, title: '道具竞购无人得标', detail: '没有唯一的正向报价，道具已回到循环卡池。' })
     }
     beginNormalRound(auction.roundIndex, players, deck, notices, events)
   }
   const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
   const currentPlayer = session.players[session.currentTurnIndex]
-  const auctionBidder = session.merchantAuction ? session.players.filter((player) => player.id !== session.merchantAuction?.merchantId)[session.merchantAuction.bidderIndex] : undefined
+  const auctionBidder = session.merchantAuction ? session.players[session.merchantAuction.bidderIndex] : undefined
   const takeOverBot = () => {
     const target = session.phase === 'identityHandoff' || session.phase === 'identityDraft'
       ? session.players[session.identityDraft?.playerIndex ?? 0]
@@ -892,7 +900,10 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
       } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
         patch({ phase: 'auctionBid' })
       } else if (session.phase === 'auctionBid' && isBot(auctionBidder) && session.merchantAuction) {
-        const decision = decideBotMerchantBid(auctionBidder as Player, session.merchantAuction.cardId)
+        const mustPass = session.merchantAuction.source === 'merchant' && session.merchantAuction.merchantId === auctionBidder?.id
+        const decision = mustPass
+          ? { bidUnits: 0, mode: 'cards' as const, reason: '本次竞购由自己发起，按规则经过报价流程但只能报 0。' }
+          : decideBotMerchantBid(auctionBidder as Player, session.merchantAuction.cardId)
         submitAuctionBid(decision.bidUnits, decision)
       } else if (allBots && session.phase === 'revealReady') {
         reveal()

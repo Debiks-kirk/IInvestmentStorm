@@ -76,6 +76,8 @@ export interface GameSettings {
   revealBalanceLeader: boolean
   cardGrantProbability: number
   disabledCardIds: CardId[]
+  /** 首轮在拍品抽取前由系统发起一张公开道具的秘密竞购。 */
+  firstRoundSystemAuction: boolean
   identitySettings: IdentitySettings
   animationSpeed: AnimationSpeed
 }
@@ -143,7 +145,9 @@ export interface LobbyistContract {
 }
 
 export interface MerchantAuction {
-  merchantId: string
+  source: 'merchant' | 'system'
+  /** 系统竞购没有收款玩家，赢家的报价直接离开本局现金。 */
+  merchantId: string | null
   cardId: CardId
   roundIndex: number
   bidderIndex: number
