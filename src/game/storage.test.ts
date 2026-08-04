@@ -89,6 +89,15 @@ describe('对局存档迁移', () => {
     expect(loadSession()?.settings.identitySettings.enabled).toBe(true)
   })
 
+  it('旧存档补齐预言牌堆并将改拍令加入可用循环卡池', () => {
+    const legacy = JSON.parse(JSON.stringify(createSession(['甲', '乙', '丙'], createDefaultSettings(3))))
+    delete legacy.prophecyDeck
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    const migrated = loadSession()
+    expect(migrated?.prophecyDeck).toEqual(migrated?.itemDeck)
+    expect(migrated?.cardDeck).toContain('prizeReroll')
+  })
+
   it('旧单卡回合会迁移为可容纳多卡的记录', () => {
     const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     const legacy = JSON.parse(JSON.stringify(session))

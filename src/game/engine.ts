@@ -237,6 +237,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   if (blackUsed) cardEffects.push(cardEffect('black', `黑卡已生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
   for (const { use } of usedCards) {
     if (use.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
+    if (use.cardId === 'prizeReroll') cardEffects.push(cardEffect('prizeReroll', '有人改写了下一轮拍品。'))
   }
 
   const rankingTurns = turns

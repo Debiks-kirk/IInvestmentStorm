@@ -4,7 +4,7 @@ import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './e
 import { CARD_DEFINITIONS, cardTargetScope, createCardDeck } from './cards'
 import { ITEM_POOL } from './items'
 import { SYSTEM_PRESETS } from './presets'
-import { createDefaultSettings, prepareCardGrants, recycleUsedCards } from './session'
+import { createDefaultSettings, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize } from './session'
 import type { CardUse, Item, Player, RoundTurn } from './types'
 
 const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000', category: 'leisure' }
@@ -127,7 +127,7 @@ describe('道具卡结算', () => {
   it('逐张卡的目标范围明确：香蕉皮和换日均可指定任意其他玩家', () => {
     expect(CARD_DEFINITIONS.map((card) => [card.id, cardTargetScope(card.id)])).toEqual([
       ['red', 'none'], ['peek', 'previous'], ['swap', 'other'], ['redistribute', 'none'], ['doubleBid', 'none'],
-      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'],
+      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'], ['prizeReroll', 'none'],
     ])
   })
 
@@ -276,6 +276,16 @@ describe('道具卡结算', () => {
     expect(heads.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'fateCoin', description: '命运硬币：正面朝上，获得 6 金币。' })]))
   })
 
+  it('改拍令只公开下一轮拍品被改写，不影响当前轮结算', () => {
+    const result = settle(players([20, 20, 20]), [
+      { ...turn('p1', 9), cardUses: [{ cardId: 'prizeReroll', prizeReroll: { originalItemId: 'old', offeredItemIds: ['a', 'b', 'c'], chosenItemId: 'a' } }] },
+      turn('p2', 7),
+      turn('p3', 2),
+    ]).result
+    expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'prizeReroll', description: '有人改写了下一轮拍品。' })]))
+    expect(result.effectiveValueUnits).toBe(coinsToUnits(5))
+  })
+
   it('结算内核最多读取每位玩家的两张道具', () => {
     const result = settle(players([20, 20, 20]), [
       { ...turn('p1', 9), cardUses: [{ cardId: 'red' }, { cardId: 'black' }, { cardId: 'fateCoin', coinResult: 'heads' }] },
@@ -306,6 +316,23 @@ describe('道具卡结算', () => {
 })
 
 describe('道具发放', () => {
+  it('改拍令从未安排拍品中一次抽取三张，并只替换实际下一轮拍品', () => {
+    const scheduled = ITEM_POOL.slice(0, 6)
+    const offers = drawPrizeRerollOffers(scheduled)
+    expect(offers).toHaveLength(3)
+    expect(new Set(offers.map((entry) => entry.id)).size).toBe(3)
+    expect(offers.some((entry) => scheduled.some((planned) => planned.id === entry.id))).toBe(false)
+    const replaced = replaceNextPrize(scheduled, 1, offers[0])
+    expect(replaced[2]).toEqual(offers[0])
+    expect(replaced[0]).toEqual(scheduled[0])
+    expect(replaced[1]).toEqual(scheduled[1])
+  })
+
+  it('改拍令会进入循环卡池，也可被禁用', () => {
+    expect(createCardDeck([])).toContain('prizeReroll')
+    expect(createCardDeck(['prizeReroll'])).not.toContain('prizeReroll')
+  })
+
   it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))

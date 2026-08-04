@@ -188,13 +188,16 @@ async function runCardFlow(page) {
   await page.getByText(/你获得了/).waitFor()
   await page.screenshot({ path: '.artifacts/card-private-mobile.png', fullPage: true })
   await page.getByRole('button', { name: '收下道具卡' }).click()
-  await page.locator('.card-choice').first().click()
+  const usableCards = page.locator('.card-choice:not([disabled])')
+  if (await usableCards.count() > 0) await usableCards.first().click()
   const targets = page.locator('.card-targets button')
   if (await targets.count() > 0) {
     await targets.first().click()
     const targetCards = page.locator('.target-picker-grid button')
     if (await targetCards.count() > 0) await targetCards.first().click()
   }
+  const rerollOptions = page.locator('.prize-reroll-option')
+  if (await rerollOptions.count() > 0) await rerollOptions.first().click()
   const confirmUse = page.getByRole('button', { name: '确认使用' })
   if (await confirmUse.count() > 0) await confirmUse.click()
   await setRange(page.getByLabel('秘密下注'), 6)

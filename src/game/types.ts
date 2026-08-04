@@ -40,7 +40,7 @@ export interface SeatConfig {
   controller: PlayerController
 }
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst'
@@ -51,6 +51,11 @@ export interface CardUse {
   cardId: CardId
   targetPlayerId?: string
   coinResult?: 'heads' | 'tails'
+  prizeReroll?: {
+    originalItemId: string
+    offeredItemIds: string[]
+    chosenItemId: string
+  }
 }
 
 export interface CardGrant {
@@ -251,6 +256,16 @@ export interface GameSession {
   settings: GameSettings
   players: Player[]
   itemDeck: Item[]
+  /** The original deck is immutable: prophets always see this version. */
+  prophecyDeck: Item[]
+  /** A confirmed prize-reroll draw survives a handoff/refresh until its owner submits. */
+  pendingPrizeReroll: {
+    playerId: string
+    roundIndex: number
+    originalItem: Item
+    offeredItems: Item[]
+    chosenItemId?: string
+  } | null
   cardDeck: CardId[]
   pendingCardGrants: CardGrant[]
   identityAvailableIds: IdentityId[]

@@ -28,7 +28,7 @@ export function loadSession(): GameSession | null {
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated
-    if (parsed.version !== 8 || migrated.phase !== safeSession.phase || parsed.settings?.firstRoundSystemAuction === undefined || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 8 || migrated.phase !== safeSession.phase || parsed.settings?.firstRoundSystemAuction === undefined || !Array.isArray(parsed.prophecyDeck) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -84,7 +84,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   }))
   const originalCardDeck = [...(session.cardDeck ?? createCardDeck(settings.disabledCardIds))]
   const addNewCard = (deck: CardId[], cardId: CardId) => !settings.disabledCardIds.includes(cardId) && !players.some((player) => player.cardInventory.includes(cardId)) && !deck.includes(cardId) ? [...deck, cardId] : deck
-  const cardDeck: CardId[] = (['reverseRank', 'fateCoin', 'bananaPeel', 'reflectShield'] as CardId[])
+  const cardDeck: CardId[] = (['reverseRank', 'fateCoin', 'bananaPeel', 'reflectShield', 'prizeReroll'] as CardId[])
     .reduce((deck, cardId) => addNewCard(deck, cardId), originalCardDeck)
   const migrated: GameSession = {
     ...(session as GameSession),
@@ -92,6 +92,12 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
+    prophecyDeck: (session.prophecyDeck ?? session.itemDeck ?? []).map((item) => normalizeItem(item)),
+    pendingPrizeReroll: session.pendingPrizeReroll ? {
+      ...session.pendingPrizeReroll,
+      originalItem: normalizeItem(session.pendingPrizeReroll.originalItem),
+      offeredItems: session.pendingPrizeReroll.offeredItems.map((item) => normalizeItem(item)),
+    } : null,
     results,
     turns: (session.turns ?? []).map((turn) => ({ ...turn, cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
     cardDeck,

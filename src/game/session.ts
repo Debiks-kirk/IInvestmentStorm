@@ -2,8 +2,8 @@ import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck } from './cards'
 import { emptyBotMemory } from './bots'
 import { dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
-import { createItemDeck, shuffle } from './items'
-import type { CardGrant, CardId, GameSession, GameSettings, Player, RoundTurn, SeatConfig } from './types'
+import { createItemDeck, ITEM_POOL, shuffle } from './items'
+import type { CardGrant, CardId, GameSession, GameSettings, Item, Player, RoundTurn, SeatConfig } from './types'
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
@@ -32,6 +32,7 @@ function createId(prefix: string): string {
 
 export function createSession(seatsOrNames: SeatConfig[] | string[], settings: GameSettings): GameSession {
   const now = new Date().toISOString()
+  const initialItemDeck = createItemDeck(settings.rounds)
   const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' } } : seat)
   const players: Player[] = seats.map((seat, index) => ({
     id: createId('player'),
@@ -54,7 +55,9 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
-    itemDeck: createItemDeck(settings.rounds),
+    itemDeck: initialItemDeck,
+    prophecyDeck: initialItemDeck.map((item) => ({ ...item })),
+    pendingPrizeReroll: null,
     cardDeck: systemAuction ? initialCardDeck.slice(1) : initialCardDeck,
     pendingCardGrants: [],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),
@@ -73,6 +76,18 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     createdAt: now,
     updatedAt: now,
   }
+}
+
+/** Draw fresh candidates outside the scheduled deck, preventing duplicate prizes after replacement. */
+export function drawPrizeRerollOffers(itemDeck: Item[], count = 3): Item[] {
+  const scheduledIds = new Set(itemDeck.map((item) => item.id))
+  return shuffle(ITEM_POOL.filter((item) => !scheduledIds.has(item.id))).slice(0, count).map((item) => ({ ...item }))
+}
+
+export function replaceNextPrize(itemDeck: Item[], roundIndex: number, chosenItem: Item): Item[] {
+  const nextIndex = roundIndex + 1
+  if (!itemDeck[nextIndex]) return [...itemDeck]
+  return itemDeck.map((item, index) => index === nextIndex ? { ...chosenItem } : item)
 }
 
 export interface CardGrantPreparation {
