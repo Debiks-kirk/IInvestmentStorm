@@ -333,7 +333,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
           : winnerId === contract.targetPlayerId
     contract.status = success ? 'success' : 'failed'
     if (success) {
-      identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务完成', detail: taskLabel(contract.taskType), deltaUnits: 0 })
+      identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务完成', detail: `完成「${taskLabel(contract.taskType)}」，本轮无需支付违约款。`, deltaUnits: 0 })
+      identityEvents.push({ playerId: contract.issuerId, identityId: 'lobbyist', roundIndex, title: '说客任务完成', detail: `任务对象完成「${taskLabel(contract.taskType)}」，本轮未产生违约款。`, deltaUnits: 0 })
       continue
     }
     failedContracts.push(contract)
@@ -366,8 +367,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         if (issuer.identity?.id === 'lobbyist') issuer.identity.lobbyistNextFree = true
       }
       contract.paymentUnits = paid
-      identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务未完成', detail: `${taskLabel(contract.taskType)}，支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
-      identityEvents.push({ playerId: contract.issuerId, identityId: 'lobbyist', roundIndex, title: '收到违约款', detail: `获得 ${formatCoins(paid)} 金币。`, deltaUnits: paid })
+      identityEvents.push({ playerId: contract.targetPlayerId, identityId: 'lobbyist', roundIndex, title: '说客任务未完成', detail: `未完成「${taskLabel(contract.taskType)}」，支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+      identityEvents.push({ playerId: contract.issuerId, identityId: 'lobbyist', roundIndex, title: '收到违约款', detail: `任务对象未完成「${taskLabel(contract.taskType)}」，获得 ${formatCoins(paid)} 金币。`, deltaUnits: paid })
     })
   }
 

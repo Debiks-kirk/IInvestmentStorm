@@ -120,5 +120,21 @@ describe('身份结算', () => {
     expect(settled.identityContracts[0].status).toBe('failed')
     expect(settled.identityContracts[0].paymentUnits).toBe(coinsToUnits(3))
     expect(settled.players.find((entry) => entry.id === 'lobbyist')?.identity?.lobbyistNextFree).toBe(true)
+    expect(settled.identityEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: 'target', title: '说客任务未完成', deltaUnits: -coinsToUnits(3) }),
+      expect.objectContaining({ playerId: 'lobbyist', title: '收到违约款', deltaUnits: coinsToUnits(3) }),
+    ]))
+  })
+
+  it('说客任务完成时，任务对象和说客都会收到无奖惩的结果反馈', () => {
+    const players = [player('lobbyist'), player('target'), player('third')]
+    players[0].identity = { id: 'lobbyist', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: 0 }
+    const contract = { id: 'c-success', issuerId: 'lobbyist', targetPlayerId: 'target', taskType: 'winFirst' as const, specified: false, issuedRoundIndex: 0, executeRoundIndex: 1, status: 'pending' as const, paymentUnits: 0 }
+    const settled = settleRound({ playersAfterBids: players, turns: [turn('lobbyist', 3), turn('target', 8), turn('third', 2)], item, roundIndex: 1, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true), identityContracts: [contract] })
+    expect(settled.identityContracts[0]).toMatchObject({ status: 'success', paymentUnits: 0 })
+    expect(settled.identityEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: 'target', title: '说客任务完成', deltaUnits: 0 }),
+      expect.objectContaining({ playerId: 'lobbyist', title: '说客任务完成', deltaUnits: 0 }),
+    ]))
   })
 })
