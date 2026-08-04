@@ -86,6 +86,8 @@ export interface CashEstimate {
 }
 
 export interface BotObservation {
+  /** New sessions get a new ID, making the same Bot preset play differently across games. */
+  sessionSeed: string
   playerId: string
   roundIndex: number
   totalRounds: number
@@ -114,6 +116,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
   const player = session.players.find((entry) => entry.id === playerId) as Player
   const prior = session.turns.map((turn) => turn.playerId).filter((id) => id !== playerId)
   const observation: BotObservation = {
+    sessionSeed: session.id,
     playerId,
     roundIndex: session.roundIndex,
     totalRounds: session.settings.rounds,
@@ -429,7 +432,7 @@ function nearOptimalChoice(candidates: ScoredPlan[], observation: BotObservation
   const plausible = ordered.filter((candidate) => candidate.score >= best.score - qualityWindow)
   const weights = plausible.map((candidate) => Math.exp(clamp((candidate.score - best.score) / Math.max(1, temperature), -7, 0)))
   const total = weights.reduce((sum, weight) => sum + weight, 0)
-  let cursor = unitRandom(`${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:${profile.id}:plan`) * total
+  let cursor = unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:${profile.id}:plan`) * total
   for (let index = 0; index < plausible.length; index += 1) {
     cursor -= weights[index]
     if (cursor <= 0) return plausible[index]
@@ -449,7 +452,7 @@ function applyBidJitter(best: ScoredPlan, observation: BotObservation, profile: 
   const cap = Math.max(0, observation.self.balanceUnits - identityCost)
   const standardDeviation = behavioralTemperatureUnits(observation, profile, difficulty, mode, memory) * .5
   // 绝大多数报价落在中心附近，少量较大胆/保守的偏移来自正态尾部；截断避免无意义的梭哈或归零。
-  const offsetUnits = Math.round(clamp(normalRandom(`${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:${profile.id}:bid-jitter`) * standardDeviation, -4, 4))
+  const offsetUnits = Math.round(clamp(normalRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${observation.item?.id ?? 'unknown'}:${profile.id}:bid-jitter`) * standardDeviation, -4, 4))
   const bidUnits = Math.max(0, Math.min(cap, best.bidUnits + offsetUnits))
   if (bidUnits === best.bidUnits) return best
   const rankingBidUnits = bidUnits * best.rankingMultiplier
@@ -512,7 +515,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     }
   }
   const best = applyBidJitter(nearOptimalChoice(scored, observation, profile, difficulty, memory), observation, profile, difficulty, mode, memory)
-  const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
+  const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
   const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode)
   const target = preferredOpponent(observation, memory) ?? observation.publicRounds.at(-1)?.winnerId ?? observation.opponents[0]?.id ?? null
   const identity = observation.self.identity

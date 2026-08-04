@@ -59,6 +59,18 @@ describe('Bot 信息边界与决策', () => {
     expect(bids.size).toBeGreaterThan(1)
   })
 
+  it('同一 Bot 预设重开多局时会因会话种子产生不同走向', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 11, category: 'luxury' }
+    const base = buildBotObservation(session, session.players[0].id)
+    const bids = new Set<number>()
+    for (let index = 0; index < 18; index += 1) {
+      const decision = decideBotTurn({ ...base, sessionSeed: `新局-${index}` }, 'adaptive', 'standard', emptyBotMemory())
+      bids.add(decision.bidUnits)
+    }
+    expect(bids.size).toBeGreaterThan(1)
+  })
+
   it('会从公开总下注、门槛与收益变化推算对手现金区间', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     const observation = buildBotObservation(session, session.players[0].id)

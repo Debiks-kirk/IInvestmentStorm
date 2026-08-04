@@ -51,6 +51,11 @@ async function assertNoHorizontalOverflow(page, label) {
   if (sizes.scrollWidth > sizes.width) throw new Error(`${label} 存在横向溢出：${sizes.scrollWidth}px > ${sizes.width}px。`)
 }
 
+async function finishFinalReveal(page) {
+  const skip = page.getByRole('button', { name: '跳过揭晓' })
+  if (await skip.count() > 0) await skip.click()
+}
+
 async function startRound(page) {
   await page.getByRole('button', { name: '启动抽奖机' }).click()
   await page.getByRole('button', { name: /开始传递/ }).waitFor()
@@ -152,6 +157,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false) {
   await assertNoHorizontalOverflow(page, `${playerCount} 人结算页`)
   await page.getByRole('button', { name: /查看最终排行榜/ }).click()
   await page.getByText('全局结束', { exact: true }).waitFor()
+  await finishFinalReveal(page)
   await assertNoHorizontalOverflow(page, `${playerCount} 人终局页`)
   const standings = page.locator('.podium-list article')
   if (await standings.count() !== playerCount) throw new Error(`${playerCount} 人局最终榜人数不正确。`)
@@ -249,6 +255,7 @@ async function runIdentityFlow(page) {
   for (let index = 0; index < 3; index += 1) await submitPrivateTurn(page, index + 1)
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
   await page.getByRole('button', { name: /查看最终排行榜/ }).click()
+  await finishFinalReveal(page)
   await page.getByText('逐轮复盘', { exact: true }).waitFor()
   await page.getByText('身份公开', { exact: true }).waitFor()
 }
@@ -420,6 +427,7 @@ try {
   await waitForServer()
   browser = await chromium.launch({ executablePath, headless: true })
   const page = await browser.newPage({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
+  page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
   await runGame(page, 3, true)
   await runGame(page, 6)
   await runGame(page, 10)
