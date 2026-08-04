@@ -162,3 +162,8 @@
 - `highlights.ts` 是无 UI 依赖的展示纯函数层：`createGameHighlights` 从已结算回合和 `rankFinalPlayers` 产出固定五张名场面；`createRoundBulletin` 以优先级生成一条公开、无数值的结算播报。二者不写入会话，也不参与任何金额计算。
 - `FinalResult` 只在榜单完整揭晓后挂载默认折叠的名场面 `<details>`，并把两种再开局操作收在终局底部；这避免在进行中的竞价或主排行榜堆叠额外信息。
 - `createRematchSession(previous, keepBotGrudges)` 通过既有 `createSession` 重建所有局内牌堆、金币、身份与记录。复仇模式仅复制 Bot 的 `grudgeByPlayerId`，并以玩家座位把旧 ID 映射到新 ID；缺失旧控制器按真人兼容，历史 `decisionLog` 不复制。
+
+## 三轮新手引导局
+
+- `createTutorialSession()` 复用普通会话创建器，再覆盖为三位人类、固定三张拍品、无首轮系统竞购、无随机发卡的三轮教学会话；会话上的可选 `tutorial: { kind: 'firstGame' }` 是持久化开关，刷新仍保留当前教学阶段。
+- `PrivateTurn` 只从 `tutorial` 与 `roundIndex` 推导 UI 解锁状态：首轮禁用预测，前两轮隐藏预置道具和身份，第三轮才显示卡牌二次确认和逆转者技能区。该限制只影响展示和交互入口，不改写核心结算函数。

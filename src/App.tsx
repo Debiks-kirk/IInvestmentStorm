@@ -5,7 +5,7 @@ import { createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
-import { createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, validateNames } from './game/session'
+import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
@@ -49,9 +49,19 @@ function Brand() {
   )
 }
 
-function Home({ saved, onQuickStart, onSetup, onContinue, onRules, onDelete }: {
+function TutorialCoach({ roundIndex }: { roundIndex: number }) {
+  const content = roundIndex === 0
+    ? { step: '第 1 / 3 轮 · 只学下注', title: '把自己的出价藏好', body: '拍品卡是本轮目标；上方奖区告诉你各名次能拿多少；滑杆和快捷键决定秘密下注，确认后才会扣钱并锁定。', note: '撞价示例：8、8、6 中，两个 8 都出局，6 反而成为第一名。' }
+    : roundIndex === 1
+      ? { step: '第 2 / 3 轮 · 解锁预测', title: '猜谁会成为第一名', body: '在“谁会拿第一”里点其他玩家的名字；不能猜自己，也可以选“本轮不预测”。猜中会获得收益，猜错按本局规则扣款。', note: '预测是额外选择，不会替代你的下注。' }
+      : { step: '第 3 / 3 轮 · 道具与主动身份', title: '把选择组合起来', body: '道具要先点卡，再在二次确认中锁定；主动身份则在“身份技能”区点按钮安排。本轮给你一张“反客为主”，可让自己的排名下注翻倍。', note: '不是每个身份都有主动技能；按钮不可用时会直接说明原因。' }
+  return <aside className="tutorial-coach" aria-live="polite"><span>✦</span><div><small>{content.step}</small><strong>{content.title}</strong><p>{content.body}</p><em>{content.note}</em></div></aside>
+}
+
+function Home({ saved, onQuickStart, onTutorial, onSetup, onContinue, onRules, onDelete }: {
   saved: GameSession | null
   onQuickStart: () => void
+  onTutorial: () => void
   onSetup: () => void
   onContinue: () => void
   onRules: () => void
@@ -70,6 +80,7 @@ function Home({ saved, onQuickStart, onSetup, onContinue, onRules, onDelete }: {
             {saved && <button className="button button--primary button--large" onClick={onContinue}>继续第 {saved.roundIndex + 1} 轮 <span>→</span></button>}
             <button className={cx('button button--large', saved ? 'button--paper' : 'button--primary')} onClick={onSetup}>创建新对局</button>
             <button className="button button--ghost" onClick={onQuickStart}>三人快速开始</button>
+            <button className="text-button home-tutorial" onClick={onTutorial}>✦ 先玩 3 轮新手引导</button>
           </div>
           <button className="text-button" onClick={onRules}>用 30 秒看懂规则</button>
         </div>
@@ -402,6 +413,9 @@ function LobbyistTaskPicker({ extraCost, onSelect, onClose }: { extraCost: numbe
 function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll }: { session: GameSession; onSubmit: (turn: RoundTurn) => void; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string) => void; onChoosePrizeReroll: (itemId: string) => void }) {
   const player = session.players[session.currentTurnIndex]
   const item = session.itemDeck[session.roundIndex]
+  const tutorial = session.tutorial?.kind === 'firstGame'
+  const predictionUnlocked = !tutorial || session.roundIndex >= 1
+  const advancedToolsUnlocked = !tutorial || session.roundIndex >= 2
   const [bidUnits, setBidUnits] = useState(0)
   const [prediction, setPrediction] = useState<string | null>(null)
   const [selectedCardId, setSelectedCardId] = useState<CardId | null>(null)
@@ -460,7 +474,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
     const timer = window.setTimeout(() => setCoinFlipResult(Math.random() < 0.5 ? 'heads' : 'tails'), 900)
     return () => window.clearTimeout(timer)
   }, [cardConfirming, coinFlipResult])
-  const identity = player.identity
+  const identity = advancedToolsUnlocked ? player.identity : undefined
+  const visibleCardInventory = advancedToolsUnlocked ? player.cardInventory : []
   const nextItem = session.prophecyDeck[session.roundIndex + 1]
   const lobbyFee = ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || identity?.lobbyistNextFree) ? 0 : session.settings.identitySettings.lobbyistFeeCoins
   const reverserCost = session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 2 : 1)
@@ -480,7 +495,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const activeLobbyTasks = session.identityContracts.filter((contract) => contract.targetPlayerId === player.id && contract.status === 'pending' && contract.executeRoundIndex === session.roundIndex)
   return (
     <section className="private-turn">
-      <div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>你的回合</h1></div><div className="private-overview"><BalanceReveal units={player.balanceUnits} /><IdentityReveal player={player} session={session} /></div></div>
+      <div className="private-heading"><div><p className="eyebrow">仅 {player.name} 可见</p><h1>你的回合</h1></div><div className="private-overview"><BalanceReveal units={player.balanceUnits} /><IdentityReveal player={identity ? player : { ...player, identity: undefined }} session={session} /></div></div>
+      {tutorial && <TutorialCoach roundIndex={session.roundIndex} />}
       <div className="turn-grid">
         <div className="bid-panel panel">
           <PrizeCard item={item} compact />
@@ -491,11 +507,12 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
             <div className="bid-shortcuts"><button onClick={() => setBid(bidUnits - 1)}>−0.5</button><button onClick={() => setBid(bidUnits + 1)}>+0.5</button><button onClick={() => setBid(bidUnits + 2)}>+1</button><button onClick={() => setBid(bidUnits + 10)}>+5</button><button onClick={() => setBid(player.balanceUnits)}>全部</button></div>
           </div>
         </div>
-        <div className="prediction-panel panel">
+        <div className={cx('prediction-panel panel', !predictionUnlocked && 'is-locked')}>
           <div className="panel-title"><div><p className="eyebrow">可选</p><h2>谁会拿第一？</h2></div><span>猜中 +{item.value * session.settings.correctPredictionMultiplier}{identity?.id === 'gambler' ? ` + ${item.value * session.settings.identitySettings.gamblerCorrectBonusMultiplier}` : ''}<br />{identity?.id === 'gambler' ? `猜错或跳过 −${item.value * session.settings.identitySettings.gamblerSkipPenaltyMultiplier}` : `猜错 −${item.value * session.settings.wrongPredictionMultiplier}`}</span></div>
-          <button className={cx('prediction-skip', prediction === null && 'is-selected')} onClick={() => setPrediction(null)}><span>稳一手</span><small>这轮不预测</small><i>{prediction === null ? '✓' : ''}</i></button>
+          {!predictionUnlocked && <p className="tutorial-locked-copy">下一轮解锁：先把秘密下注练熟。</p>}
+          <button className={cx('prediction-skip', prediction === null && 'is-selected')} disabled={!predictionUnlocked} onClick={() => setPrediction(null)}><span>稳一手</span><small>这轮不预测</small><i>{prediction === null ? '✓' : ''}</i></button>
           <div className="prediction-list">
-            {session.players.filter((candidate) => candidate.id !== player.id).map((candidate) => <button key={candidate.id} className={cx(prediction === candidate.id && 'is-selected')} onClick={() => setPrediction(candidate.id)} style={{ '--player-color': candidate.color } as React.CSSProperties}><span>{candidate.name.slice(0, 1)}</span><strong>{candidate.name}</strong><i>{prediction === candidate.id ? '✓' : ''}</i></button>)}
+            {session.players.filter((candidate) => candidate.id !== player.id).map((candidate) => <button key={candidate.id} disabled={!predictionUnlocked} className={cx(prediction === candidate.id && 'is-selected')} onClick={() => setPrediction(candidate.id)} style={{ '--player-color': candidate.color } as React.CSSProperties}><span>{candidate.name.slice(0, 1)}</span><strong>{candidate.name}</strong><i>{prediction === candidate.id ? '✓' : ''}</i></button>)}
           </div>
         </div>
       </div>
@@ -526,7 +543,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       </section>
       <section className="card-inventory panel">
         <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮还可使用 {cardSlotsRemaining} 张</span></div>
-        {player.cardInventory.length === 0 ? <p className="empty-cards">暂时没有道具卡。落后时，下一轮可能得到秘密支援。</p> : <div className="card-list">{player.cardInventory.map((cardId) => {
+        {visibleCardInventory.length === 0 ? <p className="empty-cards">{tutorial && !advancedToolsUnlocked ? '第 3 轮会解锁一张简单道具卡；先专注这一轮的新选择。' : '暂时没有道具卡。落后时，下一轮可能得到秘密支援。'}</p> : <div className="card-list">{visibleCardInventory.map((cardId) => {
           const card = getCardDefinition(cardId)
           const unavailable = cardTargetScope(cardId) !== 'none' && targetPlayersForCard(cardId).length === 0
           const confirmed = confirmedCardUses.find((use) => use.cardId === cardId)
@@ -1056,6 +1073,7 @@ export default function App() {
 
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
   const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.seats, cloneSettings(preset.settings))) }
+  const tutorialStart = () => begin(createTutorialSession())
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
@@ -1064,5 +1082,5 @@ export default function App() {
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
   if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} />
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} />
-  return <Home saved={saved} onQuickStart={quickStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onDelete={removeSaved} />
+  return <Home saved={saved} onQuickStart={quickStart} onTutorial={tutorialStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onDelete={removeSaved} />
 }

@@ -283,6 +283,8 @@ export interface GameSession {
   currentTurnIndex: number
   turns: RoundTurn[]
   results: RoundResult[]
+  /** A short, deterministic onboarding path. Omitted for every normal game. */
+  tutorial?: { kind: 'firstGame' }
   createdAt: string
   updatedAt: string
 }

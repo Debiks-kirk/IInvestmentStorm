@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyBotMemory } from './bots'
 import { coinsToUnits } from './engine'
-import { createDefaultSettings, createRematchSession, createSession } from './session'
+import { createDefaultSettings, createRematchSession, createSession, createTutorialSession } from './session'
 
 describe('再来一局', () => {
   const seats = [
@@ -51,5 +51,16 @@ describe('再来一局', () => {
     })
     expect(nextSpark.botMemory?.decisionLog).toEqual([])
     expect(nextSpark.balanceUnits).toBe(coinsToUnits(previous.settings.initialCoins))
+  })
+})
+
+describe('新手引导局', () => {
+  it('创建固定三轮教学，并为教学座位预备最后一轮才解锁的简单道具和主动身份示例', () => {
+    const session = createTutorialSession()
+    expect(session.tutorial).toEqual({ kind: 'firstGame' })
+    expect(session.phase).toBe('roundIntro')
+    expect(session.settings).toMatchObject({ playerCount: 3, rounds: 3, cardGrantProbability: 0, firstRoundSystemAuction: false })
+    expect(session.itemDeck.map((item) => item.id)).toEqual(['basketball', 'camera', 'apartment'])
+    expect(session.players[0]).toMatchObject({ name: '新手', cardInventory: ['doubleBid'], identity: { id: 'reverser' } })
   })
 })

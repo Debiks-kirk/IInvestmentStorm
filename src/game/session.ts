@@ -1,7 +1,7 @@
 import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck } from './cards'
 import { emptyBotMemory } from './bots'
-import { dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
+import { createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, ITEM_POOL, shuffle } from './items'
 import type { CardGrant, CardId, GameSession, GameSettings, Item, Player, RoundTurn, SeatConfig } from './types'
 
@@ -75,6 +75,31 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     results: [],
     createdAt: now,
     updatedAt: now,
+  }
+}
+
+/** A compact three-round path that introduces bidding, prediction, then cards and active identities. */
+export function createTutorialSession(): GameSession {
+  const settings = createDefaultSettings(3)
+  settings.rounds = 3
+  settings.initialCoins = 30
+  settings.rewardMultipliers = [2, 1]
+  settings.cardGrantProbability = 0
+  settings.firstRoundSystemAuction = false
+  settings.revealBalanceLeader = false
+  settings.identitySettings.enabled = true
+  settings.identitySettings.reverserActivationCoins = 2
+  const session = createSession(['新手', '小蓝', '小橙'], settings)
+  const itemIds = ['basketball', 'camera', 'apartment']
+  const itemDeck = itemIds.map((id) => ITEM_POOL.find((item) => item.id === id)!).map((item) => ({ ...item }))
+  return {
+    ...session,
+    phase: 'roundIntro',
+    identityDraft: null,
+    itemDeck,
+    prophecyDeck: itemDeck.map((item) => ({ ...item })),
+    players: session.players.map((player) => ({ ...player, identity: createPlayerIdentity('reverser'), cardInventory: ['doubleBid'] })),
+    tutorial: { kind: 'firstGame' },
   }
 }
 
