@@ -78,6 +78,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     turns: result.turns.map((turn) => ({ ...turn, cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
     item: normalizeItem(result.item),
     redistributionTransferUnits: result.redistributionTransferUnits ?? null,
+    autoConsumedCardIds: result.autoConsumedCardIds ?? [],
     identityEvents: result.identityEvents ?? [],
     rankingReversalCount: result.rankingReversalCount ?? 0,
     itemWinnerId: result.itemWinnerId ?? result.winnerId ?? null,

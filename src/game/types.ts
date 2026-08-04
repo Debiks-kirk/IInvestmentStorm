@@ -241,6 +241,8 @@ export interface RoundResult {
   predictionOutcomes: PredictionOutcome[]
   winnerPaymentUnits: number
   cardEffects: CardEffect[]
+  /** Passive cards consumed automatically during settlement and returned before the next round. */
+  autoConsumedCardIds: CardId[]
   rankingReversalCount: number
   redistributionTransferUnits: number | null
   balanceLeaderIds: string[]

@@ -141,13 +141,20 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const identityEvents: IdentityEvent[] = []
   const usedCards = turns.flatMap((turn) => cardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
   // 偷看底牌会在私密操作页立刻给出信息，无法被回合结算时才生效的护盾追溯。
-  // 其余指定型结算道具统一在这里解析，保证反弹护盾不会受玩家操作顺序影响。
-  const shieldedPlayerIds = new Set(usedCards.filter(({ use }) => use.cardId === 'reflectShield').map(({ playerId }) => playerId))
+  // 反弹护盾是被动消耗品：持有者第一次受到指定型结算道具影响时自动反弹并消耗。
+  const availableShieldPlayerIds = new Set(players.filter((player) => player.cardInventory.includes('reflectShield')).map((player) => player.id))
+  const autoConsumedCardIds: CardId[] = []
   const targetedCardUses = usedCards
     .filter(({ use }) => (use.cardId === 'swap' || use.cardId === 'bananaPeel') && Boolean(use.targetPlayerId))
     .map(({ playerId, use }) => {
       const targetPlayerId = use.targetPlayerId as string
-      const reflected = shieldedPlayerIds.has(targetPlayerId)
+      const reflected = targetPlayerId !== playerId && availableShieldPlayerIds.has(targetPlayerId)
+      if (reflected) {
+        availableShieldPlayerIds.delete(targetPlayerId)
+        const protectedPlayer = playerById.get(targetPlayerId)
+        if (protectedPlayer) protectedPlayer.cardInventory = protectedPlayer.cardInventory.filter((cardId) => cardId !== 'reflectShield')
+        autoConsumedCardIds.push('reflectShield')
+      }
       return { playerId, use, targetPlayerId: reflected ? playerId : targetPlayerId, reflected }
     })
   for (const targetedUse of targetedCardUses.filter(({ reflected }) => reflected)) {
@@ -445,6 +452,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     predictionOutcomes,
     winnerPaymentUnits,
     cardEffects,
+    autoConsumedCardIds,
     rankingReversalCount,
     redistributionTransferUnits,
     balanceLeaderIds,

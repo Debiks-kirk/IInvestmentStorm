@@ -531,8 +531,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           const confirmed = confirmedCardUses.find((use) => use.cardId === cardId)
           const prizeRerollUnavailable = cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1
           const prizeRerollBusy = cardId === 'prizeReroll' && Boolean(lockedPrizeReroll)
+          const passiveShield = cardId === 'reflectShield'
           const fateCoinLocked = cardId === 'fateCoin' && Boolean(confirmed)
-          return <button key={cardId} className={cx('card-choice', (selectedCardId === cardId || confirmed || prizeRerollBusy) && 'is-selected')} disabled={fateCoinLocked || (!confirmed && (unavailable || prizeRerollUnavailable || prizeRerollBusy || cardSlotsRemaining === 0))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } if (cardTargetScope(cardId) !== 'none') { setSelectedCardId(cardId); setSelectedTargetId(null); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{confirmed ? fateCoinLocked ? '硬币结果已锁定，本轮不能重掷。' : '本轮已安排，点击取消。' : prizeRerollUnavailable ? '最后一轮没有下一轮拍品，无法使用。' : prizeRerollBusy ? '候选拍品已锁定，请完成选择。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(selectedCardId === cardId || confirmed || prizeRerollBusy) ? '✓' : ''}</i></button>
+          return <button key={cardId} className={cx('card-choice', (selectedCardId === cardId || confirmed || prizeRerollBusy) && 'is-selected')} disabled={passiveShield || fateCoinLocked || (!confirmed && (unavailable || prizeRerollUnavailable || prizeRerollBusy || cardSlotsRemaining === 0))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } if (cardTargetScope(cardId) !== 'none') { setSelectedCardId(cardId); setSelectedTargetId(null); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name}</strong><small>{passiveShield ? '自动防御：受到香蕉皮或偷天换日影响时自动反弹并消耗，不占本轮道具次数。' : confirmed ? fateCoinLocked ? '硬币结果已锁定，本轮不能重掷。' : '本轮已安排，点击取消。' : prizeRerollUnavailable ? '最后一轮没有下一轮拍品，无法使用。' : prizeRerollBusy ? '候选拍品已锁定，请完成选择。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(selectedCardId === cardId || confirmed || prizeRerollBusy) ? '✓' : ''}</i></button>
         })}</div>}
         {selectedCard && cardTargetScope(selectedCard.id) !== 'none' && <div className="card-targets"><strong>{selectedCardId === 'peek' ? '偷看一名已投资玩家' : selectedCardId === 'bananaPeel' ? '让一名其他玩家的下注作废' : '与一名其他玩家交换排名金额'}</strong><button className="target-picker-trigger" onClick={() => setTargetPicker('card')}>打开玩家卡片选择目标</button>{peekedTurn && <p className="peek-result">你看到：<strong>{playerName(session.players, peekedTurn.playerId)}</strong> 已投资 <CoinValue units={peekedTurn.bidUnits} />。这条信息不会被其他人看到。</p>}</div>}
       </section>
@@ -773,6 +774,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     }] : [])]
     if (cardUses.length > 2 || new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return false
     for (const use of cardUses) {
+      if (use.cardId === 'reflectShield') return false
       const isLockedPrizeReroll = use.cardId === 'prizeReroll' && Boolean(lockedPrizeReroll)
       if (!isLockedPrizeReroll && !currentPlayer.cardInventory.includes(use.cardId)) return false
       const targetScope = cardTargetScope(use.cardId)
@@ -852,7 +854,7 @@ function Game({ session, setSession, onExit, onNewGame }: { session: GameSession
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult' })
     else {
       const nextRoundIndex = session.roundIndex + 1
-      const recycledCardDeck = recycleUsedCards(session.cardDeck, session.turns)
+      const recycledCardDeck = recycleUsedCards(session.cardDeck, session.turns, session.results.at(-1)?.autoConsumedCardIds ?? [])
       const auction = session.merchantAuction
       const taskNotices = session.identityContracts
         .filter((contract) => contract.status === 'pending' && contract.executeRoundIndex === nextRoundIndex)

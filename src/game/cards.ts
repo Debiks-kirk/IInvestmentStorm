@@ -31,7 +31,7 @@ export const CARD_DEFINITIONS: CardDefinition[] = [
   { id: 'reverseRank', name: '逆转排名', symbol: '↻', description: '倒转本轮获奖区内的排名；若与其他逆转叠加，偶数次会抵消。', needsTarget: false },
   { id: 'fateCoin', name: '命运硬币', symbol: '◒', description: '掷硬币：正面获得 6 金币，反面损失 4 金币。', needsTarget: false },
   { id: 'bananaPeel', name: '香蕉皮', symbol: '🍌', description: '指定一名其他玩家：其本轮下注作废，只损失一半下注费用。', needsTarget: true },
-  { id: 'reflectShield', name: '反弹护盾', symbol: '🛡', description: '本轮若有人对你使用指定型结算道具，效果会反弹给使用者自己。', needsTarget: false },
+  { id: 'reflectShield', name: '反弹护盾', symbol: '🛡', description: '自动待命：有人用香蕉皮或偷天换日指定你时，自动反弹该次效果并消耗，不占本轮道具次数。', needsTarget: false },
   { id: 'prizeReroll', name: '改拍令', symbol: '🎴', description: '确认后抽取 6 件新拍品，私密选择其中一件替换下一轮拍品。抽取后不能取消或重抽。', needsTarget: false },
 ]
 

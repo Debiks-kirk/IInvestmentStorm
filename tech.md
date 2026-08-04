@@ -1,6 +1,6 @@
 # 技术基线
 
-> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-04（改拍令六选一）。
+> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-04（被动反弹护盾）。
 
 相关文档：[项目记忆](memory.md) · [计划](plan.md) · [进度](progress.md) · [调研](research.md)
 
@@ -108,6 +108,12 @@
 
 - `cards.ts` 的 `cardTargetScope` 是目标范围唯一来源：`peek → previous`，`swap`/`bananaPeel → other`，其余卡为 `none`。`previous` 只读取已经提交的回合；`other` 从完整玩家列表中排除使用者，允许未来目标。
 - 私密库存逐张卡计算可选目标，不能再用“当前选中卡”的候选集判断另一张卡；目标卡片弹层和 `submitTurn` 校验均使用同一个范围函数。该设计避免首位玩家持有香蕉皮或偷天换日时被错误禁用。
+
+## 被动反弹护盾
+
+- 反弹护盾不再写入 `RoundTurn.cardUses`：私密 UI 禁止手动点击，`submitTurn` 也拒绝旧式主动护盾记录，因此它不占两张道具上限。
+- `settleRound` 从玩家库存构建待命护盾集合，按指定型卡牌的提交顺序处理。目标有护盾时，首次指定改为作用于使用者、移除目标库存中的护盾，并向 `RoundResult.autoConsumedCardIds` 写入一次 `reflectShield`；同轮之后该目标不再受保护。
+- `nextRound` 将 `autoConsumedCardIds` 传给 `recycleUsedCards`，使自动消耗卡和普通已使用卡一样回到循环池。旧结果迁移默认空数组，不重算历史回合。
 
 ## 改拍令与预言牌堆
 

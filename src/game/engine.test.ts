@@ -201,9 +201,11 @@ describe('道具卡结算', () => {
     expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(14.5))
   })
 
-  it('反弹护盾会将香蕉皮反弹给使用者本人', () => {
-    const settled = settle(players([10, 10, 10]), [
-      turn('p1', 8, null, { cardId: 'reflectShield' }),
+  it('反弹护盾持有时会自动将香蕉皮反弹给使用者本人，并消耗后回收', () => {
+    const basePlayers = players([10, 10, 10])
+    basePlayers[0].cardInventory = ['reflectShield']
+    const settled = settle(basePlayers, [
+      turn('p1', 8),
       turn('p2', 7, null, { cardId: 'bananaPeel', targetPlayerId: 'p1' }),
       turn('p3', 2),
     ])
@@ -214,11 +216,15 @@ describe('道具卡结算', () => {
       expect.objectContaining({ cardId: 'reflectShield' }),
       expect.objectContaining({ cardId: 'bananaPeel', description: '玩家2 下注时被香蕉皮滑倒了：下注失败，丢失了一半的下注费用。' }),
     ]))
+    expect(settled.players.find((player) => player.id === 'p1')?.cardInventory).not.toContain('reflectShield')
+    expect(settled.result.autoConsumedCardIds).toEqual(['reflectShield'])
   })
 
   it('反弹护盾会阻止偷天换日改动被护盾保护者的排名金额', () => {
-    const result = settle(players([20, 20, 20]), [
-      turn('p1', 10, null, { cardId: 'reflectShield' }),
+    const basePlayers = players([20, 20, 20])
+    basePlayers[0].cardInventory = ['reflectShield']
+    const result = settle(basePlayers, [
+      turn('p1', 10),
       turn('p2', 4, null, { cardId: 'swap', targetPlayerId: 'p1' }),
       turn('p3', 8),
     ]).result
@@ -226,6 +232,19 @@ describe('道具卡结算', () => {
     expect(result.rankings.find((entry) => entry.playerId === 'p2')).toMatchObject({ bidUnits: coinsToUnits(4) })
     expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'reflectShield' })]))
     expect(result.cardEffects.some((effect) => effect.cardId === 'swap')).toBe(false)
+  })
+
+  it('一张反弹护盾只反弹首次指定效果，随后同轮攻击正常生效', () => {
+    const basePlayers = players([20, 20, 20])
+    basePlayers[0].cardInventory = ['reflectShield']
+    const result = settle(basePlayers, [
+      turn('p1', 9),
+      turn('p2', 6, null, { cardId: 'bananaPeel', targetPlayerId: 'p1' }),
+      turn('p3', 4, null, { cardId: 'swap', targetPlayerId: 'p1' }),
+    ]).result
+    expect(result.autoConsumedCardIds).toEqual(['reflectShield'])
+    expect(result.cardEffects.filter((effect) => effect.cardId === 'reflectShield')).toHaveLength(1)
+    expect(result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'swap' })]))
   })
 
   it('偷看底牌只留下匿名结算说明，不影响排名或金币', () => {
@@ -351,6 +370,11 @@ describe('道具发放', () => {
   it('两张已使用道具都会在下轮前回到卡池', () => {
     const recycled = recycleUsedCards(['black'], [{ ...turn('p1', 5), cardUses: [{ cardId: 'red' }, { cardId: 'fateCoin', coinResult: 'heads' }] }])
     expect(recycled).toEqual(expect.arrayContaining(['black', 'red', 'fateCoin']))
+  })
+
+  it('自动触发并消耗的反弹护盾也会在下轮前回到卡池', () => {
+    const recycled = recycleUsedCards(['black'], [turn('p1', 5)], ['reflectShield'])
+    expect(recycled).toEqual(expect.arrayContaining(['black', 'reflectShield']))
   })
 
   it('唯一最低者必中时从卡池获得卡牌', () => {
