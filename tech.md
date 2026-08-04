@@ -1,6 +1,6 @@
 # 技术基线
 
-> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-04（道具目标规则审计）。
+> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-04（说客违约金默认值）。
 
 相关文档：[项目记忆](memory.md) · [计划](plan.md) · [进度](progress.md) · [调研](research.md)
 
@@ -108,6 +108,10 @@
 
 - `cards.ts` 的 `cardTargetScope` 是目标范围唯一来源：`peek → previous`，`swap`/`bananaPeel → other`，其余卡为 `none`。`previous` 只读取已经提交的回合；`other` 从完整玩家列表中排除使用者，允许未来目标。
 - 私密库存逐张卡计算可选目标，不能再用“当前选中卡”的候选集判断另一张卡；目标卡片弹层和 `submitTurn` 校验均使用同一个范围函数。该设计避免首位玩家持有香蕉皮或偷天换日时被错误禁用。
+
+## 说客默认数值
+
+- `defaultIdentitySettings` 的 `lobbyistFailurePaymentCoins` 为 5。它只影响新建设置和系统预设；`normalizeIdentitySettings` 的展开顺序使已有存档或预设中明确保存的违约金继续优先，避免进行中的对局被重平衡。
 
 ## 实现状态
 

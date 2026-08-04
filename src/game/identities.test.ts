@@ -135,11 +135,11 @@ describe('身份结算', () => {
     const contract = { id: 'c1', issuerId: 'lobbyist', targetPlayerId: 'target', taskType: 'winFirst' as const, specified: false, issuedRoundIndex: 0, executeRoundIndex: 1, status: 'pending' as const, paymentUnits: 0 }
     const settled = settleRound({ playersAfterBids: players, turns: [turn('lobbyist', 3), turn('target', 2), turn('first', 8)], item, roundIndex: 1, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true), identityContracts: [contract] })
     expect(settled.identityContracts[0].status).toBe('failed')
-    expect(settled.identityContracts[0].paymentUnits).toBe(coinsToUnits(3))
+    expect(settled.identityContracts[0].paymentUnits).toBe(coinsToUnits(5))
     expect(settled.players.find((entry) => entry.id === 'lobbyist')?.identity?.lobbyistNextFree).toBe(true)
     expect(settled.identityEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ playerId: 'target', title: '说客任务未完成', deltaUnits: -coinsToUnits(3) }),
-      expect.objectContaining({ playerId: 'lobbyist', title: '收到违约款', deltaUnits: coinsToUnits(3) }),
+      expect.objectContaining({ playerId: 'target', title: '说客任务未完成', deltaUnits: -coinsToUnits(5) }),
+      expect.objectContaining({ playerId: 'lobbyist', title: '收到违约款', deltaUnits: coinsToUnits(5) }),
     ]))
   })
 

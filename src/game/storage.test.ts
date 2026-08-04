@@ -20,6 +20,10 @@ afterEach(() => {
 })
 
 describe('配置预设存储', () => {
+  it('新局默认说客违约付款为 5 金币', () => {
+    expect(createDefaultSettings(3).identitySettings.lobbyistFailurePaymentCoins).toBe(5)
+  })
+
   it('保存、加载与覆盖配置时保留姓名和全部高级设置', () => {
     const settings = createDefaultSettings(3)
     settings.disabledCardIds = ['black']

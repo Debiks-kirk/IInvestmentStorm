@@ -45,7 +45,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     lobbyistFirstRoundFree: true,
     lobbyistFeeCoins: 5,
     lobbyistSpecifiedTaskFeeCoins: 5,
-    lobbyistFailurePaymentCoins: 3,
+    lobbyistFailurePaymentCoins: 5,
   }
 }
 
