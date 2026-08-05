@@ -49,18 +49,22 @@ function createId(prefix: string): string {
 
 export function createSession(seatsOrNames: SeatConfig[] | string[], settings: GameSettings): GameSession {
   const now = new Date().toISOString()
+  const gameId = createId('game')
   const initialItemDeck = createItemDeck(settings.rounds)
   const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' } } : seat)
-  const players: Player[] = seats.map((seat, index) => ({
-    id: createId('player'),
-    name: seat.name.trim(),
-    color: PLAYER_COLORS[index],
-    balanceUnits: coinsToUnits(settings.initialCoins),
-    items: [],
-    cardInventory: [],
-    controller: seat.controller,
-    ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory() } : {}),
-  }))
+  const players: Player[] = seats.map((seat, index) => {
+    const id = createId('player')
+    return {
+      id,
+      name: seat.name.trim(),
+      color: PLAYER_COLORS[index],
+      balanceUnits: coinsToUnits(settings.initialCoins),
+      items: [],
+      cardInventory: [],
+      controller: seat.controller,
+      ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory(`${gameId}:${id}`) } : {}),
+    }
+  })
   const initialCardDeck = createCardDeck(settings.disabledCardIds)
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   const firstDraw = settings.firstRoundSystemAuction ? drawCard(initialCardDeck, settings.disabledCardIds) : { cardId: null, cardDeck: initialCardDeck, replenished: false }
@@ -68,8 +72,8 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     ? { source: 'system' as const, merchantId: null, cardId: firstDraw.cardId, roundIndex: 0, bidderIndex: 0, bids: [] }
     : null
   return {
-    version: 14,
-    id: createId('game'),
+    version: 15,
+    id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
@@ -150,7 +154,8 @@ export function createRematchSession(previous: GameSession, keepBotGrudges = fal
       const grudgeByPlayerId = Object.fromEntries(Object.entries(previousPlayer.botMemory.grudgeByPlayerId)
         .map(([oldId, score]) => [oldToNewId.get(oldId), score] as const)
         .filter(([playerId]) => Boolean(playerId))) as Record<string, number>
-      return { ...player, botMemory: { ...emptyBotMemory(), grudgeByPlayerId } }
+      // Revenge carries only social memory. The newly created session keeps its own latent behaviour seed.
+      return { ...player, botMemory: { ...(player.botMemory ?? emptyBotMemory(`${next.id}:${player.id}`)), grudgeByPlayerId } }
     }),
   }
 }

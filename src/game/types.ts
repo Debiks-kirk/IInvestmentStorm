@@ -27,6 +27,19 @@ export interface BotMemory {
   grudgeByPlayerId: Record<string, number>
   lastMode: StrategyMode | null
   decisionLog: BotDecisionRecord[]
+  /** Per-game latent traits keep same-profile bots coherent without making them identical. */
+  behavior: BotBehavior
+  recentBidUnits: number[]
+}
+
+export interface BotBehavior {
+  reserveBias: number
+  edgeBias: number
+  riskBias: number
+  antiLeaderBias: number
+  predictionBias: number
+  cardBias: number
+  quoteFingerprint: number
 }
 
 export interface BotDecisionRecord {
@@ -35,6 +48,8 @@ export interface BotDecisionRecord {
   mode: StrategyMode
   reason: string
   intel?: string
+  /** Half-coin bid saved only for the bot's private long-term style memory. */
+  bidUnits?: number
 }
 
 export interface SeatConfig {
@@ -290,7 +305,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 14
+  version: 15
   id: string
   phase: GamePhase
   settings: GameSettings

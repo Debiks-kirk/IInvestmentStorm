@@ -47,7 +47,9 @@ describe('再来一局', () => {
     expect(next.players.map((player) => player.id)).not.toEqual(previous.players.map((player) => player.id))
     expect(next.players.every((player) => player.balanceUnits === coinsToUnits(previous.settings.initialCoins) && player.items.length === 0 && player.cardInventory.length === 0 && !player.identity)).toBe(true)
     expect(next.results).toEqual([])
-    expect(next.players[1].botMemory).toEqual(emptyBotMemory())
+    expect(next.players[1].botMemory?.grudgeByPlayerId).toEqual({})
+    expect(next.players[1].botMemory?.decisionLog).toEqual([])
+    expect(next.players[1].botMemory?.behavior).not.toEqual(previous.players[1].botMemory?.behavior)
   })
 
   it('复仇局只将 Bot 对座位的恩怨映射到新玩家 ID', () => {
@@ -55,13 +57,11 @@ describe('再来一局', () => {
     const next = createRematchSession(previous, true)
     const previousSpark = previous.players[1]
     const nextSpark = next.players[1]
-    expect(nextSpark.botMemory).toEqual({
-      ...emptyBotMemory(),
-      grudgeByPlayerId: {
-        [next.players[0].id]: previousSpark.botMemory?.grudgeByPlayerId[previous.players[0].id],
-        [next.players[2].id]: previousSpark.botMemory?.grudgeByPlayerId[previous.players[2].id],
-      },
+    expect(nextSpark.botMemory?.grudgeByPlayerId).toEqual({
+      [next.players[0].id]: previousSpark.botMemory?.grudgeByPlayerId[previous.players[0].id],
+      [next.players[2].id]: previousSpark.botMemory?.grudgeByPlayerId[previous.players[2].id],
     })
+    expect(nextSpark.botMemory?.behavior).not.toEqual(previousSpark.botMemory?.behavior)
     expect(nextSpark.botMemory?.decisionLog).toEqual([])
     expect(nextSpark.balanceUnits).toBe(coinsToUnits(previous.settings.initialCoins))
   })

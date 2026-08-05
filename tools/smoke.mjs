@@ -532,6 +532,9 @@ try {
   if (process.env.SMOKE_ONLY === 'lobbyist') {
     await runLobbyistTaskFlow(page)
     console.log('说客任务流程冒烟测试通过。')
+  } else if (process.env.SMOKE_ONLY === 'bot') {
+    await runBotSpectatorFlow(page)
+    console.log('全 Bot 观战流程冒烟测试通过。')
   } else {
     await runGame(page, 3, true)
     await runGame(page, 6, false, 'fast')

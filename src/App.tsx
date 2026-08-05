@@ -9,7 +9,7 @@ import { createDefaultSettings, createRematchSession, createSession, createTutor
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, prophetModeLabel } from './game/prophet'
-import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
+import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
 import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'game'
@@ -1064,7 +1064,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         balanceUnits: player.balanceUnits - turn.bidUnits,
         cardInventory: cardUses.length > 0 ? player.cardInventory.filter((cardId) => !cardUses.some((use) => use.cardId === cardId)) : player.cardInventory,
       }
-      return botRecord ? appendBotRecord(updated, { stage: 'turn', roundIndex: session.roundIndex, mode: botRecord.mode, reason: botRecord.reason, intel: botRecord.intel }) : updated
+      return botRecord ? appendBotRecord(updated, { stage: 'turn', roundIndex: session.roundIndex, mode: botRecord.mode, reason: botRecord.reason, intel: botRecord.intel, bidUnits: turn.bidUnits }) : updated
     })
     let identityContracts = [...session.identityContracts]
     let resolvedTurn: RoundTurn = { ...turn, ...(cardUses.length > 0 ? { cardUses } : {}) }
@@ -1157,7 +1157,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const merchantLocked = auction.source === 'merchant' && auction.merchantId === bidder?.id
     const resolvedBidUnits = merchantLocked ? 0 : bidUnits
     if (!bidder || resolvedBidUnits < 0 || resolvedBidUnits > bidder.balanceUnits) return
-    const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? appendBotRecord(player, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason }) : player) : session.players
+    const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? appendBotRecord(player, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason, bidUnits: resolvedBidUnits }) : player) : session.players
     const bids = [...auction.bids, { playerId: bidder.id, bidUnits: resolvedBidUnits }]
     if (auction.bidderIndex < bidders.length - 1) {
       patch({ players: recordedPlayers, merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, operationDeadlineAt: null, phase: 'auctionHandoff' })
@@ -1245,7 +1245,22 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       } else if (session.phase === 'privateTurn' && isBot(currentPlayer)) {
         const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
         const observation = buildBotObservation(session, currentPlayer.id)
+        if (session.pendingPrizeReroll?.playerId === currentPlayer.id && session.pendingPrizeReroll.roundIndex === session.roundIndex && !session.pendingPrizeReroll.chosenItemId) {
+          const choice = decideBotPrizeReroll(currentPlayer, session.pendingPrizeReroll.offeredItems, session.roundIndex, session.id)
+          if (choice) choosePrizeReroll(choice.id)
+          return
+        }
+        const memory = currentPlayer.botMemory ?? emptyBotMemory(`${session.id}:${currentPlayer.id}`)
+        const hasDivined = session.prophetDivinations.some((entry) => entry.playerId === currentPlayer.id && entry.roundIndex === session.roundIndex)
+        if (!hasDivined) {
+          const divination = decideBotProphetAction(observation, memory)
+          if (divination && useProphetDivination(currentPlayer.id, divination.mode, divination.targetPlayerId, divination.identityId)) return
+        }
         const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
+        if (decision.cardUses.some((use) => use.cardId === 'prizeReroll') && !session.pendingPrizeReroll) {
+          startPrizeReroll(currentPlayer.id)
+          return
+        }
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBotObservation, decideBotTurn, emptyBotMemory, estimateBalances } from './bots'
+import { buildBotObservation, decideBotMerchantBid, decideBotTurn, emptyBotMemory, estimateBalances } from './bots'
 import { createDefaultSettings, createSession } from './session'
 import { createGamePreset } from './presets'
 import type { SeatConfig } from './types'
@@ -71,6 +71,36 @@ describe('Bot 信息边界与决策', () => {
     expect(bids.size).toBeGreaterThan(1)
   })
 
+  it('100 个相同公开局面会产生丰富报价，并把六个 Bot 的顶部撞价压到低频', () => {
+    const botSeats: SeatConfig[] = Array.from({ length: 6 }, (_, index) => ({ name: `Bot ${index + 1}`, controller: { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } }))
+    const session = createSession(botSeats, createDefaultSettings(6))
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 12, category: 'luxury' }
+    const bidValues = new Set<number>()
+    let topTies = 0
+    for (let seed = 0; seed < 100; seed += 1) {
+      const bids = session.players.map((player) => {
+        const observation = { ...buildBotObservation(session, player.id), sessionSeed: `simulation-${seed}` }
+        const memory = emptyBotMemory(`simulation-${seed}:${player.id}`)
+        return decideBotTurn(observation, 'adaptive', 'standard', memory).bidUnits
+      })
+      bids.forEach((bid) => bidValues.add(bid))
+      const top = Math.max(...bids)
+      if (bids.filter((bid) => bid === top).length > 1) topTies += 1
+    }
+    expect(bidValues.size).toBeGreaterThan(20)
+    expect(topTies).toBeLessThan(35)
+  })
+
+  it('道具竞购也会随 Bot 行为指纹产生半金币级的不同报价', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const bids = new Set<number>()
+    for (let index = 0; index < 30; index += 1) {
+      const player = { ...session.players[0], id: `auction-bot-${index}`, botMemory: emptyBotMemory(`auction-${index}`) }
+      bids.add(decideBotMerchantBid(player, 'reverseRank').bidUnits)
+    }
+    expect(bids.size).toBeGreaterThan(5)
+  })
+
   it('会从公开总下注、门槛与收益变化推算对手现金区间', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     const observation = buildBotObservation(session, session.players[0].id)
@@ -90,13 +120,14 @@ describe('Bot 信息边界与决策', () => {
     expect(decision.predictedPlayerId).toBeNull()
   })
 
-  it('命运硬币会在 Bot 提交前固定正反面', () => {
+  it('命运硬币被 Bot 纳入计划时会在提交前固定正反面', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     session.players[0].cardInventory = ['fateCoin']
     session.players[0].balanceUnits = 10
-    const decision = decideBotTurn(buildBotObservation(session, session.players[0].id), 'comeback', 'standard', emptyBotMemory())
-    const coin = decision.cardUses.find((use) => use.cardId === 'fateCoin')
-    expect(coin?.coinResult === 'heads' || coin?.coinResult === 'tails').toBe(true)
+    const decisions = Array.from({ length: 40 }, (_, index) => decideBotTurn(buildBotObservation(session, session.players[0].id), 'comeback', 'standard', emptyBotMemory(`coin-${index}`)))
+    const coins = decisions.flatMap((decision) => decision.cardUses.filter((use) => use.cardId === 'fateCoin'))
+    // Smart bots are allowed to decline a bad coin flip; any selected coin must nevertheless be locked.
+    coins.forEach((coin) => expect(coin.coinResult === 'heads' || coin.coinResult === 'tails').toBe(true))
   })
 
   it('逆行者会用较低投资挤进获奖区，再发动逆转排名', () => {

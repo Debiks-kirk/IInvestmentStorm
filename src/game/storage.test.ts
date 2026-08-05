@@ -73,7 +73,27 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 14, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, midRoundSystemAuction: true } })
+    expect(loadSession()).toMatchObject({ version: 15, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, midRoundSystemAuction: true } })
+  })
+
+  it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
+    const seats = [
+      { name: 'Bot', controller: { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } },
+      { name: '乙', controller: { kind: 'human' as const } },
+      { name: '丙', controller: { kind: 'human' as const } },
+    ]
+    const legacy = JSON.parse(JSON.stringify(createSession(seats, createDefaultSettings(3))))
+    legacy.version = 14
+    legacy.players[0].botMemory.decisionLog = [{ stage: 'turn', roundIndex: 0, mode: 'value', reason: '旧记录', bidUnits: 7 }]
+    delete legacy.players[0].botMemory.behavior
+    delete legacy.players[0].botMemory.recentBidUnits
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    const first = loadSession()
+    const second = loadSession()
+    expect(first?.version).toBe(15)
+    expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
+    expect(first?.players[0].botMemory?.decisionLog).toEqual(legacy.players[0].botMemory.decisionLog)
+    expect(first?.players[0].botMemory?.recentBidUnits).toEqual([])
   })
 
   it('v2 存档补齐拍品分类而不改写已有规则数值', () => {
@@ -86,7 +106,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(14)
+    expect(migrated?.version).toBe(15)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)
