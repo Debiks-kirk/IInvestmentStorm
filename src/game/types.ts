@@ -118,6 +118,8 @@ export interface GameSettings {
 export interface IdentitySettings {
   enabled: boolean
   disabledIdentityIds: IdentityId[]
+  /** Number of distinct identity cards each player may choose from at setup. */
+  identityChoiceCount: number
   gamblerCorrectBonusMultiplier: number
   gamblerWrongPenaltyMultiplier: number
   gamblerSkipPenaltyMultiplier: number
@@ -130,6 +132,13 @@ export interface IdentitySettings {
   thiefMaxSteals?: number
   merchantInitialOfferCount: number
   merchantAuctionLimit: number
+  /** Per-game limits for active identity skills; passive identities are unaffected. */
+  prophetDivinationLimit: number
+  kidnapActivationLimit: number
+  thiefActivationLimit: number
+  reverserActivationLimit: number
+  lobbyistActivationLimit: number
+  nightwalkerUseLimit: number
   lobbyistFirstRoundFree: boolean
   lobbyistFeeCoins: number
   lobbyistSpecifiedTaskFeeCoins: number
@@ -162,6 +171,7 @@ export interface PlayerIdentity {
   lobbyistLastIssuedRound: number | null
   /** Nightwalker can set two secret bids twice per game. */
   nightwalkerUses?: number
+  activeSkillUses?: number
 }
 
 export interface IdentityDraftState {
@@ -324,7 +334,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 16
+  version: 17
   id: string
   phase: GamePhase
   settings: GameSettings

@@ -35,6 +35,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
   return {
     enabled,
     disabledIdentityIds: [],
+    identityChoiceCount: 2,
     gamblerCorrectBonusMultiplier: 0.5,
     gamblerWrongPenaltyMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
@@ -45,6 +46,12 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     thiefSuccessProbability: 50,
     merchantInitialOfferCount: 3,
     merchantAuctionLimit: 2,
+    prophetDivinationLimit: 12,
+    kidnapActivationLimit: 12,
+    thiefActivationLimit: 12,
+    reverserActivationLimit: 12,
+    lobbyistActivationLimit: 12,
+    nightwalkerUseLimit: 2,
     lobbyistFirstRoundFree: true,
     lobbyistFeeCoins: 5,
     lobbyistSpecifiedTaskFeeCoins: 5,
@@ -55,7 +62,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
 export function normalizeIdentitySettings(value: Partial<IdentitySettings> | undefined, enabled = false): IdentitySettings {
   const defaults = defaultIdentitySettings(enabled)
   const legacyPenalty = value?.gamblerSkipPenaltyMultiplier ?? defaults.gamblerSkipPenaltyMultiplier
-  return { ...defaults, ...value, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, prophetDivinationCoins: value?.prophetDivinationCoins ?? defaults.prophetDivinationCoins, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
+  return { ...defaults, ...value, identityChoiceCount: value?.identityChoiceCount ?? defaults.identityChoiceCount, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, prophetDivinationCoins: value?.prophetDivinationCoins ?? defaults.prophetDivinationCoins, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, prophetDivinationLimit: value?.prophetDivinationLimit ?? defaults.prophetDivinationLimit, kidnapActivationLimit: value?.kidnapActivationLimit ?? defaults.kidnapActivationLimit, thiefActivationLimit: value?.thiefActivationLimit ?? defaults.thiefActivationLimit, reverserActivationLimit: value?.reverserActivationLimit ?? defaults.reverserActivationLimit, lobbyistActivationLimit: value?.lobbyistActivationLimit ?? defaults.lobbyistActivationLimit, nightwalkerUseLimit: value?.nightwalkerUseLimit ?? defaults.nightwalkerUseLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
 }
 
 export function enabledIdentityIds(settings: IdentitySettings): IdentityId[] {
@@ -79,7 +86,7 @@ export function dealIdentityChoices(selectedIds: IdentityId[], settings: Identit
     return candidates[Math.min(candidates.length - 1, Math.floor(roll() * candidates.length))]
   }
   const choices: IdentityId[] = []
-  while (choices.length < 2) {
+  while (choices.length < settings.identityChoiceCount) {
     const normalPick = pick(normal, choices)
     if (normalPick) { choices.push(normalPick); continue }
     const fallback = enabled.filter((id) => id !== 'lobbyist').filter((id) => !choices.includes(id))
@@ -95,19 +102,22 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
   if (!settings.enabled) return []
   const enabled = enabledIdentityIds(settings)
   const errors: string[] = []
-  if (enabled.length < 2) errors.push('身份系统至少需要启用 2 个身份')
-  if (enabled.filter((id) => id !== 'lobbyist').length < 2) errors.push('身份系统至少需要启用 2 个非说客身份，才能持续提供不同候选')
+  if (!Number.isInteger(settings.identityChoiceCount) || settings.identityChoiceCount < 2 || settings.identityChoiceCount > 5) errors.push('开局身份候选数应为 2–5 张')
+  if (enabled.length < settings.identityChoiceCount) errors.push(`身份系统至少需要启用 ${settings.identityChoiceCount} 个身份`)
+  if (enabled.filter((id) => id !== 'lobbyist').length < settings.identityChoiceCount) errors.push(`身份系统至少需要启用 ${settings.identityChoiceCount} 个非说客身份，才能持续提供不同候选`)
   if (settings.thiefSuccessProbability < 0 || settings.thiefSuccessProbability > 100) errors.push('小偷成功率应为 0–100%')
   if (settings.prophetDivinationCoins < 0 || settings.prophetDivinationCoins > 20 || settings.prophetDivinationCoins * 2 % 1 !== 0) errors.push('预言家推演费用应为 0–20，且按 0.5 递增')
   if (settings.thiefActivationCoins < 0 || settings.thiefActivationCoins > 20 || settings.thiefActivationCoins * 2 % 1 !== 0) errors.push('小偷发动费用应为 0–20，且按 0.5 递增')
   if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
   if (settings.merchantInitialOfferCount < 1 || settings.merchantInitialOfferCount > 6) errors.push('商人初始选卡数量应为 1–6')
   if (settings.merchantAuctionLimit < 1 || settings.merchantAuctionLimit > 5) errors.push('商人拍卖次数应为 1–5 次')
+  const limits = [settings.prophetDivinationLimit, settings.kidnapActivationLimit, settings.thiefActivationLimit, settings.reverserActivationLimit, settings.lobbyistActivationLimit, settings.nightwalkerUseLimit]
+  if (limits.some((limit) => !Number.isInteger(limit) || limit < 1 || limit > 12)) errors.push('主动身份技能次数应为 1–12 次')
   return errors
 }
 
 export function createPlayerIdentity(id: IdentityId, config: { targetPlayerId?: string; collectorCategory?: AssetCategory } = {}): PlayerIdentity {
-  return { id, ...config, thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 0 }
+  return { id, ...config, thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 0, activeSkillUses: 0 }
 }
 
 export interface LobbyistTaskDefinition {

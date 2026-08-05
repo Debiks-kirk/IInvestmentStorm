@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dealIdentityChoices, defaultIdentitySettings, randomLobbyistTask, routeCardAwards } from './identities'
+import { dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, randomLobbyistTask, routeCardAwards } from './identities'
 import { coinsToUnits, rankFinalPlayers, settleRound } from './engine'
 import type { Item, Player, RoundTurn } from './types'
 
@@ -16,6 +16,14 @@ describe('身份选角与私密卡牌', () => {
     const fallback = dealIdentityChoices([...selected], settings, () => 0)
     expect(fallback).toEqual(['prophet', 'gambler'])
     expect(fallback).not.toContain('lobbyist')
+  })
+
+  it('开局候选数可设为 2–5 张，并要求足够的非说客身份', () => {
+    const settings = defaultIdentitySettings(true)
+    settings.identityChoiceCount = 4
+    expect(dealIdentityChoices([], settings, () => .2)).toHaveLength(4)
+    settings.disabledIdentityIds = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant']
+    expect(identityValidationErrors(settings, 3)).toContain('身份系统至少需要启用 4 个身份')
   })
 
   it('夜行者只在影价的排名净收益更高时采用影价，同分保留明面下注', () => {

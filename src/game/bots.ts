@@ -111,7 +111,13 @@ export interface BotObservation {
   gamblerWrongPenaltyMultiplier: number
   gamblerSkipPenaltyMultiplier: number
   prophetIdentityCostUnits: number
+  prophetDivinationLimit: number
   merchantAuctionLimit: number
+  kidnapActivationLimit: number
+  thiefActivationLimit: number
+  reverserActivationLimit: number
+  lobbyistActivationLimit: number
+  nightwalkerUseLimit: number
   reverserActivationUnits: number
   kidnapActivationUnits: number
   thiefActivationUnits: number
@@ -145,7 +151,13 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     gamblerWrongPenaltyMultiplier: session.settings.identitySettings.gamblerWrongPenaltyMultiplier,
     gamblerSkipPenaltyMultiplier: session.settings.identitySettings.gamblerSkipPenaltyMultiplier,
     prophetIdentityCostUnits: coinsToUnits(session.settings.identitySettings.prophetDivinationCoins),
+    prophetDivinationLimit: session.settings.identitySettings.prophetDivinationLimit,
     merchantAuctionLimit: session.settings.identitySettings.merchantAuctionLimit,
+    kidnapActivationLimit: session.settings.identitySettings.kidnapActivationLimit,
+    thiefActivationLimit: session.settings.identitySettings.thiefActivationLimit,
+    reverserActivationLimit: session.settings.identitySettings.reverserActivationLimit,
+    lobbyistActivationLimit: session.settings.identitySettings.lobbyistActivationLimit,
+    nightwalkerUseLimit: session.settings.identitySettings.nightwalkerUseLimit,
     reverserActivationUnits: coinsToUnits(session.settings.identitySettings.reverserActivationCoins),
     kidnapActivationUnits: coinsToUnits(session.settings.identitySettings.kidnapActivationCoins),
     thiefActivationUnits: coinsToUnits(session.settings.identitySettings.thiefActivationCoins),
@@ -391,20 +403,20 @@ function planCandidates(observation: BotObservation): TurnPlan[] {
     const rankingMultiplier = cardUses.some((use) => use.cardId === 'doubleBid') ? 2 : 1
     plans.push({ id: `cards:${cardUses.map((use) => `${use.cardId}:${use.targetPlayerId ?? ''}`).join('|') || 'none'}`, cardUses, rankingMultiplier, ...(swap?.targetPlayerId ? { rivalBidOverrides: { [swap.targetPlayerId]: 0 }, rankingBidFromTargetId: swap.targetPlayerId } : {}), reversalCount: cardUses.filter((use) => use.cardId === 'reverseRank').length, ...(swap ? { specialReason: '偷天换日会将自己的实际低下注与目标的排名下注互换。' } : {}) })
   }
-  if (observation.self.identity?.id === 'reverser') {
+  if (observation.self.identity?.id === 'reverser' && (observation.self.identity.activeSkillUses ?? 0) < observation.reverserActivationLimit) {
     const multiplier = observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1
     plans.push(...plans.filter((plan) => !plan.cardUses.some((use) => use.cardId === 'reverseRank')).map((plan) => ({ ...plan, id: `${plan.id}:reverser`, identityAction: { type: 'reverserInvert' as const }, reversalCount: plan.reversalCount + 1, specialReason: `发动逆转排名，支付 ${observation.reverserActivationUnits * multiplier / 2} 金币后将获奖区倒序。` })))
   }
-  if (observation.self.identity?.id === 'assassin' && observation.self.balanceUnits >= observation.kidnapActivationUnits) {
+  if (observation.self.identity?.id === 'assassin' && (observation.self.identity.activeSkillUses ?? 0) < observation.kidnapActivationLimit && observation.self.balanceUnits >= observation.kidnapActivationUnits) {
     for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:kidnap:${opponent.id}`, identityAction: { type: 'kidnap' as const, targetPlayerId: opponent.id }, specialReason: `盯上 ${opponent.name}；若他拿下拍品，就报销费用并抢走藏品。` })))
   }
-  if (observation.self.identity?.id === 'thief' && observation.roundIndex < observation.totalRounds - 1) {
+  if (observation.self.identity?.id === 'thief' && (observation.self.identity.activeSkillUses ?? 0) < observation.thiefActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:thief`, identityAction: { type: 'thiefSteal' as const }, specialReason: '发动偷卡，争取从其他玩家的未使用库存中夺取机会。' })))
   }
   if (observation.self.identity?.id === 'merchant' && observation.roundIndex < observation.totalRounds - 1 && observation.cardDeckSize > 0 && (observation.self.identity.merchantAuctionCount ?? 0) < observation.merchantAuctionLimit && observation.self.identity.merchantLastAuctionRound !== observation.roundIndex) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:merchant`, identityAction: { type: 'merchantAuction' as const }, specialReason: '发起下轮道具竞购，争取将循环道具转化为现金。' })))
   }
-  if (observation.self.identity?.id === 'lobbyist' && observation.roundIndex < observation.totalRounds - 1) {
+  if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
     for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:lobby:${opponent.id}`, identityAction: { type: 'lobbyistContract' as const, targetPlayerId: opponent.id }, specialReason: `向 ${opponent.name} 发布随机任务，争取下轮获得违约收益。` })))
   }
   // Keep the plan set rich, but bounded: a 10-player spectator game must not spend a turn
@@ -594,7 +606,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   let identityAction = best.identityAction
   // Nightwalkers still choose a normal human-looking A first. They only spend one
   // of their two free uses when a higher B has clearly better rank-reward net value.
-  if (observation.self.identity?.id === 'nightwalker' && (observation.self.identity.nightwalkerUses ?? 0) < 2 && !cardUses.some((use) => ['doubleBid', 'swap', 'bananaPeel', 'reverseRank'].includes(use.cardId))) {
+  if (observation.self.identity?.id === 'nightwalker' && (observation.self.identity.nightwalkerUses ?? 0) < observation.nightwalkerUseLimit && !cardUses.some((use) => ['doubleBid', 'swap', 'bananaPeel', 'reverseRank'].includes(use.cardId))) {
     const valueUnits = coinsToUnits(observation.item?.value ?? 0) * cardUses.reduce((factor, use) => use.cardId === 'red' ? factor * 2 : use.cardId === 'black' ? factor * .5 : factor, 1)
     const baseEstimate = estimatePlaceAndChance(observation, best.rankingBidUnits, observation.playerId)
     const baseReward = valueUnits * (observation.rewardMultipliers[baseEstimate.place - 1] ?? 0) * baseEstimate.uniqueChance

@@ -207,6 +207,11 @@
 - For simultaneous Nightwalkers, evaluations resolve in fixed turn order: prior Nightwalkers’ selected bids are included; later Nightwalkers remain on A. This makes replay/refresh deterministic without exposing any secret choice during the round.
 - The UI locks the ordinary bid controls after confirmation so A/B cannot drift apart. Ranking-changing card choices are disabled while the action is armed; serverless submission validation repeats this boundary. A fate-coin loss that makes B illegal clamps/revokes the pending choice before submit.
 
+## 身份候选与主动技能次数（v17）
+
+- `IdentitySettings.identityChoiceCount` controls how many distinct cards are dealt to each player at setup (2–5). `dealIdentityChoices` preserves the existing repeat-minimizing weighting and returns that many unique candidates; validation requires at least that many enabled non-lobbyist identities, so a candidate screen never silently shows fewer cards.
+- The advanced settings carry per-game caps for active roles. Merchant continues to use its auction counter and Nightwalker its double-bid counter; prophet uses persisted divination history; kidnapper, thief, reverser and lobbyist share `PlayerIdentity.activeSkillUses` because a player owns only one identity. UI affordances, submit validation and Bot candidate planning all use the same persisted counters.
+
 ## Bot 联合计划与反并列（v15）
 
 - `BotMemory.behavior` 存储每局固定、UI 不公开的七项行为倾向；`recentBidUnits` 仅保留最近八次自己报价作长期风格记录。新会话以 `gameId:playerId` 创建，迁移缺失字段时以相同稳定种子补齐；`createRematchSession` 重新保留新会话的行为字段，只映射 `grudgeByPlayerId`。
