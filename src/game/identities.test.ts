@@ -12,10 +12,38 @@ describe('身份选角与私密卡牌', () => {
     const settings = defaultIdentitySettings(true)
     const fresh = dealIdentityChoices([], settings, () => 0)
     expect(new Set(fresh).size).toBe(2)
-    const selected = ['prophet', 'prophet', 'gambler', 'gambler', 'assassin', 'assassin', 'collector', 'collector', 'thief', 'thief', 'merchant', 'merchant', 'reverser', 'reverser', 'lobbyist'] as const
+    const selected = ['prophet', 'prophet', 'gambler', 'gambler', 'assassin', 'assassin', 'collector', 'collector', 'thief', 'thief', 'merchant', 'merchant', 'reverser', 'reverser', 'nightwalker', 'nightwalker', 'lobbyist'] as const
     const fallback = dealIdentityChoices([...selected], settings, () => 0)
     expect(fallback).toEqual(['prophet', 'gambler'])
     expect(fallback).not.toContain('lobbyist')
+  })
+
+  it('夜行者只在影价的排名净收益更高时采用影价，同分保留明面下注', () => {
+    const players = [player('night', 16), player('rival', 14), player('third', 18)]
+    players[0].identity = { id: 'nightwalker', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 1 }
+    const settled = settleRound({
+      playersAfterBids: players,
+      turns: [
+        { ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8) } },
+        turn('rival', 6),
+        turn('third', 2),
+      ],
+      item,
+      roundIndex: 0,
+      rewardMultipliers: [2, 1],
+      correctPredictionMultiplier: 1,
+      wrongPredictionMultiplier: 1.5,
+      fairnessOrderIds: players.map((entry) => entry.id),
+      identitySettings: defaultIdentitySettings(true),
+    })
+    expect(settled.result.nightwalkerOutcomes[0]).toMatchObject({ playerId: 'night', chosenBidUnits: coinsToUnits(8), reason: 'shadowHigherNet' })
+    expect(settled.result.turns.find((entry) => entry.playerId === 'night')?.bidUnits).toBe(coinsToUnits(8))
+    expect(settled.players.find((entry) => entry.id === 'night')?.balanceUnits).toBe(coinsToUnits(22))
+
+    const tiePlayers = [player('night', 16), player('rival', 14), player('third', 18)]
+    tiePlayers[0].identity = { id: 'nightwalker', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 1 }
+    const tied = settleRound({ playersAfterBids: tiePlayers, turns: [{ ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8) } }, turn('rival', 10), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: tiePlayers.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+    expect(tied.result.nightwalkerOutcomes[0]).toMatchObject({ chosenBidUnits: coinsToUnits(4), reason: 'baseHigherOrEqualNet' })
   })
 
   it('同一张新卡只会被一名成功小偷偷走', () => {

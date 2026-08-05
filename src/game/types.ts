@@ -59,7 +59,7 @@ export interface SeatConfig {
 
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll'
 
-export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist'
+export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
 
 export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
@@ -160,6 +160,8 @@ export interface PlayerIdentity {
   merchantLastAuctionRound?: number | null
   lobbyistNextFree: boolean
   lobbyistLastIssuedRound: number | null
+  /** Nightwalker can set two secret bids twice per game. */
+  nightwalkerUses?: number
 }
 
 export interface IdentityDraftState {
@@ -214,6 +216,7 @@ export type IdentityAction =
   | { type: 'reverserInvert' }
   | { type: 'thiefSteal' }
   | { type: 'kidnap'; targetPlayerId: string }
+  | { type: 'nightwalkerDoubleBid'; shadowBidUnits: number }
   | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
 
 export interface Item {
@@ -278,6 +281,21 @@ export interface PlayerRoundDelta {
   publicDeltaUnits: number
 }
 
+/** Kept out of the public round display; revealed in the end-game round review. */
+export interface NightwalkerOutcome {
+  playerId: string
+  baseBidUnits: number
+  shadowBidUnits: number
+  chosenBidUnits: number
+  basePlace: number | null
+  shadowPlace: number | null
+  baseRewardUnits: number
+  shadowRewardUnits: number
+  baseNetUnits: number
+  shadowNetUnits: number
+  reason: 'shadowHigherNet' | 'baseHigherOrEqualNet'
+}
+
 export interface RoundResult {
   roundIndex: number
   item: Item
@@ -300,12 +318,13 @@ export interface RoundResult {
   deltas: PlayerRoundDelta[]
   balancesAfter: Record<string, number>
   identityEvents: IdentityEvent[]
+  nightwalkerOutcomes: NightwalkerOutcome[]
   /** Cash plus fixed assets after this round, used for comparable end-game trajectories. */
   totalAssetUnitsAfter: Record<string, number>
 }
 
 export interface GameSession {
-  version: 15
+  version: 16
   id: string
   phase: GamePhase
   settings: GameSettings

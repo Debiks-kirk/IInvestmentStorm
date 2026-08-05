@@ -201,6 +201,12 @@
 - `resolveFateCoin` 在硬币动画结束时原子地移除库存卡、改变余额并写入 `pendingFateCoinUse`；`submitTurn` 只接受与该锁定记录一致的硬币使用。Bot 在提交回合时走同一金额语义，结算引擎对带 `fateDeltaUnits` 的记录只生成说明，不再改余额。
 - 道具竞购结束后给每名玩家创建不含赢家姓名或报价的结果通知；成功获得道具或被偷走仍由现有发卡/身份通知给出实际私密结果。
 
+## 夜行者双影下注（v16）
+
+- `RoundTurn.bidUnits` stores the chosen visible A at submission. `IdentityAction.nightwalkerDoubleBid.shadowBidUnits` stores B. At settlement, the pure engine evaluates A/B after all turns are present, applies the winning bid as the actual payment/ranking bid, and records `RoundResult.nightwalkerOutcomes` for the end-game review.
+- For simultaneous Nightwalkers, evaluations resolve in fixed turn order: prior Nightwalkers’ selected bids are included; later Nightwalkers remain on A. This makes replay/refresh deterministic without exposing any secret choice during the round.
+- The UI locks the ordinary bid controls after confirmation so A/B cannot drift apart. Ranking-changing card choices are disabled while the action is armed; serverless submission validation repeats this boundary. A fate-coin loss that makes B illegal clamps/revokes the pending choice before submit.
+
 ## Bot 联合计划与反并列（v15）
 
 - `BotMemory.behavior` 存储每局固定、UI 不公开的七项行为倾向；`recentBidUnits` 仅保留最近八次自己报价作长期风格记录。新会话以 `gameId:playerId` 创建，迁移缺失字段时以相同稳定种子补齐；`createRematchSession` 重新保留新会话的行为字段，只映射 `grudgeByPlayerId`。

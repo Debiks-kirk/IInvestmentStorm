@@ -20,6 +20,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起两次竞购。', repeatable: true, needsMerchantCard: true },
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
   { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: false },
+  { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。', repeatable: true },
 ]
 
 export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
@@ -27,7 +28,7 @@ export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
 }
 
 export function identitySkillMode(id: IdentityId): 'active' | 'passive' {
-  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' || id === 'thief' ? 'active' : 'passive'
+  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' || id === 'thief' || id === 'nightwalker' ? 'active' : 'passive'
 }
 
 export function defaultIdentitySettings(enabled = true): IdentitySettings {
@@ -106,7 +107,7 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
 }
 
 export function createPlayerIdentity(id: IdentityId, config: { targetPlayerId?: string; collectorCategory?: AssetCategory } = {}): PlayerIdentity {
-  return { id, ...config, thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+  return { id, ...config, thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 0 }
 }
 
 export interface LobbyistTaskDefinition {

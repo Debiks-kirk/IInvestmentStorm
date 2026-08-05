@@ -16,6 +16,7 @@ import type {
   RoundResult,
   RoundTurn,
   LobbyistContract,
+  NightwalkerOutcome,
 } from './types'
 
 export const COIN_UNIT = 2
@@ -126,7 +127,8 @@ function valueFactor(uses: CardUse[]): number {
 }
 
 export function settleRound(input: SettlementInput): { players: Player[]; result: RoundResult; identityContracts: LobbyistContract[]; identityEvents: IdentityEvent[] } {
-  const { playersAfterBids, turns, item, roundIndex, rewardMultipliers, correctPredictionMultiplier, wrongPredictionMultiplier, fairnessOrderIds } = input
+  const { playersAfterBids, turns: submittedTurns, item, roundIndex, rewardMultipliers, correctPredictionMultiplier, wrongPredictionMultiplier, fairnessOrderIds } = input
+  let turns = submittedTurns
   const identitySettings = input.identitySettings ?? defaultIdentitySettings(false)
   const identityContracts = (input.identityContracts ?? []).map((contract) => ({ ...contract }))
   const players = playersAfterBids.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
@@ -164,6 +166,81 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const cardName = targetedUse.use.cardId === 'bananaPeel' ? '香蕉皮' : '偷天换日'
     cardEffects.push(cardEffect('reflectShield', `反弹护盾生效：${cardName}的指定效果已反弹给使用者。`))
   }
+
+  // Nightwalkers commit only the lower visible bid. Once every secret choice exists,
+  // each one is evaluated in seat order against the already resolved prior shadows.
+  // This makes multiple Nightwalkers deterministic while preserving secrecy.
+  const nightwalkerOutcomes: NightwalkerOutcome[] = []
+  const effectiveValueForNightwalker = floorToHalfUnits(item.value * COIN_UNIT * valueFactor(usedCards.map(({ use }) => use)))
+  const reversalCountForNightwalker = usedCards.filter(({ use }) => use.cardId === 'reverseRank').length
+    + (turns.some((turn) => turn.identityAction?.type === 'reverserInvert' && playerById.get(turn.playerId)?.identity?.id === 'reverser') ? 1 : 0)
+  const rankNightwalkerBid = (playerId: string, bidUnits: number, baseBids: Map<string, number>) => {
+    const rankingBids = new Map(baseBids)
+    rankingBids.set(playerId, bidUnits)
+    const voided = new Set<string>()
+    for (const { playerId: actorId, use, targetPlayerId, reflected } of targetedCardUses) {
+      if (use.cardId !== 'swap' || reflected || targetPlayerId === actorId) continue
+      const targetBid = rankingBids.get(targetPlayerId)
+      const ownBid = rankingBids.get(actorId)
+      if (targetBid === undefined || ownBid === undefined) continue
+      rankingBids.set(actorId, targetBid)
+      rankingBids.set(targetPlayerId, ownBid)
+    }
+    for (const { use, targetPlayerId } of targetedCardUses) {
+      if (use.cardId !== 'bananaPeel') continue
+      rankingBids.set(targetPlayerId, 0)
+      voided.add(targetPlayerId)
+    }
+    for (const { playerId: actorId, use } of usedCards) {
+      if (use.cardId === 'doubleBid') rankingBids.set(actorId, (rankingBids.get(actorId) ?? 0) * 2)
+    }
+    const ranked = turns.filter((turn) => !voided.has(turn.playerId)).map((turn) => ({ playerId: turn.playerId, bidUnits: rankingBids.get(turn.playerId) ?? 0 }))
+    const counts = new Map<number, number>()
+    ranked.forEach((turn) => counts.set(turn.bidUnits, (counts.get(turn.bidUnits) ?? 0) + 1))
+    const winners = ranked.filter((turn) => counts.get(turn.bidUnits) === 1).sort((left, right) => right.bidUnits - left.bidUnits).slice(0, rewardMultipliers.length)
+    const finalWinners = reversalCountForNightwalker % 2 === 1 ? [...winners].reverse() : winners
+    const placeIndex = finalWinners.findIndex((turn) => turn.playerId === playerId)
+    const rewardUnits = placeIndex < 0 ? 0 : floorToHalfUnits(effectiveValueForNightwalker * (rewardMultipliers[placeIndex] ?? 0))
+    return { place: placeIndex < 0 ? null : placeIndex + 1, rewardUnits, netUnits: rewardUnits - bidUnits }
+  }
+  const settledBidUnits = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
+  for (const turn of turns) {
+    if (turn.identityAction?.type !== 'nightwalkerDoubleBid' || playerById.get(turn.playerId)?.identity?.id !== 'nightwalker') continue
+    const shadowBidUnits = turn.identityAction.shadowBidUnits
+    const baseBidUnits = turn.bidUnits
+    const base = rankNightwalkerBid(turn.playerId, baseBidUnits, settledBidUnits)
+    const shadow = rankNightwalkerBid(turn.playerId, shadowBidUnits, settledBidUnits)
+    const useShadow = shadow.netUnits > base.netUnits
+    const chosenBidUnits = useShadow ? shadowBidUnits : baseBidUnits
+    settledBidUnits.set(turn.playerId, chosenBidUnits)
+    const player = playerById.get(turn.playerId)
+    if (player && chosenBidUnits > baseBidUnits) player.balanceUnits = Math.max(0, player.balanceUnits - (chosenBidUnits - baseBidUnits))
+    nightwalkerOutcomes.push({
+      playerId: turn.playerId,
+      baseBidUnits,
+      shadowBidUnits,
+      chosenBidUnits,
+      basePlace: base.place,
+      shadowPlace: shadow.place,
+      baseRewardUnits: base.rewardUnits,
+      shadowRewardUnits: shadow.rewardUnits,
+      baseNetUnits: base.netUnits,
+      shadowNetUnits: shadow.netUnits,
+      reason: useShadow ? 'shadowHigherNet' : 'baseHigherOrEqualNet',
+    })
+    identityEvents.push({
+      playerId: turn.playerId,
+      identityId: 'nightwalker',
+      roundIndex,
+      title: '双影下注结算',
+      detail: useShadow
+        ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；影价的排名净收益更高，系统采用了影价。`
+        : `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；明面净收益相同或更高，系统保留明面下注。`,
+      deltaUnits: 0,
+    })
+  }
+  if (nightwalkerOutcomes.length > 0) cardEffects.push(identityEffect('☾', '有人发动了双影下注，系统已在两档暗标中采用更划算的一档。'))
+  turns = turns.map((turn) => settledBidUnits.get(turn.playerId) === turn.bidUnits ? turn : { ...turn, bidUnits: settledBidUnits.get(turn.playerId) ?? turn.bidUnits })
 
   let redistributionTransferUnits: number | null = null
   const redistributionUse = usedCards.find(({ use }) => use.cardId === 'redistribute')
@@ -515,6 +592,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     deltas,
     balancesAfter: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     identityEvents,
+    nightwalkerOutcomes,
     totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
   return { players, result, identityContracts, identityEvents }
