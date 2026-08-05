@@ -394,7 +394,8 @@ describe('道具发放', () => {
   })
 
   it('第一位操作玩家抽到偷看底牌时改抽另一张卡，偷看卡留在池中', () => {
-    const granted = prepareCardGrants({ players: players([0, 8, 10]), cardDeck: ['peek', 'red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
+    // Round 2 starts from seat 2, so that seat is the one that cannot receive Peek.
+    const granted = prepareCardGrants({ players: players([8, 0, 10]), cardDeck: ['peek', 'red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
     expect(granted.pendingCardGrants[0]?.cardId).toBe('red')
     expect(granted.cardDeck).toEqual(['peek', 'black'])
   })

@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { emptyBotMemory } from './bots'
 import { coinsToUnits } from './engine'
-import { createDefaultSettings, createRematchSession, createSession, createTutorialSession } from './session'
+import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, roundPlayerIndices } from './session'
+
+describe('轮转操作顺序', () => {
+  it('保持座位不变，并且每轮将起点向后顺移一位', () => {
+    expect(roundPlayerIndices(0, 3)).toEqual([0, 1, 2])
+    expect(roundPlayerIndices(1, 3)).toEqual([1, 2, 0])
+    expect(roundPlayerIndices(2, 3)).toEqual([2, 0, 1])
+    expect(roundPlayerIndices(3, 3)).toEqual([0, 1, 2])
+  })
+
+  it('可用于任意人数的同一圆桌传递顺序', () => {
+    expect(roundPlayerIndices(4, 6)).toEqual([4, 5, 0, 1, 2, 3])
+  })
+})
 
 describe('再来一局', () => {
   const seats = [

@@ -5,7 +5,7 @@ import { createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
-import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, validateNames } from './game/session'
+import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, prophetModeLabel } from './game/prophet'
@@ -310,6 +310,7 @@ function RoundIntro({ session, onContinue, auto = false }: { session: GameSessio
   const [revealed, setRevealed] = useState(false)
   const timer = useRef<number | null>(null)
   const item = session.itemDeck[session.roundIndex]
+  const starter = session.players[roundStartPlayerIndex(session.roundIndex, session.players.length)]
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current) }, [])
   const spin = () => {
     setSpinning(true)
@@ -348,7 +349,7 @@ function RoundIntro({ session, onContinue, auto = false }: { session: GameSessio
       <div className="center-actions">
         {!spinning && !revealed && <button className="button button--primary button--large" onClick={spin}>启动抽奖机</button>}
         {spinning && <p className="muted pulse">正在抽取本轮拍品……</p>}
-        {revealed && <><p className="muted">看清楚了吗？接下来请依次秘密操作。</p><button className="button button--primary button--large" onClick={onContinue}>开始传递 <span>→</span></button></>}
+        {revealed && <><p className="muted">本轮从 {starter?.name ?? '首位玩家'} 开始，随后按座位顺序传递。</p><button className="button button--primary button--large" onClick={onContinue}>开始传递 <span>→</span></button></>}
       </div>
     </section>
   )
@@ -684,14 +685,14 @@ function AuctionIntro({ session, onContinue }: { session: GameSession; onContinu
 function AuctionHandoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
   const auction = session.merchantAuction as NonNullable<GameSession['merchantAuction']>
   const bidders = session.players
-  const player = bidders[auction.bidderIndex]
+  const player = bidders[playerIndexForRoundPosition(auction.roundIndex, auction.bidderIndex, bidders.length)]
   return <section className="handoff screen-center"><div className="privacy-seal"><span>竞</span></div><p className="eyebrow">请把设备交给</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">为公开道具秘密报价，其他人请移开视线。</p><button className="handoff-enter" onClick={onReady}>报价 <span>→</span></button></section>
 }
 
 function AuctionBid({ session, onSubmit }: { session: GameSession; onSubmit: (bidUnits: number) => void }) {
   const auction = session.merchantAuction as NonNullable<GameSession['merchantAuction']>
   const bidders = session.players
-  const player = bidders[auction.bidderIndex]
+  const player = bidders[playerIndexForRoundPosition(auction.roundIndex, auction.bidderIndex, bidders.length)]
   const card = getCardDefinition(auction.cardId)
   const merchantLocked = auction.source === 'merchant' && auction.merchantId === player.id
   const [bidUnits, setBidUnits] = useState(0)
@@ -1008,8 +1009,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       resolvedTurn = { ...resolvedTurn, identityAction: { type: 'lobbyistContract', targetPlayerId: action.targetPlayerId, specified: Boolean(action.specified), taskType: resolvedTask.taskType, ...(resolvedTask.comparisonPlayerId ? { comparisonPlayerId: resolvedTask.comparisonPlayerId } : {}) } }
     }
     const turns = [...session.turns, resolvedTurn]
-    const isLast = session.currentTurnIndex >= session.players.length - 1
-    patch({ players, turns, identityContracts, merchantAuction, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : session.currentTurnIndex + 1 })
+    const isLast = turns.length >= session.players.length
+    const nextTurnIndex = session.players.length > 0 ? (session.currentTurnIndex + 1) % session.players.length : 0
+    patch({ players, turns, identityContracts, merchantAuction, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
   }
   const reveal = () => {
@@ -1036,7 +1038,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const strippedPlayers = grants.players.map((player) => ({ ...player, cardInventory: player.cardInventory.filter((cardId) => !awards.some((award) => award.playerId === player.id && award.cardId === cardId)) }))
     const routed = routeCardAwards({ players: strippedPlayers, awards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex })
     const deliveredKeys = new Set(routed.delivered.map((award) => `${award.playerId}-${award.cardId}`))
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: 0, turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, operationDeadlineAt: null })
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, operationDeadlineAt: null })
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult' })
@@ -1051,7 +1053,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const deck = [...recycledCardDeck]
         const cardIndex = deck.indexOf(auction.cardId)
         if (cardIndex >= 0) deck.splice(cardIndex, 1)
-        patch({ phase: 'auctionIntro', roundIndex: nextRoundIndex, currentTurnIndex: 0, turns: [], cardDeck: deck, pendingIdentityNotices: [...session.pendingIdentityNotices, ...taskNotices], merchantAuction: { ...auction, bidderIndex: 0, bids: [] } })
+        patch({ phase: 'auctionIntro', roundIndex: nextRoundIndex, currentTurnIndex: roundStartPlayerIndex(nextRoundIndex, session.players.length), turns: [], cardDeck: deck, pendingIdentityNotices: [...session.pendingIdentityNotices, ...taskNotices], merchantAuction: { ...auction, bidderIndex: 0, bids: [] } })
       } else beginNormalRound(nextRoundIndex, session.players, recycledCardDeck, [...session.pendingIdentityNotices, ...taskNotices])
     }
   }
@@ -1059,7 +1061,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const auction = session.merchantAuction
     if (!auction) return
     const bidders = session.players
-    const bidder = bidders[auction.bidderIndex]
+    const bidder = bidders[playerIndexForRoundPosition(auction.roundIndex, auction.bidderIndex, bidders.length)]
     const merchantLocked = auction.source === 'merchant' && auction.merchantId === bidder?.id
     const resolvedBidUnits = merchantLocked ? 0 : bidUnits
     if (!bidder || resolvedBidUnits < 0 || resolvedBidUnits > bidder.balanceUnits) return
@@ -1102,7 +1104,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   }
   const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
   const currentPlayer = session.players[session.currentTurnIndex]
-  const auctionBidder = session.merchantAuction ? session.players[session.merchantAuction.bidderIndex] : undefined
+  const auctionBidder = session.merchantAuction ? session.players[playerIndexForRoundPosition(session.merchantAuction.roundIndex, session.merchantAuction.bidderIndex, session.players.length)] : undefined
   const armTurnDeadline = () => {
     if (session.phase !== 'privateTurn' || !session.settings.turnTimerEnabled || !currentPlayer || isBot(currentPlayer) || session.operationDeadlineAt) return
     patch({ operationDeadlineAt: Date.now() + session.settings.turnTimeLimitSeconds * 1000 })

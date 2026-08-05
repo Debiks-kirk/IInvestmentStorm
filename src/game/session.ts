@@ -7,6 +7,20 @@ import type { CardGrant, CardId, GameSession, GameSettings, Item, Player, RoundT
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
+/** Seats never move. Each round simply advances the first operator one seat clockwise. */
+export function roundStartPlayerIndex(roundIndex: number, playerCount: number): number {
+  return playerCount > 0 ? ((roundIndex % playerCount) + playerCount) % playerCount : 0
+}
+
+/** Returns the fixed seat index for a position within a round's circular passing order. */
+export function playerIndexForRoundPosition(roundIndex: number, position: number, playerCount: number): number {
+  return playerCount > 0 ? (roundStartPlayerIndex(roundIndex, playerCount) + position) % playerCount : 0
+}
+
+export function roundPlayerIndices(roundIndex: number, playerCount: number): number[] {
+  return Array.from({ length: playerCount }, (_, position) => playerIndexForRoundPosition(roundIndex, position, playerCount))
+}
+
 export function createDefaultSettings(playerCount = 3): GameSettings {
   return {
     playerCount,
@@ -190,7 +204,7 @@ export function prepareCardGrants({
   const grants: CardGrant[] = []
   for (const candidate of candidates) {
     if (nextDeck.length === 0 || roll() >= probability / 100) continue
-    const isFirstOperator = players[0]?.id === candidate.id
+    const isFirstOperator = players[roundStartPlayerIndex(roundIndex, players.length)]?.id === candidate.id
     const cardIndex = isFirstOperator ? nextDeck.findIndex((cardId) => cardId !== 'peek') : 0
     if (cardIndex < 0) continue
     const [cardId] = nextDeck.splice(cardIndex, 1)
