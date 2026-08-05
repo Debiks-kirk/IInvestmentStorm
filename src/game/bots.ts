@@ -110,6 +110,7 @@ export interface BotObservation {
   wrongPredictionMultiplier: number
   gamblerWrongPenaltyMultiplier: number
   gamblerSkipPenaltyMultiplier: number
+  prophetIdentityCostUnits: number
   merchantAuctionLimit: number
   reverserActivationUnits: number
   kidnapActivationUnits: number
@@ -143,6 +144,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     wrongPredictionMultiplier: session.settings.wrongPredictionMultiplier,
     gamblerWrongPenaltyMultiplier: session.settings.identitySettings.gamblerWrongPenaltyMultiplier,
     gamblerSkipPenaltyMultiplier: session.settings.identitySettings.gamblerSkipPenaltyMultiplier,
+    prophetIdentityCostUnits: coinsToUnits(session.settings.identitySettings.prophetDivinationCoins),
     merchantAuctionLimit: session.settings.identitySettings.merchantAuctionLimit,
     reverserActivationUnits: coinsToUnits(session.settings.identitySettings.reverserActivationCoins),
     kidnapActivationUnits: coinsToUnits(session.settings.identitySettings.kidnapActivationCoins),
@@ -495,8 +497,8 @@ export function decideBotProphetAction(observation: BotObservation, memory: BotM
   const collectValue = marginalAssetUnits(observation)
   if (roll < .34 + Math.max(0, memory.behavior.reserveBias) * .14) return { mode: 'wealth' }
   if (observation.roundIndex < observation.totalRounds - 2 && (collectValue > coinsToUnits(2) || roll < .82)) return { mode: 'stars' }
-  // Identity is deliberately rare: the five-coin fee requires a high-card-preferring, high-risk bot.
-  if (memory.behavior.cardBias + memory.behavior.riskBias > 1.45 && observation.self.balanceUnits >= coinsToUnits(9)) {
+  // Identity remains deliberately rare: the paid read must still leave enough cash to compete.
+  if (memory.behavior.cardBias + memory.behavior.riskBias > 1.45 && observation.self.balanceUnits >= observation.prophetIdentityCostUnits + coinsToUnits(4)) {
     const targetPlayerId = choose(observation.opponents.map((opponent) => opponent.id), `${observation.sessionSeed}:${observation.playerId}:prophet-target`)
     const identities: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist']
     const identityId = choose(identities, `${observation.sessionSeed}:${observation.playerId}:prophet-identity`)

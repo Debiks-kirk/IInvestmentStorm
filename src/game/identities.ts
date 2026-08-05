@@ -37,7 +37,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     gamblerCorrectBonusMultiplier: 0.5,
     gamblerWrongPenaltyMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
-    prophetDivinationCoins: 5,
+    prophetDivinationCoins: 3,
     reverserActivationCoins: 5,
     kidnapActivationCoins: 5,
     thiefActivationCoins: 5,

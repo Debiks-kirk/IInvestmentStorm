@@ -23,7 +23,7 @@ afterEach(() => {
 describe('配置预设存储', () => {
   it('新局默认说客违约付款为 5 金币', () => {
     expect(createDefaultSettings(3)).toMatchObject({ turnTimeLimitSeconds: 20, turnTimerEnabled: false })
-    expect(createDefaultSettings(3).identitySettings).toMatchObject({ lobbyistFailurePaymentCoins: 5, gamblerCorrectBonusMultiplier: .5, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, merchantAuctionLimit: 2 })
+    expect(createDefaultSettings(3).identitySettings).toMatchObject({ lobbyistFailurePaymentCoins: 5, gamblerCorrectBonusMultiplier: .5, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, prophetDivinationCoins: 3, merchantAuctionLimit: 2 })
   })
 
   it('保存、加载与覆盖配置时保留姓名和全部高级设置', () => {
