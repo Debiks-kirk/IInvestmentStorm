@@ -407,8 +407,32 @@ function IdentityDraft({ session, onChoose, onConfirm }: { session: GameSession;
 
 function BalanceReveal({ units }: { units: number }) {
   const [visible, setVisible] = useState(false)
+  const activePointerId = useRef<number | null>(null)
+  const showBalance = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    activePointerId.current = event.pointerId
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Some mobile browsers can reject capture after a gesture cancellation; visibility still works.
+    }
+    setVisible(true)
+  }
+  const hideBalance = (event?: React.PointerEvent<HTMLButtonElement> | React.FocusEvent<HTMLButtonElement>) => {
+    if (event && 'pointerId' in event && activePointerId.current !== null && event.pointerId !== activePointerId.current) return
+    const target = event?.currentTarget
+    if (target && activePointerId.current !== null) {
+      try {
+        if (target.hasPointerCapture(activePointerId.current)) target.releasePointerCapture(activePointerId.current)
+      } catch {
+        // The pointer may already have been released by the browser.
+      }
+    }
+    activePointerId.current = null
+    setVisible(false)
+  }
   return (
-    <button className={cx('balance-reveal', visible && 'is-visible')} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setVisible(true) }} onPointerUp={() => setVisible(false)} onPointerCancel={() => setVisible(false)} onContextMenu={(event) => event.preventDefault()}>
+    <button type="button" aria-label="长按查看余额" className={cx('balance-reveal', visible && 'is-visible')} onPointerDown={showBalance} onPointerUp={hideBalance} onPointerCancel={hideBalance} onLostPointerCapture={hideBalance} onPointerLeave={(event) => { if (event.pointerType === 'mouse') hideBalance(event) }} onBlur={hideBalance} onContextMenu={(event) => event.preventDefault()}>
       <span>{visible ? <><small>当前余额</small><CoinValue units={units} /></> : <><small>余额已隐藏</small><strong>长按查看</strong></>}</span>
       <i aria-hidden="true">{visible ? '◉' : '—'}</i>
     </button>

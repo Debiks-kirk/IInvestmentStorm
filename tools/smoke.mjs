@@ -419,6 +419,26 @@ async function runBotSpectatorFlow(page) {
   await assertNoHorizontalOverflow(page, '全 Bot 观战终局页')
 }
 
+async function runBalanceRevealFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.locator('#rounds').fill('1')
+  await page.getByRole('button', { name: /高级设置/ }).click()
+  await disableIdentities(page)
+  await disableFirstRoundSystemAuction(page)
+  await page.locator('#motion').selectOption('reduced')
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  const balance = page.getByRole('button', { name: '长按查看余额' })
+  await balance.dispatchEvent('pointerdown', { pointerId: 7, pointerType: 'touch', isPrimary: true })
+  await page.getByText('当前余额', { exact: true }).waitFor()
+  await balance.dispatchEvent('pointerup', { pointerId: 7, pointerType: 'touch', isPrimary: true })
+  await page.getByText('长按查看', { exact: true }).waitFor()
+}
+
 async function runSystemAuctionFlow(page) {
   await page.goto('http://127.0.0.1:5181')
   await page.evaluate(() => localStorage.clear())
@@ -535,6 +555,9 @@ try {
   } else if (process.env.SMOKE_ONLY === 'bot') {
     await runBotSpectatorFlow(page)
     console.log('全 Bot 观战流程冒烟测试通过。')
+  } else if (process.env.SMOKE_ONLY === 'balance') {
+    await runBalanceRevealFlow(page)
+    console.log('余额长按流程冒烟测试通过。')
   } else {
     await runGame(page, 3, true)
     await runGame(page, 6, false, 'fast')
