@@ -1185,10 +1185,26 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const routed = routeCardAwards({ players, awards: [{ playerId: winnerBid.playerId, cardId: auction.cardId }], settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex: auction.roundIndex })
       players = routed.players; notices = [...notices, ...routed.notices]; events = [...events, ...routed.events]
       notices = [...notices, ...events.slice(session.identityEvents.length).map(identityFeedbackNotice)]
-      notices = [...notices, ...players.map((player) => ({ id: `card-auction-result-${auction.roundIndex}-${auction.source}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `${getCardDefinition(auction.cardId).name} 已以唯一报价成交；若你得标或受到相关效果影响，会紧接着收到私密提示。` }))]
+      notices = [...notices, ...players.map((player) => ({
+        id: `card-auction-result-${auction.roundIndex}-${auction.source}-${player.id}`,
+        playerId: player.id,
+        title: '道具竞购结果',
+        detail: player.id === winnerBid.playerId
+          ? `恭喜你，竞拍到了道具「${getCardDefinition(auction.cardId).name}」。`
+          : auction.source === 'merchant' && player.id === auction.merchantId
+            ? `本次道具「${getCardDefinition(auction.cardId).name}」已成交。`
+            : `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(auction.cardId).name}」。`,
+      }))]
     } else {
       deck = shuffle([...deck, auction.cardId])
-      notices = [...notices, ...players.map((player) => ({ id: `card-auction-empty-${auction.roundIndex}-${auction.source}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `${getCardDefinition(auction.cardId).name} 没有唯一的正报价，已回到循环卡池。` }))]
+      notices = [...notices, ...players.map((player) => ({
+        id: `card-auction-empty-${auction.roundIndex}-${auction.source}-${player.id}`,
+        playerId: player.id,
+        title: '道具竞购结果',
+        detail: auction.source === 'merchant' && player.id === auction.merchantId
+          ? `本次道具「${getCardDefinition(auction.cardId).name}」没有成交，已回到循环卡池。`
+          : `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(auction.cardId).name}」。`,
+      }))]
       if (auction.merchantId) {
         const merchant = players.find((player) => player.id === auction.merchantId)
         notices.push({ id: `merchant-auction-empty-${auction.roundIndex}-${auction.merchantId}`, playerId: auction.merchantId, title: '道具竞购无人得标', detail: `没有唯一的正向报价，道具已回到循环卡池。本局竞购 ${merchant?.identity?.merchantAuctionCount ?? 0}/${session.settings.identitySettings.merchantAuctionLimit} 次。` })
