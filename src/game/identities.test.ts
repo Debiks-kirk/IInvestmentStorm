@@ -75,6 +75,29 @@ describe('身份结算', () => {
     expect(collector.balanceUnits).toBe(coinsToUnits(20))
   })
 
+  it('收藏家拿下所选类别拍品时获得私密 5 金币奖励', () => {
+    const collector = player('collector')
+    collector.identity = { id: 'collector', collectorCategory: 'leisure', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const players = [collector, player('other'), player('third')]
+    const settled = settleRound({ playersAfterBids: players, turns: [turn('collector', 8), turn('other', 4), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+
+    expect(settled.players.find((entry) => entry.id === 'collector')?.balanceUnits).toBe(coinsToUnits(35))
+    expect(settled.result.deltas.find((entry) => entry.playerId === 'collector')?.identityUnits).toBe(coinsToUnits(5))
+    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: 'collector', identityId: 'collector', title: '收藏家奖励', deltaUnits: coinsToUnits(5) }),
+    ]))
+  })
+
+  it('收藏家拿下其他类别拍品时不获得金币奖励', () => {
+    const collector = player('collector')
+    collector.identity = { id: 'collector', collectorCategory: 'luxury', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const players = [collector, player('other'), player('third')]
+    const settled = settleRound({ playersAfterBids: players, turns: [turn('collector', 8), turn('other', 4), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+
+    expect(settled.players.find((entry) => entry.id === 'collector')?.balanceUnits).toBe(coinsToUnits(30))
+    expect(settled.result.identityEvents.some((event) => event.identityId === 'collector')).toBe(false)
+  })
+
   it('逆行者未发动时，排名与拍品归属保持正常', () => {
     const players = [player('first'), player('reverse'), player('third')]
     players[1].identity = { id: 'reverser', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }

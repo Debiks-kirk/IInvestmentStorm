@@ -433,6 +433,24 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
 
   const outcomeOrder = new Map(turns.map((turn, index) => [turn.playerId, index]))
   predictionOutcomes.sort((left, right) => (outcomeOrder.get(left.playerId) ?? 0) - (outcomeOrder.get(right.playerId) ?? 0))
+
+  // 在所有常规结算后发放，避免这笔私密奖励改变预测付款等既有结算顺序。
+  const itemWinner = itemWinnerId ? playerById.get(itemWinnerId) : undefined
+  if (itemWinner?.identity?.id === 'collector' && itemWinner.identity.collectorCategory === item.category) {
+    const bonus = coinsToUnits(5)
+    itemWinner.balanceUnits += bonus
+    const delta = deltaByPlayer.get(itemWinner.id)
+    if (delta) delta.identityUnits += bonus
+    identityEvents.push({
+      playerId: itemWinner.id,
+      identityId: 'collector',
+      roundIndex,
+      title: '收藏家奖励',
+      detail: `拿下 ${item.emoji}${item.name}，符合你的收藏类别，额外获得 ${formatCoins(bonus)} 金币。`,
+      deltaUnits: bonus,
+    })
+  }
+
   const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
   const balanceLeaderIds = players.filter((player) => player.balanceUnits === highestBalance).map((player) => player.id)
   const deltas = players.map((player) => {

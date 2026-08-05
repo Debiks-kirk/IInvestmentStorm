@@ -15,7 +15,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'prophet', name: '预言家', symbol: '◌', summary: '每轮偷看下一轮拍品。', repeatable: true },
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
   { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: true },
-  { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产，永久多算 1 件。', repeatable: true, needsCategory: true },
+  { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产；拿下同类拍品额外得 5 金币。', repeatable: true, needsCategory: true },
   { id: 'thief', name: '小偷', symbol: '◒', summary: '有机会偷走目标新获得的道具。', repeatable: true, needsTarget: true },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起两次竞购。', repeatable: true, needsMerchantCard: true },
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
