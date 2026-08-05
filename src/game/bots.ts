@@ -604,8 +604,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const best = applyBidJitter(nearOptimalChoice(scored.length > 0 ? scored : [fallback], observation, profile, difficulty, memory), observation, profile, difficulty, mode, memory)
   const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
   let identityAction = best.identityAction
-  // Nightwalkers still choose a normal human-looking A first. They only spend one
-  // of their two free uses when a higher B has clearly better rank-reward net value.
+  // Nightwalkers choose a human-looking A first. Collecting-minded nightwalkers
+  // also value a B that is likely to turn a non-winning A into the item winner;
+  // the engine still resolves the exact choice only after every bid is known.
   if (observation.self.identity?.id === 'nightwalker' && (observation.self.identity.nightwalkerUses ?? 0) < observation.nightwalkerUseLimit && !cardUses.some((use) => ['doubleBid', 'swap', 'bananaPeel', 'reverseRank'].includes(use.cardId))) {
     const valueUnits = coinsToUnits(observation.item?.value ?? 0) * cardUses.reduce((factor, use) => use.cardId === 'red' ? factor * 2 : use.cardId === 'black' ? factor * .5 : factor, 1)
     const baseEstimate = estimatePlaceAndChance(observation, best.rankingBidUnits, observation.playerId)
@@ -613,12 +614,22 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     const baseNet = baseReward - best.bidUnits
     const availableAfterImmediateCards = Math.max(0, observation.self.balanceUnits - (cardUses.some((use) => use.cardId === 'fateCoin' && use.coinResult === 'tails') ? coinsToUnits(4) : 0))
     const shadows = Array.from({ length: Math.max(0, availableAfterImmediateCards - best.bidUnits) }, (_, index) => best.bidUnits + index + 1)
-    const shadow = shadows.map((shadowBidUnits) => {
+    const prioritizeItem = profile.collect + behavior.cardBias * .12 >= .42
+    const baseLikelyWinsItem = baseEstimate.place === 1 && baseEstimate.uniqueChance >= .42
+    const shadowCandidates = shadows.map((shadowBidUnits) => {
       const estimate = estimatePlaceAndChance(observation, shadowBidUnits, observation.playerId)
       const reward = valueUnits * (observation.rewardMultipliers[estimate.place - 1] ?? 0) * estimate.uniqueChance
-      return { bidUnits: shadowBidUnits, net: reward - shadowBidUnits }
-    }).sort((left, right) => right.net - left.net || left.bidUnits - right.bidUnits)[0]
-    if (shadow && shadow.net > baseNet + coinsToUnits(.2)) identityAction = { type: 'nightwalkerDoubleBid', shadowBidUnits: shadow.bidUnits }
+      return { bidUnits: shadowBidUnits, net: reward - shadowBidUnits, likelyWinsItem: estimate.place === 1 && estimate.uniqueChance >= .42 }
+    })
+    const shadow = shadowCandidates.sort((left, right) => {
+      const leftItemUpgrade = Number(prioritizeItem && left.likelyWinsItem && !baseLikelyWinsItem)
+      const rightItemUpgrade = Number(prioritizeItem && right.likelyWinsItem && !baseLikelyWinsItem)
+      return rightItemUpgrade - leftItemUpgrade || right.net - left.net || left.bidUnits - right.bidUnits
+    })[0]
+    const makesItemPush = Boolean(prioritizeItem && shadow?.likelyWinsItem && !baseLikelyWinsItem)
+    if (shadow && (makesItemPush || shadow.net > baseNet + coinsToUnits(.2))) {
+      identityAction = { type: 'nightwalkerDoubleBid', shadowBidUnits: shadow.bidUnits, prioritizeItem }
+    }
   }
   const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode, behavior)
   const intel = observation.intel ? `模糊情报：${observation.opponents.find((opponent) => opponent.id === observation.intel?.playerId)?.name ?? '一名对手'} 的投资约为 ${observation.intel.lowUnits / 2}–${observation.intel.highUnits / 2}。` : undefined

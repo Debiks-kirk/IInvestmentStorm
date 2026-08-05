@@ -1,6 +1,6 @@
 # 技术基线
 
-> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-05（Bot 决策多样化）。
+> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-05（夜行者藏品优先）。
 
 相关文档：[项目记忆](memory.md) · [计划](plan.md) · [进度](progress.md) · [调研](research.md)
 
@@ -206,6 +206,9 @@
 - `RoundTurn.bidUnits` stores the chosen visible A at submission. `IdentityAction.nightwalkerDoubleBid.shadowBidUnits` stores B. At settlement, the pure engine evaluates A/B after all turns are present, applies the winning bid as the actual payment/ranking bid, and records `RoundResult.nightwalkerOutcomes` for the end-game review.
 - For simultaneous Nightwalkers, evaluations resolve in fixed turn order: prior Nightwalkers’ selected bids are included; later Nightwalkers remain on A. This makes replay/refresh deterministic without exposing any secret choice during the round.
 - The UI locks the ordinary bid controls after confirmation so A/B cannot drift apart. Ranking-changing card choices are disabled while the action is armed; serverless submission validation repeats this boundary. A fate-coin loss that makes B illegal clamps/revokes the pending choice before submit.
+- `IdentityAction.nightwalkerDoubleBid` 可选保存 `prioritizeItem`；缺字段按 `true` 解释，兼容已有存档。私密弹窗默认勾选“优先拿藏品”，玩家可在每次发动时关闭。
+- 结算引擎对 A/B 分别运行与正式排名相同的唯一出价、目标道具、反客为主与奖区逆转模拟，额外记录是否会作为排名第一获得拍品。若开启优先且仅一档得拍品，优先采用该档；否则继续比较“排名奖励 − 实际下注”，同分保留 A。
+- 夜行者模拟刻意位于绑匪结算之前，因此不会读入绑匪是否抢走拍品；`NightwalkerOutcome` 会持久记录两档拍品结果、开关与采用原因，供终局复盘解释。
 
 ## 身份候选与主动技能次数（v17）
 

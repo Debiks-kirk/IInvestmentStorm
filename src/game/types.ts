@@ -226,7 +226,7 @@ export type IdentityAction =
   | { type: 'reverserInvert' }
   | { type: 'thiefSteal' }
   | { type: 'kidnap'; targetPlayerId: string }
-  | { type: 'nightwalkerDoubleBid'; shadowBidUnits: number }
+  | { type: 'nightwalkerDoubleBid'; shadowBidUnits: number; prioritizeItem?: boolean }
   | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
 
 export interface Item {
@@ -303,7 +303,10 @@ export interface NightwalkerOutcome {
   shadowRewardUnits: number
   baseNetUnits: number
   shadowNetUnits: number
-  reason: 'shadowHigherNet' | 'baseHigherOrEqualNet'
+  baseWinsItem: boolean
+  shadowWinsItem: boolean
+  prioritizeItem: boolean
+  reason: 'shadowHigherNet' | 'baseHigherOrEqualNet' | 'shadowWinsItem' | 'baseWinsItem'
 }
 
 export interface RoundResult {

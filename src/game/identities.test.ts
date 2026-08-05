@@ -26,13 +26,13 @@ describe('身份选角与私密卡牌', () => {
     expect(identityValidationErrors(settings, 3)).toContain('身份系统至少需要启用 4 个身份')
   })
 
-  it('夜行者只在影价的排名净收益更高时采用影价，同分保留明面下注', () => {
+  it('夜行者关闭藏品优先后只在影价的排名净收益更高时采用影价，同分保留明面下注', () => {
     const players = [player('night', 16), player('rival', 14), player('third', 18)]
     players[0].identity = { id: 'nightwalker', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 1 }
     const settled = settleRound({
       playersAfterBids: players,
       turns: [
-        { ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8) } },
+        { ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8), prioritizeItem: false } },
         turn('rival', 6),
         turn('third', 2),
       ],
@@ -50,8 +50,53 @@ describe('身份选角与私密卡牌', () => {
 
     const tiePlayers = [player('night', 16), player('rival', 14), player('third', 18)]
     tiePlayers[0].identity = { id: 'nightwalker', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 1 }
-    const tied = settleRound({ playersAfterBids: tiePlayers, turns: [{ ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8) } }, turn('rival', 10), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: tiePlayers.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+    const tied = settleRound({ playersAfterBids: tiePlayers, turns: [{ ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8), prioritizeItem: false } }, turn('rival', 10), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: tiePlayers.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
     expect(tied.result.nightwalkerOutcomes[0]).toMatchObject({ chosenBidUnits: coinsToUnits(4), reason: 'baseHigherOrEqualNet' })
+  })
+
+  it('夜行者默认优先拿藏品，但可关闭后按金币净收益选择', () => {
+    const lowValueItem = { ...item, id: 'nightwalker-priority', value: 3 }
+    const settings = defaultIdentitySettings(true)
+    const createPlayers = () => {
+      const players = [player('night', 16), player('rival', 14), player('third', 18)]
+      players[0].identity = { id: 'nightwalker', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, nightwalkerUses: 1 }
+      return players
+    }
+    const input = (players: Player[], prioritizeItem: boolean) => settleRound({
+      playersAfterBids: players,
+      turns: [
+        { ...turn('night', 4), identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: coinsToUnits(8), prioritizeItem } },
+        turn('rival', 6),
+        turn('third', 2),
+      ],
+      item: lowValueItem,
+      roundIndex: 0,
+      rewardMultipliers: [1, .5],
+      correctPredictionMultiplier: 1,
+      wrongPredictionMultiplier: 1.5,
+      fairnessOrderIds: players.map((entry) => entry.id),
+      identitySettings: settings,
+    })
+
+    const prioritize = input(createPlayers(), true)
+    expect(prioritize.result.nightwalkerOutcomes[0]).toMatchObject({
+      chosenBidUnits: coinsToUnits(8),
+      baseWinsItem: false,
+      shadowWinsItem: true,
+      prioritizeItem: true,
+      reason: 'shadowWinsItem',
+    })
+    expect(prioritize.result.itemWinnerId).toBe('night')
+
+    const optimizeCoins = input(createPlayers(), false)
+    expect(optimizeCoins.result.nightwalkerOutcomes[0]).toMatchObject({
+      chosenBidUnits: coinsToUnits(4),
+      baseWinsItem: false,
+      shadowWinsItem: true,
+      prioritizeItem: false,
+      reason: 'baseHigherOrEqualNet',
+    })
+    expect(optimizeCoins.result.itemWinnerId).toBe('rival')
   })
 
   it('同一张新卡只会被一名成功小偷偷走', () => {

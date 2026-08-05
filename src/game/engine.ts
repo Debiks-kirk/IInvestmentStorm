@@ -201,7 +201,12 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const finalWinners = reversalCountForNightwalker % 2 === 1 ? [...winners].reverse() : winners
     const placeIndex = finalWinners.findIndex((turn) => turn.playerId === playerId)
     const rewardUnits = placeIndex < 0 ? 0 : floorToHalfUnits(effectiveValueForNightwalker * (rewardMultipliers[placeIndex] ?? 0))
-    return { place: placeIndex < 0 ? null : placeIndex + 1, rewardUnits, netUnits: rewardUnits - bidUnits }
+    return {
+      place: placeIndex < 0 ? null : placeIndex + 1,
+      rewardUnits,
+      netUnits: rewardUnits - bidUnits,
+      winsItem: placeIndex === 0,
+    }
   }
   const settledBidUnits = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
   for (const turn of turns) {
@@ -210,7 +215,14 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const baseBidUnits = turn.bidUnits
     const base = rankNightwalkerBid(turn.playerId, baseBidUnits, settledBidUnits)
     const shadow = rankNightwalkerBid(turn.playerId, shadowBidUnits, settledBidUnits)
-    const useShadow = shadow.netUnits > base.netUnits
+    // The item choice is deliberately made before kidnap resolution: Nightwalker
+    // can see the final bids, but cannot foresee whether a kidnapper will steal it.
+    const prioritizeItem = turn.identityAction.prioritizeItem !== false
+    const itemDecision = prioritizeItem && base.winsItem !== shadow.winsItem
+    const useShadow = itemDecision ? shadow.winsItem : shadow.netUnits > base.netUnits
+    const reason: NightwalkerOutcome['reason'] = itemDecision
+      ? (shadow.winsItem ? 'shadowWinsItem' : 'baseWinsItem')
+      : (useShadow ? 'shadowHigherNet' : 'baseHigherOrEqualNet')
     const chosenBidUnits = useShadow ? shadowBidUnits : baseBidUnits
     settledBidUnits.set(turn.playerId, chosenBidUnits)
     const player = playerById.get(turn.playerId)
@@ -226,16 +238,23 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       shadowRewardUnits: shadow.rewardUnits,
       baseNetUnits: base.netUnits,
       shadowNetUnits: shadow.netUnits,
-      reason: useShadow ? 'shadowHigherNet' : 'baseHigherOrEqualNet',
+      baseWinsItem: base.winsItem,
+      shadowWinsItem: shadow.winsItem,
+      prioritizeItem,
+      reason,
     })
     identityEvents.push({
       playerId: turn.playerId,
       identityId: 'nightwalker',
       roundIndex,
       title: '双影下注结算',
-      detail: useShadow
-        ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；影价的排名净收益更高，系统采用了影价。`
-        : `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；明面净收益相同或更高，系统保留明面下注。`,
+      detail: reason === 'shadowWinsItem'
+        ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；已开启优先拿藏品，只有影价能获得拍品，系统采用了影价。`
+        : reason === 'baseWinsItem'
+          ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；已开启优先拿藏品，只有明面能获得拍品，系统保留明面下注。`
+          : useShadow
+            ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；影价的排名净收益更高，系统采用了影价。`
+            : `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；明面净收益相同或更高，系统保留明面下注。`,
       deltaUnits: 0,
     })
   }
