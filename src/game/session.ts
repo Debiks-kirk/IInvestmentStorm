@@ -23,11 +23,11 @@ export function roundPlayerIndices(roundIndex: number, playerCount: number): num
 
 export function createDefaultSettings(playerCount = 3): GameSettings {
   const sizeTuning = playerCount === 3
-    ? { rounds: 5, merchantAuctionLimit: 1, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .33 }
+    ? { rounds: 5, wrongPredictionMultiplier: 1.5, merchantAuctionLimit: 1, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .33, gamblerPenaltyMultiplier: .5 }
     : playerCount === 6
-      ? { rounds: 8, merchantAuctionLimit: 3, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .67, gamblerPenaltyMultiplier: .4, kidnapActivationCoins: 3 }
+      ? { rounds: 8, wrongPredictionMultiplier: 1, merchantAuctionLimit: 3, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .67, gamblerPenaltyMultiplier: .33, kidnapActivationCoins: 3 }
       : playerCount === 10
-        ? { rounds: 10, merchantAuctionLimit: 3, nightwalkerUseLimit: 3, gamblerCorrectBonusMultiplier: 1, gamblerPenaltyMultiplier: .33, kidnapActivationCoins: 2 }
+        ? { rounds: 10, wrongPredictionMultiplier: .5, merchantAuctionLimit: 3, nightwalkerUseLimit: 3, gamblerCorrectBonusMultiplier: 1, gamblerPenaltyMultiplier: .2, kidnapActivationCoins: 2 }
         : null
   const identitySettings = {
     ...defaultIdentitySettings(true),
@@ -45,7 +45,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     initialCoins: 30,
     rewardMultipliers: defaultRewards(playerCount),
     correctPredictionMultiplier: 1,
-    wrongPredictionMultiplier: 1.5,
+    wrongPredictionMultiplier: sizeTuning?.wrongPredictionMultiplier ?? 1.5,
     revealBids: false,
     revealBalanceLeader: false,
     cardGrantProbability: 100,

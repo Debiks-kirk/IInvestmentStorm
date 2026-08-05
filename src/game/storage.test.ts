@@ -23,9 +23,9 @@ afterEach(() => {
 describe('配置预设存储', () => {
   it('新局默认值包含更高小偷成功率与更低的指定任务加价', () => {
     expect(createDefaultSettings(3)).toMatchObject({ turnTimeLimitSeconds: 20, turnTimerEnabled: false })
-    expect(createDefaultSettings(3).identitySettings).toMatchObject({ lobbyistFailurePaymentCoins: 5, lobbyistSpecifiedTaskFeeCoins: 3, thiefSuccessProbability: 75, gamblerCorrectBonusMultiplier: .33, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, prophetDivinationCoins: 3, merchantAuctionLimit: 1, nightwalkerUseLimit: 2 })
-    expect(createDefaultSettings(6).identitySettings).toMatchObject({ gamblerCorrectBonusMultiplier: .67, gamblerWrongPenaltyMultiplier: .4, gamblerSkipPenaltyMultiplier: .4, kidnapActivationCoins: 3, merchantAuctionLimit: 3, nightwalkerUseLimit: 2 })
-    expect(createDefaultSettings(10).identitySettings).toMatchObject({ gamblerCorrectBonusMultiplier: 1, gamblerWrongPenaltyMultiplier: .33, gamblerSkipPenaltyMultiplier: .33, kidnapActivationCoins: 2, merchantAuctionLimit: 3, nightwalkerUseLimit: 3 })
+    expect(createDefaultSettings(3)).toMatchObject({ wrongPredictionMultiplier: 1.5, identitySettings: { lobbyistFailurePaymentCoins: 5, lobbyistSpecifiedTaskFeeCoins: 3, thiefSuccessProbability: 75, gamblerCorrectBonusMultiplier: .33, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, prophetDivinationCoins: 3, merchantAuctionLimit: 1, nightwalkerUseLimit: 2 } })
+    expect(createDefaultSettings(6)).toMatchObject({ wrongPredictionMultiplier: 1, identitySettings: { gamblerCorrectBonusMultiplier: .67, gamblerWrongPenaltyMultiplier: .33, gamblerSkipPenaltyMultiplier: .33, kidnapActivationCoins: 3, merchantAuctionLimit: 3, nightwalkerUseLimit: 2 } })
+    expect(createDefaultSettings(10)).toMatchObject({ wrongPredictionMultiplier: .5, identitySettings: { gamblerCorrectBonusMultiplier: 1, gamblerWrongPenaltyMultiplier: .2, gamblerSkipPenaltyMultiplier: .2, kidnapActivationCoins: 2, merchantAuctionLimit: 3, nightwalkerUseLimit: 3 } })
   })
 
   it('保存、加载与覆盖配置时保留姓名和全部高级设置', () => {
