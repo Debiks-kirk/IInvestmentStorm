@@ -355,7 +355,7 @@ describe('道具发放', () => {
   it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
-    expect(new Set(deck).size).toBe(deck.length)
+    expect(deck).toHaveLength((CARD_DEFINITIONS.length - 3) * 2)
   })
 
   it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
@@ -405,8 +405,8 @@ describe('道具发放', () => {
       turn('p1', 5, null, { cardId: 'red' }),
       turn('p2', 3, null, { cardId: 'red' }),
     ])
-    expect(recycled).toHaveLength(2)
-    expect(new Set(recycled)).toEqual(new Set(['red', 'black']))
+    expect(recycled).toHaveLength(3)
+    expect(recycled.filter((card) => card === 'red')).toHaveLength(2)
     expect(recycleUsedCards(['black'], [turn('p1', 5)])).toEqual(['black'])
   })
 })
@@ -436,7 +436,7 @@ describe('固定资产与默认配置', () => {
   })
 
   it('新默认设置与三个系统配置使用确认后的规则', () => {
-    expect(createDefaultSettings()).toMatchObject({ wrongPredictionMultiplier: 1.5, cardGrantProbability: 80, revealBalanceLeader: false })
+    expect(createDefaultSettings()).toMatchObject({ wrongPredictionMultiplier: 1.5, cardGrantProbability: 100, revealBalanceLeader: false, midRoundSystemAuction: true })
     expect(SYSTEM_PRESETS.map((preset) => [preset.settings.playerCount, preset.settings.rounds, preset.settings.initialCoins])).toEqual([[3, 4, 30], [6, 6, 30], [10, 8, 40]])
   })
 })

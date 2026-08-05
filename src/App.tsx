@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig } from './game/assets'
-import { CARD_DEFINITIONS, cardTargetScope, getCardDefinition } from './game/cards'
+import { CARD_DEFINITIONS, cardTargetScope, drawCard, getCardDefinition } from './game/cards'
 import { createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
@@ -250,6 +250,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                 <label className="switch-row"><span><strong>启用操作倒计时</strong><small>默认关闭；开启后，真人竞拍与竞购超时会按当前选择自动确认</small></span><input type="checkbox" checked={settings.turnTimerEnabled} onChange={(event) => setSettings({ ...settings, turnTimerEnabled: event.target.checked })} /></label>
                 {settings.turnTimerEnabled && <div className="setting-row"><label htmlFor="turn-time-limit">单次操作时限</label><div><input id="turn-time-limit" type="number" min="5" max="120" step="5" value={settings.turnTimeLimitSeconds} onChange={(event) => setSettings({ ...settings, turnTimeLimitSeconds: Number(event.target.value) })} /><span>秒</span></div></div>}
                 <label className="switch-row"><span><strong>首轮系统道具竞购</strong><small>第 1 轮拍品抽取前，系统公开一张道具，所有人轮流秘密报价</small></span><input type="checkbox" checked={settings.firstRoundSystemAuction} onChange={(event) => setSettings({ ...settings, firstRoundSystemAuction: event.target.checked })} /></label>
+                <label className="switch-row"><span><strong>中场系统道具竞购</strong><small>后半中点的拍品抽取前，系统再发起一次道具竞购</small></span><input type="checkbox" checked={settings.midRoundSystemAuction} onChange={(event) => setSettings({ ...settings, midRoundSystemAuction: event.target.checked })} /></label>
                 <div className="card-setting-group"><strong>禁用道具卡</strong><small>未勾选的卡会加入本局循环卡池；使用后回池，未使用会留在手中</small><div>{CARD_DEFINITIONS.map((card) => <label key={card.id}><input type="checkbox" checked={!settings.disabledCardIds.includes(card.id)} onChange={(event) => setSettings({ ...settings, disabledCardIds: event.target.checked ? settings.disabledCardIds.filter((id) => id !== card.id) : [...settings.disabledCardIds, card.id] })} /><span>{card.symbol} {card.name}</span></label>)}</div></div>
                 <div className="identity-setting-group">
                   <label className="switch-row"><span><strong>启用身份系统</strong><small>开局前私密二选一身份；身份在终局才公开</small></span><input type="checkbox" checked={settings.identitySettings.enabled} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, enabled: event.target.checked } })} /></label>
@@ -260,7 +261,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                     <label>预言家天机推演费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.prophetDivinationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, prophetDivinationCoins: Number(event.target.value) } })} /></label>
                     <label>绑匪发动费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.kidnapActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapActivationCoins: Number(event.target.value) } })} /></label>
                     <label>小偷成功率 %<input type="number" min="0" max="100" value={settings.identitySettings.thiefSuccessProbability} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefSuccessProbability: Number(event.target.value) } })} /></label>
-                    <label>小偷上限<input type="number" min="0" max="10" value={settings.identitySettings.thiefMaxSteals} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefMaxSteals: Number(event.target.value) } })} /></label>
+                    <label>小偷发动费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.thiefActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefActivationCoins: Number(event.target.value) } })} /></label>
                     <label>商人初始选卡<input type="number" min="1" max="6" value={settings.identitySettings.merchantInitialOfferCount} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, merchantInitialOfferCount: Number(event.target.value) } })} /></label>
                     <label>商人拍卖次数<input type="number" min="1" max="5" value={settings.identitySettings.merchantAuctionLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, merchantAuctionLimit: Number(event.target.value) } })} /></label>
                     <label>说客发布费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.lobbyistFeeCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, lobbyistFeeCoins: Number(event.target.value) } })} /></label>
@@ -369,6 +370,14 @@ function Handoff({ session, onReady }: { session: GameSession; onReady: () => vo
   )
 }
 
+function FinalReceipt({ session, onReady, onAcknowledge }: { session: GameSession; onReady: () => void; onAcknowledge: () => void }) {
+  const player = session.players[session.finalReceiptIndex ?? 0]
+  const receipt = player ? session.pendingIdentityNotices.find((notice) => notice.playerId === player.id && notice.title === '本轮拍品结果') : undefined
+  if (!player) return null
+  if (session.phase === 'finalReceiptHandoff') return <section className="handoff screen-center"><div className="privacy-seal"><span>密</span></div><p className="eyebrow">终局前的私人回执</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">请由本人确认最后一轮的拍品结果。</p><button className="handoff-enter" onClick={onReady}>查看我的结果 <span>→</span></button></section>
+  return <section className="handoff screen-center"><div className="card-grant-sheet"><span>{receipt?.detail.includes('获得了') ? '★' : '○'}</span><p className="eyebrow">本轮拍品结果</p><h2>{receipt?.detail ?? '本轮没有拍品回执。'}</h2><button className="button button--primary" onClick={onAcknowledge}>知道了</button></div></section>
+}
+
 function BotThinking({ player, allBots }: { player: Player; allBots: boolean }) {
   return <section className="bot-thinking screen-center"><div className="privacy-seal"><span>✦</span></div><p className="eyebrow">Bot 正在行动</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">正在分析拍品、局势与可用技能。</p><div className="bot-thinking__dots" aria-label="Bot 正在思考"><i /><i /><i /></div>{allBots && <small className="privacy-note">观战模式会自动推进至终局</small>}</section>
 }
@@ -464,7 +473,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const [coinFlipStarted, setCoinFlipStarted] = useState(false)
   const [peekResult, setPeekResult] = useState<RoundTurn | null>(null)
   const [identityAction, setIdentityAction] = useState<IdentityAction | undefined>()
-  const [targetPicker, setTargetPicker] = useState<'card' | 'kidnap' | 'lobbyTask' | 'lobbyTarget' | 'lobbyComparison' | null>(null)
+  const [targetPicker, setTargetPicker] = useState<'card' | 'prediction' | 'kidnap' | 'lobbyTask' | 'lobbyTarget' | 'lobbyComparison' | null>(null)
   const [lobbyTargetId, setLobbyTargetId] = useState('')
   const [lobbySpecified, setLobbySpecified] = useState(false)
   const [lobbyTask, setLobbyTask] = useState<LobbyistTaskType>('avoidPrize')
@@ -476,7 +485,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const setBid = (value: number) => {
     const reservedIdentityUnits = identityAction?.type === 'reverserInvert'
       ? Math.round(session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 4 : 2))
-      : identityAction?.type === 'kidnap' ? Math.round(session.settings.identitySettings.kidnapActivationCoins * 2) : 0
+      : identityAction?.type === 'kidnap' ? Math.round(session.settings.identitySettings.kidnapActivationCoins * 2)
+        : identityAction?.type === 'thiefSteal' ? Math.round(session.settings.identitySettings.thiefActivationCoins * 2) : 0
     setBidUnits(Math.max(0, Math.min(player.balanceUnits - reservedIdentityUnits, Math.round(value))))
   }
   const predicted = session.players.find((candidate) => candidate.id === prediction)
@@ -539,6 +549,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const kidnapCostUnits = Math.round(session.settings.identitySettings.kidnapActivationCoins * 2)
   const kidnapShortfallUnits = Math.max(0, bidUnits + kidnapCostUnits - player.balanceUnits)
   const kidnapAffordable = kidnapShortfallUnits === 0
+  const thiefCostUnits = Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
+  const thiefShortfallUnits = Math.max(0, bidUnits + thiefCostUnits - player.balanceUnits)
+  const thiefAffordable = thiefShortfallUnits === 0
   const merchantAuctionCount = identity?.merchantAuctionCount ?? (identity?.merchantAuctionUsed ? 1 : 0)
   const merchantUnavailableReason = identity?.id !== 'merchant' ? null : merchantAuctionCount >= session.settings.identitySettings.merchantAuctionLimit ? `本局竞购已用完（${merchantAuctionCount}/${session.settings.identitySettings.merchantAuctionLimit}）` : identity.merchantLastAuctionRound === session.roundIndex ? '同一回合只能发起一次竞购' : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮无法发起下轮竞购' : session.cardDeck.length === 0 ? '卡池为空，无法发起竞购' : null
   const lobbyBaseCostUnits = Math.round((lobbyFee + (lobbySpecified ? session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins : 0)) * 2)
@@ -584,7 +597,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           <div className="reward-strip">{session.settings.rewardMultipliers.map((multiplier, index) => <span key={index}><small>{MEDALS[index]} 名</small><CoinValue units={Math.round(item.value * 2 * multiplier)} /></span>)}</div>
           <div className="bid-control">
             <div className="bid-readout"><small>我的秘密下注</small><strong><CoinValue units={bidUnits} /></strong></div>
-            <input className="range range--bid" aria-label="秘密下注" type="range" min="0" max={Math.max(0, player.balanceUnits - (identityAction?.type === 'reverserInvert' ? reverserCostUnits : identityAction?.type === 'kidnap' ? kidnapCostUnits : 0))} step="1" value={bidUnits} onChange={(event) => setBid(Number(event.target.value))} />
+            <input className="range range--bid" aria-label="秘密下注" type="range" min="0" max={Math.max(0, player.balanceUnits - (identityAction?.type === 'reverserInvert' ? reverserCostUnits : identityAction?.type === 'kidnap' ? kidnapCostUnits : identityAction?.type === 'thiefSteal' ? thiefCostUnits : 0))} step="1" value={bidUnits} onChange={(event) => setBid(Number(event.target.value))} />
             <div className="bid-shortcuts"><button onClick={() => setBid(bidUnits - 1)}>−0.5</button><button onClick={() => setBid(bidUnits + 1)}>+0.5</button><button onClick={() => setBid(bidUnits + 2)}>+1</button><button onClick={() => setBid(bidUnits + 10)}>+5</button><button onClick={() => setBid(player.balanceUnits)}>全部</button></div>
           </div>
         </div>
@@ -592,9 +605,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           <div className="panel-title"><div><p className="eyebrow">可选</p><h2>谁会拿第一？</h2></div><span>猜中 +{item.value * session.settings.correctPredictionMultiplier}{identity?.id === 'gambler' ? ` + ${item.value * session.settings.identitySettings.gamblerCorrectBonusMultiplier}` : ''}<br />{identity?.id === 'gambler' ? `猜错 −${item.value * session.settings.identitySettings.gamblerWrongPenaltyMultiplier} · 跳过 −${item.value * session.settings.identitySettings.gamblerSkipPenaltyMultiplier}` : `猜错 −${item.value * session.settings.wrongPredictionMultiplier}`}</span></div>
           {!predictionUnlocked && <p className="tutorial-locked-copy">下一轮解锁：先把秘密下注练熟。</p>}
           <button className={cx('prediction-skip', prediction === null && 'is-selected')} disabled={!predictionUnlocked} onClick={() => setPrediction(null)}><span>稳一手</span><small>这轮不预测</small><i>{prediction === null ? '✓' : ''}</i></button>
-          <div className="prediction-list">
-            {session.players.filter((candidate) => candidate.id !== player.id).map((candidate) => <button key={candidate.id} disabled={!predictionUnlocked} className={cx(prediction === candidate.id && 'is-selected')} onClick={() => setPrediction(candidate.id)} style={{ '--player-color': candidate.color } as React.CSSProperties}><span>{candidate.name.slice(0, 1)}</span><strong>{candidate.name}</strong><i>{prediction === candidate.id ? '✓' : ''}</i></button>)}
-          </div>
+          <button className="button button--paper" disabled={!predictionUnlocked} onClick={() => setTargetPicker('prediction')}>{predicted ? `预测：${predicted.name}` : '选择你预测的第一名'}</button>
         </div>
       </div>
       <section className="private-assets panel">
@@ -613,7 +624,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {identity.id === 'prophet' && <div className="prophet-skill"><p><strong>天机推演</strong>是主动技能：每回合至多一次，花费 <b className="status-token status-token--cost">{session.settings.identitySettings.prophetDivinationCoins} 金币</b>，从观财、观星、观身份中选一种。选择后立即生效并保存。</p>{currentProphetDivination ? <ProphetResult divination={currentProphetDivination} session={session} /> : <button className="button button--prophet" disabled={prophetShortfallUnits > 0} onClick={() => setProphetDialog('menu')}>{prophetShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(prophetShortfallUnits)} 金币` : '发动天机推演'}</button>}</div>}
           {identity.id === 'assassin' && <><p>花费 {session.settings.identitySettings.kidnapActivationCoins} 金币选择一名玩家。若他拿下本轮拍品，费用会报销，拍品会被你抢走；失败则这笔钱不会返还。</p><button className={cx('button', identityAction?.type === 'kidnap' && 'button--primary')} disabled={!identityAction && !kidnapAffordable} onClick={() => identityAction?.type === 'kidnap' ? setIdentityAction(undefined) : setTargetPicker('kidnap')}>{identityAction?.type === 'kidnap' ? `已盯上 ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : kidnapAffordable ? `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币选择目标` : `余额不足，还差 ${formatCoins(kidnapShortfallUnits)} 金币`}</button></>}
           {identity.id === 'collector' && <p>已为 <strong>{categoryConfig(identity.collectorCategory ?? 'leisure').name}</strong> 永久额外计入 1 件固定资产。</p>}
-          {identity.id === 'thief' && <p>目标：<strong>{playerName(session.players, identity.targetPlayerId ?? null)}</strong> · 成功 {identity.thiefSuccesses}/{session.settings.identitySettings.thiefMaxSteals} 次。</p>}
+          {identity.id === 'thief' && <><p>花费 {session.settings.identitySettings.thiefActivationCoins} 金币。所有人提交后，以 {session.settings.identitySettings.thiefSuccessProbability}% 概率偷走别人一张本轮未使用道具；下回合才会收到结果。</p><button className={cx('button', identityAction?.type === 'thiefSteal' && 'button--primary')} disabled={!identityAction && (!thiefAffordable || session.roundIndex >= session.settings.rounds - 1)} onClick={() => identityAction?.type === 'thiefSteal' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'thiefSteal' })}>{identityAction?.type === 'thiefSteal' ? '已发动偷卡 · 点击撤销' : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可发动' : thiefAffordable ? `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币发动` : `余额不足，还差 ${formatCoins(thiefShortfallUnits)} 金币`}</button></>}
           {identity.id === 'reverser' && <><p>花费 {reverserCost} 金币，倒转本轮获奖区内的所有名次；最后两轮费用翻倍。若同时使用“逆转排名”道具卡，两次逆转会抵消。</p><button className={cx('button', identityAction?.type === 'reverserInvert' && 'button--primary')} disabled={!identityAction && !reverserAffordable} onClick={() => identityAction?.type === 'reverserInvert' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'reverserInvert' })}>{identityAction?.type === 'reverserInvert' ? '已安排逆转排名 · 点击撤销' : reverserAffordable ? `花费 ${reverserCost} 金币发动` : `余额不足，还差 ${formatCoins(reverserShortfallUnits)} 金币`}</button></>}
           {identity.id === 'merchant' && <><p>{merchantUnavailableReason ?? <>还可发起 <b className="status-token status-token--count">{session.settings.identitySettings.merchantAuctionLimit - merchantAuctionCount} 次</b>：下一轮抽奖前公开一张卡，其他玩家秘密竞购。</>}</p><button className={cx('button', identityAction?.type === 'merchantAuction' && 'button--primary')} disabled={Boolean(merchantUnavailableReason)} onClick={() => identityAction?.type === 'merchantAuction' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'merchantAuction' })}>{identityAction?.type === 'merchantAuction' ? '已安排下轮竞购 · 点击撤销' : merchantUnavailableReason ?? '发起下轮竞购'}</button></>}
           {identity.id === 'lobbyist' && <>{lobbyUnavailableReason ? <><p>{lobbyUnavailableReason}。</p><button className="button" disabled>{lobbyUnavailableReason}</button></> : <div className="lobbyist-form"><strong>发布下一轮任务 {lobbyFee === 0 ? <b className="status-token status-token--free">本轮免费</b> : <>· 基础费用 {lobbyFee} 金币</>}</strong><p>发动后先选任务卡，再自动进入人物卡选择。指定任务额外支付 {session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币。</p><button className={cx('button', identityAction?.type === 'lobbyistContract' && 'button--primary')} disabled={identityAction?.type !== 'lobbyistContract' && lobbyOpeningShortfallUnits > 0} onClick={() => identityAction?.type === 'lobbyistContract' ? setIdentityAction(undefined) : setTargetPicker('lobbyTask')}>{identityAction?.type === 'lobbyistContract' ? lobbyShortfallUnits > 0 ? `任务已选，但余额还差 ${formatCoins(lobbyShortfallUnits)} 金币` : `已安排：${identityAction.specified && identityAction.taskType ? taskLabel(identityAction.taskType) : '随机任务'} → ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : lobbyOpeningShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(lobbyOpeningShortfallUnits)} 金币` : '发动技能'}</button></div>}</>}</div>}
@@ -651,12 +662,13 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       {prophetDialog === 'target' && <PlayerTargetPicker title="选择要观测身份的玩家" detail="本回合只能猜一次；猜对过的玩家不能再猜。之后会显示所有启用身份供你猜测。" players={session.players.filter((candidate) => candidate.id !== player.id && !prophetTargetAlreadySolved(candidate.id))} selectedPlayerId={prophetTargetId} onSelect={(id) => { setProphetTargetId(id); setProphetDialog('identity') }} onClose={() => setProphetDialog(null)} />}
       {prophetDialog === 'identity' && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="target-picker-sheet prophet-picker"><p className="eyebrow">预言家 · 观身份</p><h2>猜测 {playerName(session.players, prophetTargetId)} 的身份</h2><p>候选包含全部未禁用身份，即使某身份已被别人选走。猜错只损失本次 {session.settings.identitySettings.prophetDivinationCoins} 金币。</p><div className="identity-choice-grid prophet-identity-grid">{IDENTITY_DEFINITIONS.filter((definition) => !session.settings.identitySettings.disabledIdentityIds.includes(definition.id)).map((definition) => { const allowed = canMakeIdentityGuess(session.prophetDivinations, player.id, prophetTargetId, definition.id); return <button key={definition.id} disabled={!allowed} className="identity-choice-card" onClick={() => { if (onUseProphetDivination(player.id, 'identity', prophetTargetId, definition.id)) setProphetDialog(null) }}><span>{definition.symbol}</span><h2>{definition.name}</h2><p>{allowed ? '确认猜测此身份' : '这个玩家与身份组合已经猜过'}</p></button> })}</div><button className="button button--paper" onClick={() => setProphetDialog('target')}>返回选人</button></section></div>}
       {cardConfirming && targetPicker !== 'card' && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="card-confirm-title"><div className="confirm-sheet card-use-confirm"><p className="eyebrow">{cardConfirming.cardId === 'fateCoin' ? coinFlipStarted ? '命运硬币' : '准备使用道具' : '准备使用道具'}</p><h2 id="card-confirm-title">{getCardDefinition(cardConfirming.cardId).name}</h2>{cardConfirming.cardId === 'fateCoin' ? <div className="fate-coin-wrap"><div className={cx('fate-coin', coinFlipResult && 'is-settled')}><span>{coinFlipResult === 'heads' ? '正' : coinFlipResult === 'tails' ? '反' : '?'}</span></div><p>{!coinFlipStarted ? '确认后才会掷出硬币；结果出现后不能取消或重掷。' : coinFlipResult === null ? '硬币正在翻转…' : coinFlipResult === 'heads' ? '正面朝上：本轮获得 6 金币。结果已锁定。' : '反面朝上：本轮损失 4 金币。结果已锁定。'}</p></div> : cardConfirming.cardId === 'prizeReroll' ? <p>确认后将立刻抽出 6 张新拍品，供你私密选择下一轮拍品。抽取结果会立即锁定，不能取消或重抽。</p> : cardTargetScope(cardConfirming.cardId) !== 'none' ? <p>确认后会立刻弹出玩家卡片，请选择这张卡的生效对象；选择前随时可以取消。</p> : <p>确认后，这张卡会安排在本轮结算时使用。</p>}<div>{!(cardConfirming.cardId === 'fateCoin' && coinFlipStarted) && <button className="button button--paper" onClick={() => { setCardConfirming(null); setCoinFlipResult(null); setCoinFlipStarted(false) }}>取消</button>}<button className="button button--primary" disabled={cardConfirming.cardId === 'fateCoin' && coinFlipStarted && coinFlipResult === null} onClick={confirmCardUse}>{cardConfirming.cardId === 'fateCoin' ? !coinFlipStarted ? '确认并掷硬币' : coinFlipResult === null ? '正在掷硬币…' : '确认结果' : cardConfirming.cardId === 'prizeReroll' ? '确认并抽取 6 张' : cardTargetScope(cardConfirming.cardId) !== 'none' ? '确认并选择玩家' : '确认使用'}</button></div></div></div>}
-      {identityConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-confirm-title"><div className="confirm-sheet identity-action-confirm"><p className="eyebrow">确认身份技能</p><h2 id="identity-confirm-title">{identityConfirming.type === 'kidnap' ? '锁定绑匪目标' : identityConfirming.type === 'reverserInvert' ? '发动逆转排名' : identityConfirming.type === 'merchantAuction' ? '发起下轮竞购' : '发布说客任务'}</h2><p>{identityConfirming.type === 'kidnap' ? `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币盯上 ${playerName(session.players, identityConfirming.targetPlayerId)}。若对方拿下拍品，你会获得拍品并报销费用。` : identityConfirming.type === 'reverserInvert' ? `花费 ${reverserCost} 金币，在本轮结算时倒转获奖区名次。` : identityConfirming.type === 'merchantAuction' ? `下一轮抽奖前公开一张道具，让其他玩家依次秘密竞购；本轮提交前仍可撤销。` : `向 ${playerName(session.players, identityConfirming.targetPlayerId)} 发布${identityConfirming.specified && identityConfirming.taskType ? `指定任务「${taskLabel(identityConfirming.taskType)}」` : '随机任务'}，下一轮才会私密送达。`}</p><div><button className="button button--paper" onClick={() => setIdentityConfirming(null)}>取消</button><button className="button button--primary" onClick={() => { setIdentityAction(identityConfirming); setIdentityConfirming(null) }}>确认安排</button></div></div></div>}
+      {identityConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-confirm-title"><div className="confirm-sheet identity-action-confirm"><p className="eyebrow">确认身份技能</p><h2 id="identity-confirm-title">{identityConfirming.type === 'kidnap' ? '锁定绑匪目标' : identityConfirming.type === 'thiefSteal' ? '发动偷卡' : identityConfirming.type === 'reverserInvert' ? '发动逆转排名' : identityConfirming.type === 'merchantAuction' ? '发起下轮竞购' : '发布说客任务'}</h2><p>{identityConfirming.type === 'kidnap' ? `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币盯上 ${playerName(session.players, identityConfirming.targetPlayerId)}。若对方拿下拍品，你会获得拍品并报销费用。` : identityConfirming.type === 'thiefSteal' ? `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币。所有人提交后，系统才会从其他玩家未使用的道具中随机判定是否偷到一张。` : identityConfirming.type === 'reverserInvert' ? `花费 ${reverserCost} 金币，在本轮结算时倒转获奖区名次。` : identityConfirming.type === 'merchantAuction' ? `下一轮抽奖前公开一张道具，让其他玩家依次秘密竞购；本轮提交前仍可撤销。` : `向 ${playerName(session.players, identityConfirming.targetPlayerId)} 发布${identityConfirming.specified && identityConfirming.taskType ? `指定任务「${taskLabel(identityConfirming.taskType)}」` : '随机任务'}，下一轮才会私密送达。`}</p><div><button className="button button--paper" onClick={() => setIdentityConfirming(null)}>取消</button><button className="button button--primary" onClick={() => { setIdentityAction(identityConfirming); setIdentityConfirming(null) }}>确认安排</button></div></div></div>}
       {visibleGrant && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="grant-title"><div className="card-grant-sheet"><span>{getCardDefinition(visibleGrant.cardId).symbol}</span><p className="eyebrow">秘密支援</p><h2 id="grant-title">你获得了{getCardDefinition(visibleGrant.cardId).name}</h2><p>{getCardDefinition(visibleGrant.cardId).description}</p><small>这张卡已加入你的库存。请勿告诉其他人。</small><button className="button button--primary" onClick={() => onAcknowledgeGrant(player.id)}>收下道具卡</button></div></div>}
       {activeNotice && <div key={activeNotice.id} className="modal-backdrop" role="dialog" aria-modal="true"><div className="card-grant-sheet"><span>{activeNotice.title.includes('任务') ? '✉' : activeNotice.title.includes('成功') ? '✓' : activeNotice.title.includes('失败') || activeNotice.title.includes('偷走') ? '!' : '✦'}</span><p className="eyebrow">{activeNotice.title.includes('任务') ? '任务邮箱' : '身份提示'}</p><h2>{activeNotice.title}</h2><p>{activeNotice.detail}</p><button className="button button--primary" onClick={() => onAcknowledgeNotice(activeNotice.id)}>知道了</button></div></div>}
       {targetPicker === 'card' && cardConfirming && <PlayerTargetPicker title={cardConfirming.cardId === 'peek' ? '选择要偷看的玩家' : cardConfirming.cardId === 'bananaPeel' ? '选择香蕉皮目标' : '选择换日对象'} detail={cardConfirming.cardId === 'peek' ? '仅可选择已经提交投资的玩家；查看后本轮使用会锁定。' : cardConfirming.cardId === 'bananaPeel' ? '对方本轮下注会作废，只损失一半费用。' : '所有人提交后，双方的排名用投资额会互换。'} players={targetPlayersForCard(cardConfirming.cardId)} onSelect={(id) => { const use = { ...cardConfirming, targetPlayerId: id }; lockCardUse(use); setTargetPicker(null); if (use.cardId === 'peek') setPeekResult(previousTurns.find((turn) => turn.playerId === id) ?? null) }} onClose={() => { setTargetPicker(null); setCardConfirming(null) }} />}
       {peekResult && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="peek-result-title"><div className="card-grant-sheet"><span>◉</span><p className="eyebrow">仅自己可见</p><h2 id="peek-result-title">你看到了底牌</h2><p><strong>{playerName(session.players, peekResult.playerId)}</strong> 已投资 <CoinValue units={peekResult.bidUnits} />。</p><small>这张偷看底牌已锁定为本轮使用。</small><button className="button button--primary" onClick={() => setPeekResult(null)}>知道了</button></div></div>}
       {targetPicker === 'kidnap' && <PlayerTargetPicker title="选择要绑的人" detail={`花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币。若目标拿下本轮拍品，你会报销费用并抢走拍品。`} players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={identityAction?.type === 'kidnap' ? identityAction.targetPlayerId : null} onSelect={(id) => { setIdentityConfirming({ type: 'kidnap', targetPlayerId: id }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
+      {targetPicker === 'prediction' && <PlayerTargetPicker title="预测第一名" detail="选择你认为本轮会获得第一名的玩家。" players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={prediction} onSelect={(id) => { setPrediction(id); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyTask' && <LobbyistTaskPicker extraCost={session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} onSelect={(taskType) => { setLobbySpecified(Boolean(taskType)); if (taskType) setLobbyTask(taskType); setLobbyTargetId(''); setLobbyCompareId(''); setIdentityAction(undefined); setTargetPicker('lobbyTarget') }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyTarget' && <PlayerTargetPicker title="选择任务对象" detail={lobbySpecified ? `任务「${taskLabel(lobbyTask)}」会在下一轮私密送达。` : '随机任务会在下一轮私密送达。'} players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={lobbyTargetId} onSelect={(id) => { setLobbyTargetId(id); setLobbyCompareId(''); if (lobbySpecified && taskRequiresComparison(lobbyTask)) { setTargetPicker('lobbyComparison'); return } setIdentityConfirming({ type: 'lobbyistContract', targetPlayerId: id, specified: lobbySpecified, ...(lobbySpecified ? { taskType: lobbyTask } : {}) }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyComparison' && <PlayerTargetPicker title="选择比较对象" detail="用本轮实际下注比较；你自己也可以成为比较对象。" players={session.players.filter((candidate) => candidate.id !== lobbyTargetId)} selectedPlayerId={lobbyCompareId} onSelect={(id) => { setLobbyCompareId(id); setIdentityConfirming({ type: 'lobbyistContract', targetPlayerId: lobbyTargetId, specified: true, taskType: lobbyTask, comparisonPlayerId: id }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
@@ -775,6 +787,7 @@ function identityActionReview(action: IdentityAction, players: Player[], divinat
   if (action.type === 'reverserInvert') return '逆转者发动了获奖区排名逆转'
   if (action.type === 'merchantAuction') return '道具商人发起了下一轮道具竞购'
   if (action.type === 'kidnap') return `绑匪盯上了 ${playerName(players, action.targetPlayerId)}`
+  if (action.type === 'thiefSteal') return '小偷发动了回合末偷卡'
   const target = playerName(players, action.targetPlayerId)
   const comparison = action.comparisonPlayerId ? `（比较对象：${playerName(players, action.comparisonPlayerId)}）` : ''
   return `说客向 ${target} 发布${action.specified ? '指定' : '随机'}任务：${action.taskType ? taskLabel(action.taskType) : '任务待定'}${comparison}`
@@ -947,6 +960,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const targetValid = action.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === action.targetPlayerId)
       if (currentPlayer.identity?.id !== 'assassin' || !targetValid || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return false
     }
+    if (turn.identityAction?.type === 'thiefSteal') {
+      const costUnits = Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
+      if (currentPlayer.identity?.id !== 'thief' || session.roundIndex >= session.settings.rounds - 1 || turn.bidUnits + costUnits > currentPlayer.balanceUnits) return false
+    }
     const pendingPrizeReroll = session.pendingPrizeReroll?.playerId === turn.playerId && session.pendingPrizeReroll.roundIndex === session.roundIndex ? session.pendingPrizeReroll : null
     const lockedPrizeReroll = pendingPrizeReroll && !pendingPrizeReroll.chosenItemId && timedOut
       ? { ...pendingPrizeReroll, chosenItemId: pendingPrizeReroll.offeredItems[0]?.id }
@@ -984,13 +1001,17 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     let identityContracts = [...session.identityContracts]
     let resolvedTurn: RoundTurn = { ...turn, ...(cardUses.length > 0 ? { cardUses } : {}) }
     let merchantAuction = session.merchantAuction
+    let cardDeck = [...session.cardDeck]
     if (turn.identityAction?.type === 'merchantAuction') {
       const merchantCount = currentPlayer.identity?.merchantAuctionCount ?? (currentPlayer.identity?.merchantAuctionUsed ? 1 : 0)
-      if (currentPlayer.identity?.id !== 'merchant' || merchantCount >= session.settings.identitySettings.merchantAuctionLimit || currentPlayer.identity.merchantLastAuctionRound === session.roundIndex || session.roundIndex >= session.settings.rounds - 1 || session.cardDeck.length === 0) return false
+      if (currentPlayer.identity?.id !== 'merchant' || merchantCount >= session.settings.identitySettings.merchantAuctionLimit || currentPlayer.identity.merchantLastAuctionRound === session.roundIndex || session.roundIndex >= session.settings.rounds - 1) return false
       const merchant = players.find((player) => player.id === turn.playerId)
       if (!merchant?.identity) return false
       merchant.identity = { ...merchant.identity, merchantAuctionCount: merchantCount + 1, merchantLastAuctionRound: session.roundIndex }
-      merchantAuction = { source: 'merchant', merchantId: turn.playerId, cardId: session.cardDeck[0], roundIndex: session.roundIndex + 1, bidderIndex: 0, bids: [] }
+      const draw = drawCard(cardDeck, session.settings.disabledCardIds)
+      if (!draw.cardId) return false
+      cardDeck = draw.cardDeck
+      merchantAuction = { source: 'merchant', merchantId: turn.playerId, cardId: draw.cardId, roundIndex: session.roundIndex + 1, bidderIndex: 0, bids: [] }
     }
     if (turn.identityAction?.type === 'lobbyistContract') {
       if (currentPlayer.identity?.id !== 'lobbyist' || session.roundIndex >= session.settings.rounds - 1 || currentPlayer.identity.lobbyistLastIssuedRound === session.roundIndex) return false
@@ -1011,7 +1032,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const turns = [...session.turns, resolvedTurn]
     const isLast = turns.length >= session.players.length
     const nextTurnIndex = session.players.length > 0 ? (session.currentTurnIndex + 1) % session.players.length : 0
-    patch({ players, turns, identityContracts, merchantAuction, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
+    patch({ players, turns, identityContracts, merchantAuction, cardDeck, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
   }
   const reveal = () => {
@@ -1029,7 +1050,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       identitySettings: session.settings.identitySettings,
       identityContracts: session.identityContracts,
     })
-    const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
+    const feedbackNotices = [
+      ...settled.identityEvents.map(identityFeedbackNotice),
+      ...session.players.map((player) => ({
+        id: `item-receipt-${session.roundIndex}-${player.id}`,
+        playerId: player.id,
+        title: '本轮拍品结果',
+        detail: settled.result.itemWinnerId === player.id ? `你获得了 ${settled.result.item.emoji}${settled.result.item.name}。` : `你没有获得本轮拍品 ${settled.result.item.emoji}${settled.result.item.name}。`,
+      })),
+    ]
     patch({ players: updateBotGrudges(settled.players, settled.result), identityContracts: settled.identityContracts, pendingIdentityNotices: [...session.pendingIdentityNotices, ...feedbackNotices], identityEvents: [...session.identityEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
@@ -1038,10 +1067,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const strippedPlayers = grants.players.map((player) => ({ ...player, cardInventory: player.cardInventory.filter((cardId) => !awards.some((award) => award.playerId === player.id && award.cardId === cardId)) }))
     const routed = routeCardAwards({ players: strippedPlayers, awards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex })
     const deliveredKeys = new Set(routed.delivered.map((award) => `${award.playerId}-${award.cardId}`))
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, operationDeadlineAt: null })
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], operationDeadlineAt: null })
   }
   const nextRound = () => {
-    if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult' })
+    if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalReceiptHandoff', finalReceiptIndex: 0 })
     else {
       const nextRoundIndex = session.roundIndex + 1
       const recycledCardDeck = recycleUsedCards(session.cardDeck, session.turns, session.results.at(-1)?.autoConsumedCardIds ?? [])
@@ -1049,12 +1078,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const taskNotices = session.identityContracts
         .filter((contract) => contract.status === 'pending' && contract.executeRoundIndex === nextRoundIndex)
         .map((contract) => ({ id: `lobby-task-${nextRoundIndex}-${contract.id}`, playerId: contract.targetPlayerId, title: '收到说客任务', detail: `本轮任务：${taskLabel(contract.taskType)}${contract.comparisonPlayerId ? ` ${playerName(session.players, contract.comparisonPlayerId)}` : ''}。若未完成，将向说客支付 ${formatCoins(Math.round(session.settings.identitySettings.lobbyistFailurePaymentCoins * 2))} 金币。` }))
-      if (auction?.roundIndex === nextRoundIndex) {
-        const deck = [...recycledCardDeck]
-        const cardIndex = deck.indexOf(auction.cardId)
-        if (cardIndex >= 0) deck.splice(cardIndex, 1)
-        patch({ phase: 'auctionIntro', roundIndex: nextRoundIndex, currentTurnIndex: roundStartPlayerIndex(nextRoundIndex, session.players.length), turns: [], cardDeck: deck, pendingIdentityNotices: [...session.pendingIdentityNotices, ...taskNotices], merchantAuction: { ...auction, bidderIndex: 0, bids: [] } })
-      } else beginNormalRound(nextRoundIndex, session.players, recycledCardDeck, [...session.pendingIdentityNotices, ...taskNotices])
+      const scheduledMerchant = auction?.roundIndex === nextRoundIndex ? { ...auction, bidderIndex: 0, bids: [] } : null
+      const isMidAuction = session.settings.midRoundSystemAuction && session.settings.rounds >= 3 && nextRoundIndex === Math.floor(session.settings.rounds / 2)
+      const systemDraw = isMidAuction ? drawCard(recycledCardDeck, session.settings.disabledCardIds) : { cardId: null, cardDeck: recycledCardDeck }
+      const auctions = [
+        ...(systemDraw.cardId ? [{ source: 'system' as const, merchantId: null, cardId: systemDraw.cardId, roundIndex: nextRoundIndex, bidderIndex: 0, bids: [] }] : []),
+        ...(scheduledMerchant ? [scheduledMerchant] : []),
+      ]
+      if (auctions.length > 0) patch({ phase: 'auctionIntro', roundIndex: nextRoundIndex, currentTurnIndex: roundStartPlayerIndex(nextRoundIndex, session.players.length), turns: [], cardDeck: systemDraw.cardDeck, pendingIdentityNotices: [...session.pendingIdentityNotices, ...taskNotices], merchantAuction: auctions[0], auctionQueue: auctions.slice(1) })
+      else beginNormalRound(nextRoundIndex, session.players, recycledCardDeck, [...session.pendingIdentityNotices, ...taskNotices])
     }
   }
   const submitAuctionBid = (bidUnits: number, botRecord?: { mode: import('./game/types').StrategyMode; reason: string }) => {
@@ -1100,7 +1132,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         notices.push({ id: `merchant-auction-empty-${auction.roundIndex}-${auction.merchantId}`, playerId: auction.merchantId, title: '道具竞购无人得标', detail: `没有唯一的正向报价，道具已回到循环卡池。本局竞购 ${merchant?.identity?.merchantAuctionCount ?? 0}/${session.settings.identitySettings.merchantAuctionLimit} 次。` })
       }
     }
-    beginNormalRound(auction.roundIndex, players, deck, notices, events)
+    const nextAuction = session.auctionQueue[0]
+    if (nextAuction) {
+      patch({ players, cardDeck: deck, pendingIdentityNotices: notices, identityEvents: events, merchantAuction: nextAuction, auctionQueue: session.auctionQueue.slice(1), operationDeadlineAt: null, phase: 'auctionIntro' })
+    } else beginNormalRound(auction.roundIndex, players, deck, notices, events)
   }
   const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
   const currentPlayer = session.players[session.currentTurnIndex]
@@ -1175,6 +1210,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   }, [session, botPaused, botSpeed, autoPausedRound])
   const acknowledgeGrant = (playerId: string) => patch({ pendingCardGrants: session.pendingCardGrants.map((grant) => grant.playerId === playerId ? { ...grant, announced: true } : grant) })
   const acknowledgeNotice = (noticeId: string) => patch({ pendingIdentityNotices: session.pendingIdentityNotices.filter((notice) => notice.id !== noticeId) })
+  const acknowledgeFinalReceipt = () => {
+    const index = session.finalReceiptIndex ?? 0
+    const player = session.players[index]
+    const notices = player ? session.pendingIdentityNotices.filter((notice) => !(notice.playerId === player.id && notice.title === '本轮拍品结果')) : session.pendingIdentityNotices
+    patch(index + 1 >= session.players.length ? { phase: 'finalResult', finalReceiptIndex: null, pendingIdentityNotices: notices } : { phase: 'finalReceiptHandoff', finalReceiptIndex: index + 1, pendingIdentityNotices: notices })
+  }
   const result = session.results[session.results.length - 1]
   return (
     <AppShell quiet={session.phase === 'handoff' || session.phase === 'identityHandoff' || session.phase === 'auctionHandoff'}>
@@ -1190,6 +1231,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onUseProphetDivination={useProphetDivination} onArmDeadline={armTurnDeadline} />)}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
       {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
+      {(session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') && <FinalReceipt session={session} onReady={() => patch({ phase: 'finalReceipt' })} onAcknowledge={acknowledgeFinalReceipt} />}
       {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}
     </AppShell>
   )

@@ -1,5 +1,5 @@
 import { coinsToUnits, defaultRewards } from './engine'
-import { createCardDeck } from './cards'
+import { createCardDeck, drawCard } from './cards'
 import { emptyBotMemory } from './bots'
 import { createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, ITEM_POOL, shuffle } from './items'
@@ -31,9 +31,10 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     wrongPredictionMultiplier: 1.5,
     revealBids: false,
     revealBalanceLeader: false,
-    cardGrantProbability: 80,
+    cardGrantProbability: 100,
     disabledCardIds: [],
     firstRoundSystemAuction: true,
+    midRoundSystemAuction: true,
     turnTimeLimitSeconds: 20,
     turnTimerEnabled: false,
     identitySettings: defaultIdentitySettings(true),
@@ -62,11 +63,12 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   }))
   const initialCardDeck = createCardDeck(settings.disabledCardIds)
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
-  const systemAuction = settings.firstRoundSystemAuction && initialCardDeck.length > 0
-    ? { source: 'system' as const, merchantId: null, cardId: initialCardDeck[0], roundIndex: 0, bidderIndex: 0, bids: [] }
+  const firstDraw = settings.firstRoundSystemAuction ? drawCard(initialCardDeck, settings.disabledCardIds) : { cardId: null, cardDeck: initialCardDeck, replenished: false }
+  const systemAuction = firstDraw.cardId
+    ? { source: 'system' as const, merchantId: null, cardId: firstDraw.cardId, roundIndex: 0, bidderIndex: 0, bids: [] }
     : null
   return {
-    version: 12,
+    version: 13,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -75,7 +77,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     prophecyDeck: initialItemDeck.map((item) => ({ ...item })),
     roundStartBalanceUnits: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     pendingPrizeReroll: null,
-    cardDeck: systemAuction ? initialCardDeck.slice(1) : initialCardDeck,
+    cardDeck: firstDraw.cardDeck,
     pendingCardGrants: [],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),
     identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices([], settings.identitySettings) } : null,
@@ -85,6 +87,8 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     identityEvents: [],
     prophetDivinations: [],
     merchantAuction: systemAuction,
+    auctionQueue: [],
+    finalReceiptIndex: null,
     operationDeadlineAt: null,
     cardRulesStartRound: 1,
     fairnessOrderIds: shuffle(players.map((player) => player.id)),
@@ -170,13 +174,10 @@ export interface CardGrantPreparation {
 
 /** 已使用卡在结算后的下一轮开始前回洗；未使用库存始终不动。 */
 export function recycleUsedCards(cardDeck: CardId[], turns: RoundTurn[], autoConsumedCardIds: CardId[] = []): CardId[] {
-  const returnedCards = [...new Set(
-    [
-      ...turns.flatMap((turn) => (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).map((use) => use.cardId)),
-      ...autoConsumedCardIds,
-    ]
-      .filter((cardId) => !cardDeck.includes(cardId)),
-  )]
+  const returnedCards = [
+    ...turns.flatMap((turn) => (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).map((use) => use.cardId)),
+    ...autoConsumedCardIds,
+  ]
   return returnedCards.length > 0 ? shuffle([...cardDeck, ...returnedCards]) : [...cardDeck]
 }
 
@@ -193,7 +194,7 @@ export function prepareCardGrants({
   probability: number
   roll?: () => number
 }): CardGrantPreparation {
-  if (roundIndex === 0 || cardDeck.length === 0 || probability <= 0) {
+  if (roundIndex === 0 || probability <= 0) {
     return { players, cardDeck, pendingCardGrants: [] }
   }
   const lowestBalance = Math.min(...players.map((player) => player.balanceUnits))
@@ -203,7 +204,11 @@ export function prepareCardGrants({
   const nextDeck = [...cardDeck]
   const grants: CardGrant[] = []
   for (const candidate of candidates) {
-    if (nextDeck.length === 0 || roll() >= probability / 100) continue
+    if (roll() >= probability / 100) continue
+    if (nextDeck.length === 0) {
+      const refill = drawCard(nextDeck, [], roll)
+      if (refill.cardId) nextDeck.push(refill.cardId)
+    }
     const isFirstOperator = players[roundStartPlayerIndex(roundIndex, players.length)]?.id === candidate.id
     const cardIndex = isFirstOperator ? nextDeck.findIndex((cardId) => cardId !== 'peek') : 0
     if (cardIndex < 0) continue

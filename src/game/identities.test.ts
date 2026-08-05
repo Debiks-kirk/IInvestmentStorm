@@ -25,8 +25,8 @@ describe('身份选角与私密卡牌', () => {
     players[1].identity = { id: 'thief', targetPlayerId: 'target', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     players[2].identity = { id: 'thief', targetPlayerId: 'target', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     const routed = routeCardAwards({ players, awards: [{ playerId: 'target', cardId: 'red' }], settings, fairnessOrderIds: players.map((entry) => entry.id), roundIndex: 1, roll: () => 0 })
-    expect(routed.players.filter((entry) => entry.cardInventory.includes('red'))).toHaveLength(1)
-    expect(routed.notices.find((notice) => notice.playerId === 'target')?.title).toContain('偷走')
+    expect(routed.players.find((entry) => entry.id === 'target')?.cardInventory).toContain('red')
+    expect(routed.notices).toHaveLength(0)
   })
 
   it('小偷达到上限或判定失败时，目标会正常拿到卡', () => {
@@ -114,7 +114,7 @@ describe('身份结算', () => {
     expect(settled.result.winnerId).toBe('reverse')
     expect(settled.result.rankings.map((entry) => entry.playerId)).toEqual(['reverse', 'first'])
     expect(settled.players.find((entry) => entry.id === 'reverse')?.items).toHaveLength(1)
-    expect(settled.result.identityEvents.find((event) => event.identityId === 'reverser')?.deltaUnits).toBe(-coinsToUnits(12))
+    expect(settled.result.identityEvents.find((event) => event.identityId === 'reverser')?.deltaUnits).toBe(-coinsToUnits(10))
   })
 
   it('逆行者与逆转排名卡同回合发动两次逆转，获奖区回到正常排名', () => {

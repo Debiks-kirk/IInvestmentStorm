@@ -22,13 +22,14 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
+          : migrated.phase === 'finalReceipt' ? { ...migrated, phase: 'finalReceiptHandoff' as const }
           : migrated
-    if (parsed.version !== 12 || migrated.phase !== safeSession.phase || parsed.settings?.firstRoundSystemAuction === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 13 || migrated.phase !== safeSession.phase || parsed.settings?.firstRoundSystemAuction === undefined || parsed.settings?.midRoundSystemAuction === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -50,10 +51,12 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     disabledCardIds: (oldSettings.disabledCardIds ?? []) as CardId[],
     // 已进行的旧存档不补插首轮竞购；新开局会由默认设置明确写入 true。
     firstRoundSystemAuction: oldSettings.firstRoundSystemAuction ?? false,
+    // Existing sessions are never interrupted by a newly inserted auction.
+    midRoundSystemAuction: oldSettings.midRoundSystemAuction ?? false,
     turnTimeLimitSeconds: Math.min(120, Math.max(5, oldSettings.turnTimeLimitSeconds ?? 20)),
     turnTimerEnabled: oldSettings.turnTimerEnabled ?? false,
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 || session.version === 13 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -83,6 +86,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     redistributionTransferUnits: result.redistributionTransferUnits ?? null,
     autoConsumedCardIds: result.autoConsumedCardIds ?? [],
     identityEvents: result.identityEvents ?? [],
+    totalAssetUnitsAfter: result.totalAssetUnitsAfter ?? result.balancesAfter ?? {},
     rankingReversalCount: result.rankingReversalCount ?? 0,
     itemWinnerId: result.itemWinnerId ?? result.winnerId ?? null,
   }))
@@ -92,7 +96,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     .reduce((deck, cardId) => addNewCard(deck, cardId), originalCardDeck)
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 12,
+    version: 13,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -119,6 +123,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
       source: session.merchantAuction.source ?? 'merchant',
       merchantId: session.merchantAuction.merchantId ?? null,
     } : null,
+    auctionQueue: [...(session.auctionQueue ?? [])].map((auction) => ({ ...auction, source: auction.source ?? 'merchant', merchantId: auction.merchantId ?? null })),
+    finalReceiptIndex: session.finalReceiptIndex ?? null,
     operationDeadlineAt: settings.turnTimerEnabled && typeof session.operationDeadlineAt === 'number' ? session.operationDeadlineAt : null,
     cardRulesStartRound: session.cardRulesStartRound ?? Math.max((session.roundIndex ?? 0) + 1, 1),
   }

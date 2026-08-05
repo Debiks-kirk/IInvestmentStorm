@@ -13,9 +13,9 @@ function nameOf(players: Player[], playerId: string | null | undefined): string 
   return players.find((player) => player.id === playerId)?.name ?? '一位玩家'
 }
 
-function cashPlace(players: Player[], balances: Record<string, number>, playerId: string): number {
+function cashPlace(_players: Player[], balances: Record<string, number>, playerId: string): number {
   const own = balances[playerId] ?? 0
-  return 1 + players.filter((player) => (balances[player.id] ?? 0) > own).length
+  return 1 + Object.values(balances).filter((value) => value > own).length
 }
 
 /** Creates compact end-of-game stories from already settled data; it never changes scoring. */
@@ -32,7 +32,7 @@ export function createGameHighlights(session: Pick<GameSession, 'players' | 'res
   const kidnappedRound = results.find((result) => result.itemWinnerId && result.winnerId && result.itemWinnerId !== result.winnerId)
   const standings = rankFinalPlayers(players)
   const comeback = players.map((player) => {
-    const worstPlace = Math.max(1, ...results.map((result) => cashPlace(players, result.balancesAfter, player.id)))
+    const worstPlace = Math.max(1, ...results.map((result) => cashPlace(players, result.totalAssetUnitsAfter ?? result.balancesAfter, player.id)))
     const finalPlace = standings.find((standing) => standing.player.id === player.id)?.place ?? players.length
     return { player, rise: worstPlace - finalPlace, worstPlace, finalPlace }
   }).sort((left, right) => right.rise - left.rise)[0]

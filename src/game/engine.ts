@@ -69,6 +69,7 @@ interface SettlementInput {
   totalRounds?: number
   identitySettings?: IdentitySettings
   identityContracts?: LobbyistContract[]
+  roll?: () => number
 }
 
 function rotate<T>(values: T[], amount: number): T[] {
@@ -140,6 +141,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   }]))
   const cardEffects: CardEffect[] = []
   const identityEvents: IdentityEvent[] = []
+  const roll = input.roll ?? Math.random
   const usedCards = turns.flatMap((turn) => cardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
   // 偷看底牌会在私密操作页立刻给出信息，无法被回合结算时才生效的护盾追溯。
   // 反弹护盾是被动消耗品：持有者第一次受到指定型结算道具影响时自动反弹并消耗。
@@ -451,6 +453,32 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     })
   }
 
+  // Thief resolves only after every player has committed. Cards already arranged
+  // for use were removed from inventory at submission, so they can never be stolen.
+  const thiefTurn = turns.find((turn) => turn.identityAction?.type === 'thiefSteal' && playerById.get(turn.playerId)?.identity?.id === 'thief')
+  if (thiefTurn) {
+    const thief = playerById.get(thiefTurn.playerId)
+    const delta = thief ? deltaByPlayer.get(thief.id) : undefined
+    const due = coinsToUnits(identitySettings.thiefActivationCoins)
+    const paid = Math.min(thief?.balanceUnits ?? 0, due)
+    if (thief && delta) {
+      thief.balanceUnits -= paid
+      delta.identityUnits -= paid
+      const candidates = players.flatMap((owner) => owner.id === thief.id ? [] : owner.cardInventory.map((cardId, cardIndex) => ({ owner, cardId, cardIndex })))
+      const choice = candidates.length > 0 && roll() < identitySettings.thiefSuccessProbability / 100
+        ? candidates[Math.min(candidates.length - 1, Math.floor(roll() * candidates.length))]
+        : undefined
+      if (choice) {
+        choice.owner.cardInventory.splice(choice.cardIndex, 1)
+        thief.cardInventory.push(choice.cardId)
+        identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡成功', detail: `花费 ${formatCoins(paid)} 金币，获得了一张未使用道具卡。`, deltaUnits: -paid })
+        identityEvents.push({ playerId: choice.owner.id, identityId: 'thief', roundIndex, title: '道具被偷走', detail: '你的一张未使用道具卡被人偷走了。', deltaUnits: 0 })
+      } else {
+        identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币，但本轮没有偷到道具。`, deltaUnits: -paid })
+      }
+    }
+  }
+
   const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
   const balanceLeaderIds = players.filter((player) => player.balanceUnits === highestBalance).map((player) => player.id)
   const deltas = players.map((player) => {
@@ -478,6 +506,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     deltas,
     balancesAfter: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     identityEvents,
+    totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
   return { players, result, identityContracts, identityEvents }
 }

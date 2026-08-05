@@ -41,5 +41,24 @@ export function getCardDefinition(cardId: CardId): CardDefinition {
 
 export function createCardDeck(disabledCardIds: CardId[]): CardId[] {
   const disabled = new Set(disabledCardIds)
-  return shuffle(CARD_DEFINITIONS.filter((card) => !disabled.has(card.id)).map((card) => card.id))
+  return shuffle(CARD_DEFINITIONS.filter((card) => !disabled.has(card.id)).flatMap((card) => [card.id, card.id]))
+}
+
+export function enabledCardIds(disabledCardIds: CardId[]): CardId[] {
+  const disabled = new Set(disabledCardIds)
+  return CARD_DEFINITIONS.filter((card) => !disabled.has(card.id)).map((card) => card.id)
+}
+
+/** Draw one physical card, refilling exactly one enabled card only when empty. */
+export function drawCard(cardDeck: CardId[], disabledCardIds: CardId[], roll = Math.random): { cardId: CardId | null; cardDeck: CardId[]; replenished: boolean } {
+  const deck = [...cardDeck]
+  let replenished = false
+  if (deck.length === 0) {
+    const enabled = enabledCardIds(disabledCardIds)
+    if (enabled.length === 0) return { cardId: null, cardDeck: deck, replenished }
+    deck.push(enabled[Math.min(enabled.length - 1, Math.floor(roll() * enabled.length))])
+    replenished = true
+  }
+  const index = Math.min(deck.length - 1, Math.floor(roll() * deck.length))
+  return { cardId: deck.splice(index, 1)[0] ?? null, cardDeck: deck, replenished }
 }

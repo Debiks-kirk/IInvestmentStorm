@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
 import { loadPresets, loadSession, savePresets } from './storage'
+import { CARD_DEFINITIONS } from './cards'
 
 const values = new Map<string, string>()
 const localStorageMock = {
@@ -32,7 +33,7 @@ describe('配置预设存储', () => {
     savePresets([original])
     const loaded = loadPresets()
     expect(loaded).toHaveLength(1)
-    expect(loaded[0]).toMatchObject({ name: '周末三人局', names: ['甲', '乙', '丙'], settings: { disabledCardIds: ['black'], wrongPredictionMultiplier: 1.5, cardGrantProbability: 80 } })
+    expect(loaded[0]).toMatchObject({ name: '周末三人局', names: ['甲', '乙', '丙'], settings: { disabledCardIds: ['black'], wrongPredictionMultiplier: 1.5, cardGrantProbability: 100 } })
     loaded[0].settings.disabledCardIds.push('red')
     expect(loadPresets()[0].settings.disabledCardIds).toEqual(['black'])
   })
@@ -47,7 +48,7 @@ describe('对局存档迁移', () => {
   it('新局默认预留首轮系统竞购卡，关闭后不进入竞购流程', () => {
     const enabled = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     expect(enabled.merchantAuction).toMatchObject({ source: 'system', merchantId: null, roundIndex: 0, bidderIndex: 0 })
-    expect(enabled.cardDeck).not.toContain(enabled.merchantAuction?.cardId)
+    expect(enabled.cardDeck).toHaveLength(CARD_DEFINITIONS.length * 2 - 1)
     const settings = createDefaultSettings(3)
     settings.firstRoundSystemAuction = false
     const disabled = createSession(['甲', '乙', '丙'], settings)
@@ -72,7 +73,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 12, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false } })
+    expect(loadSession()).toMatchObject({ version: 13, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, midRoundSystemAuction: true } })
   })
 
   it('v2 存档补齐拍品分类而不改写已有规则数值', () => {
@@ -85,7 +86,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(12)
+    expect(migrated?.version).toBe(13)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

@@ -16,7 +16,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
   { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: true },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产；拿下同类拍品额外得 5 金币。', repeatable: true, needsCategory: true },
-  { id: 'thief', name: '小偷', symbol: '◒', summary: '有机会偷走目标新获得的道具。', repeatable: true, needsTarget: true },
+  { id: 'thief', name: '小偷', symbol: '◒', summary: '主动花钱尝试偷走本轮别人未使用的道具。', repeatable: true },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起两次竞购。', repeatable: true, needsMerchantCard: true },
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
   { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: false },
@@ -27,7 +27,7 @@ export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
 }
 
 export function identitySkillMode(id: IdentityId): 'active' | 'passive' {
-  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' ? 'active' : 'passive'
+  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' || id === 'thief' ? 'active' : 'passive'
 }
 
 export function defaultIdentitySettings(enabled = true): IdentitySettings {
@@ -38,10 +38,10 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     gamblerWrongPenaltyMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
     prophetDivinationCoins: 5,
-    reverserActivationCoins: 6,
+    reverserActivationCoins: 5,
     kidnapActivationCoins: 5,
+    thiefActivationCoins: 5,
     thiefSuccessProbability: 50,
-    thiefMaxSteals: 2,
     merchantInitialOfferCount: 3,
     merchantAuctionLimit: 2,
     lobbyistFirstRoundFree: true,
@@ -98,7 +98,7 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
   if (enabled.filter((id) => id !== 'lobbyist').length < 2) errors.push('身份系统至少需要启用 2 个非说客身份，才能持续提供不同候选')
   if (settings.thiefSuccessProbability < 0 || settings.thiefSuccessProbability > 100) errors.push('小偷成功率应为 0–100%')
   if (settings.prophetDivinationCoins < 0 || settings.prophetDivinationCoins > 20 || settings.prophetDivinationCoins * 2 % 1 !== 0) errors.push('预言家推演费用应为 0–20，且按 0.5 递增')
-  if (settings.thiefMaxSteals < 0 || settings.thiefMaxSteals > 10) errors.push('小偷上限应为 0–10 次')
+  if (settings.thiefActivationCoins < 0 || settings.thiefActivationCoins > 20 || settings.thiefActivationCoins * 2 % 1 !== 0) errors.push('小偷发动费用应为 0–20，且按 0.5 递增')
   if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
   if (settings.merchantInitialOfferCount < 1 || settings.merchantInitialOfferCount > 6) errors.push('商人初始选卡数量应为 1–6')
   if (settings.merchantAuctionLimit < 1 || settings.merchantAuctionLimit > 5) errors.push('商人拍卖次数应为 1–5 次')
@@ -145,39 +145,23 @@ export function randomLobbyistTask(playerIds: string[], targetPlayerId: string, 
 export function routeCardAwards({
   players,
   awards,
-  settings,
-  fairnessOrderIds,
-  roundIndex,
-  roll = Math.random,
 }: {
   players: Player[]
   awards: Array<{ playerId: string; cardId: CardId }>
-  settings: IdentitySettings
-  fairnessOrderIds: string[]
-  roundIndex: number
+  settings?: IdentitySettings
+  fairnessOrderIds?: string[]
+  roundIndex?: number
   roll?: () => number
 }): { players: Player[]; notices: IdentityNotice[]; events: IdentityEvent[]; delivered: Array<{ playerId: string; cardId: CardId }> } {
   const nextPlayers = players.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
   const notices: IdentityNotice[] = []
   const events: IdentityEvent[] = []
   const delivered: Array<{ playerId: string; cardId: CardId }> = []
-  const fair = new Map(fairnessOrderIds.map((id, index) => [id, index]))
   for (const award of awards) {
-    const candidates = nextPlayers.filter((player) => player.identity?.id === 'thief' && player.identity.targetPlayerId === award.playerId && (player.identity.thiefSuccesses < settings.thiefMaxSteals) && roll() < settings.thiefSuccessProbability / 100)
-      .sort((left, right) => ((fair.get(left.id) ?? 999) + roundIndex) - ((fair.get(right.id) ?? 999) + roundIndex))
-    const thief = candidates[0]
-    if (thief?.identity) {
-      thief.identity.thiefSuccesses += 1
-      thief.cardInventory.push(award.cardId)
-      notices.push({ id: `stolen-${roundIndex}-${award.playerId}-${award.cardId}`, playerId: award.playerId, title: '你的道具被偷走了', detail: '有人截走了你本应获得的一张道具卡。' })
-      notices.push({ id: `gain-${roundIndex}-${thief.id}-${award.cardId}`, playerId: thief.id, title: '偷到一张道具卡', detail: '这张卡已秘密加入你的道具库存。' })
-      events.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '成功偷取道具', detail: `从目标处获得 ${award.cardId}。`, deltaUnits: 0 })
-    } else {
-      const recipient = nextPlayers.find((player) => player.id === award.playerId)
-      if (recipient) {
-        recipient.cardInventory.push(award.cardId)
-        delivered.push(award)
-      }
+    const recipient = nextPlayers.find((player) => player.id === award.playerId)
+    if (recipient) {
+      recipient.cardInventory.push(award.cardId)
+      delivered.push(award)
     }
   }
   return { players: nextPlayers, notices, events, delivered }

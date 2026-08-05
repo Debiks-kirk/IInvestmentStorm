@@ -9,6 +9,8 @@ export type GamePhase =
   | 'privateTurn'
   | 'revealReady'
   | 'roundResult'
+  | 'finalReceiptHandoff'
+  | 'finalReceipt'
   | 'finalResult'
 
 export type AnimationSpeed = 'full' | 'fast' | 'reduced'
@@ -68,6 +70,9 @@ export interface CardEffect {
   cardId?: CardId
   symbol?: string
   description: string
+  /** Used only by end-of-game storytelling; never changes settlement. */
+  impactUnits?: number
+  actorPlayerId?: string
 }
 
 export interface GameSettings {
@@ -83,6 +88,8 @@ export interface GameSettings {
   disabledCardIds: CardId[]
   /** 首轮在拍品抽取前由系统发起一张公开道具的秘密竞购。 */
   firstRoundSystemAuction: boolean
+  /** 在后半中点的拍品抽取前追加一次系统道具竞购。 */
+  midRoundSystemAuction: boolean
   /** 真人竞拍与竞购的单次私密操作时限（秒）。 */
   turnTimeLimitSeconds: number
   /** 默认关闭；开启后才对真人竞拍与竞购启用操作时限。 */
@@ -100,8 +107,10 @@ export interface IdentitySettings {
   prophetDivinationCoins: number
   reverserActivationCoins: number
   kidnapActivationCoins: number
+  thiefActivationCoins: number
   thiefSuccessProbability: number
-  thiefMaxSteals: number
+  /** Retained only so legacy saves can be read; active thieves no longer use a success cap. */
+  thiefMaxSteals?: number
   merchantInitialOfferCount: number
   merchantAuctionLimit: number
   lobbyistFirstRoundFree: boolean
@@ -186,6 +195,7 @@ export type IdentityAction =
   | { type: 'prophetDivination'; divinationId: string }
   | { type: 'merchantAuction' }
   | { type: 'reverserInvert' }
+  | { type: 'thiefSteal' }
   | { type: 'kidnap'; targetPlayerId: string }
   | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
 
@@ -273,10 +283,12 @@ export interface RoundResult {
   deltas: PlayerRoundDelta[]
   balancesAfter: Record<string, number>
   identityEvents: IdentityEvent[]
+  /** Cash plus fixed assets after this round, used for comparable end-game trajectories. */
+  totalAssetUnitsAfter: Record<string, number>
 }
 
 export interface GameSession {
-  version: 12
+  version: 13
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -304,6 +316,10 @@ export interface GameSession {
   identityEvents: IdentityEvent[]
   prophetDivinations: ProphetDivination[]
   merchantAuction: MerchantAuction | null
+  /** Auctions waiting after the current one; the first entry always runs next. */
+  auctionQueue: MerchantAuction[]
+  /** Final round receipts are shown seat by seat before the public leaderboard. */
+  finalReceiptIndex: number | null
   /** 已进入私密竞拍/竞购后的绝对截止时间；刷新降级为传递页时保留。 */
   operationDeadlineAt: number | null
   cardRulesStartRound: number
