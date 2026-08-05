@@ -22,9 +22,26 @@ export function roundPlayerIndices(roundIndex: number, playerCount: number): num
 }
 
 export function createDefaultSettings(playerCount = 3): GameSettings {
+  const sizeTuning = playerCount === 3
+    ? { rounds: 5, merchantAuctionLimit: 1, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .33 }
+    : playerCount === 6
+      ? { rounds: 8, merchantAuctionLimit: 3, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .67, gamblerPenaltyMultiplier: .4, kidnapActivationCoins: 3 }
+      : playerCount === 10
+        ? { rounds: 10, merchantAuctionLimit: 3, nightwalkerUseLimit: 3, gamblerCorrectBonusMultiplier: 1, gamblerPenaltyMultiplier: .33, kidnapActivationCoins: 2 }
+        : null
+  const identitySettings = {
+    ...defaultIdentitySettings(true),
+    ...(sizeTuning ? {
+      merchantAuctionLimit: sizeTuning.merchantAuctionLimit,
+      nightwalkerUseLimit: sizeTuning.nightwalkerUseLimit,
+      gamblerCorrectBonusMultiplier: sizeTuning.gamblerCorrectBonusMultiplier,
+      ...(sizeTuning.gamblerPenaltyMultiplier === undefined ? {} : { gamblerWrongPenaltyMultiplier: sizeTuning.gamblerPenaltyMultiplier, gamblerSkipPenaltyMultiplier: sizeTuning.gamblerPenaltyMultiplier }),
+      ...(sizeTuning.kidnapActivationCoins === undefined ? {} : { kidnapActivationCoins: sizeTuning.kidnapActivationCoins }),
+    } : {}),
+  }
   return {
     playerCount,
-    rounds: 6,
+    rounds: sizeTuning?.rounds ?? 6,
     initialCoins: 30,
     rewardMultipliers: defaultRewards(playerCount),
     correctPredictionMultiplier: 1,
@@ -37,7 +54,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     midRoundSystemAuction: true,
     turnTimeLimitSeconds: 20,
     turnTimerEnabled: false,
-    identitySettings: defaultIdentitySettings(true),
+    identitySettings,
     animationSpeed: 'full',
   }
 }

@@ -23,22 +23,28 @@ export function cloneSettings(settings: GameSettings): GameSettings {
   return { ...settings, firstRoundSystemAuction: settings.firstRoundSystemAuction ?? false, midRoundSystemAuction: settings.midRoundSystemAuction ?? false, turnTimeLimitSeconds: settings.turnTimeLimitSeconds ?? 20, turnTimerEnabled: settings.turnTimerEnabled ?? false, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...normalizeIdentitySettings(settings.identitySettings, false), disabledIdentityIds: [...normalizeIdentitySettings(settings.identitySettings, false).disabledIdentityIds] } }
 }
 
-function systemPreset(id: string, name: string, playerCount: number, rounds: number, initialCoins: number): SystemPreset {
+function systemPreset(id: string, name: string, playerCount: number, withBots = false): SystemPreset {
   const settings = createDefaultSettings(playerCount)
+  const seats: SeatConfig[] = Array.from({ length: playerCount }, (_, index) => index === 0 || !withBots
+    ? { name: `玩家 ${index + 1}`, controller: { kind: 'human' } }
+    : { name: `机器人${index}`, controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } })
   return {
     id,
     name,
-    description: `${playerCount} 人 · ${rounds} 轮 · 每人 ${initialCoins} 金币`,
-    names: Array.from({ length: playerCount }, (_, index) => `玩家 ${index + 1}`),
-    seats: Array.from({ length: playerCount }, (_, index) => ({ name: `玩家 ${index + 1}`, controller: { kind: 'human' } })),
-    settings: { ...settings, rounds, initialCoins, rewardMultipliers: defaultRewards(playerCount) },
+    description: `${playerCount} 人 · ${settings.rounds} 轮 · 每人 ${settings.initialCoins} 金币${withBots ? ` · 1 真人 + ${playerCount - 1} Bot` : ''}`,
+    names: seats.map((seat) => seat.name),
+    seats,
+    settings: { ...settings, rewardMultipliers: defaultRewards(playerCount) },
   }
 }
 
 export const SYSTEM_PRESETS: SystemPreset[] = [
-  systemPreset('quick-3', '3 人快速局', 3, 4, 30),
-  systemPreset('standard-6', '6 人标准局', 6, 6, 30),
-  systemPreset('party-10', '10 人派对局', 10, 8, 40),
+  systemPreset('human-3', '3 人真人局', 3),
+  systemPreset('bot-3', '3 人 Bot 局', 3, true),
+  systemPreset('human-6', '6 人真人局', 6),
+  systemPreset('bot-6', '6 人 Bot 局', 6, true),
+  systemPreset('human-10', '10 人真人局', 10),
+  systemPreset('bot-10', '10 人 Bot 局', 10, true),
 ]
 
 function createId(): string {

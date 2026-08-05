@@ -43,7 +43,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     reverserActivationCoins: 5,
     kidnapActivationCoins: 5,
     thiefActivationCoins: 5,
-    thiefSuccessProbability: 50,
+    thiefSuccessProbability: 75,
     merchantInitialOfferCount: 3,
     merchantAuctionLimit: 2,
     prophetDivinationLimit: 12,
@@ -54,7 +54,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     nightwalkerUseLimit: 2,
     lobbyistFirstRoundFree: true,
     lobbyistFeeCoins: 5,
-    lobbyistSpecifiedTaskFeeCoins: 5,
+    lobbyistSpecifiedTaskFeeCoins: 3,
     lobbyistFailurePaymentCoins: 5,
   }
 }
