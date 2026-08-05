@@ -394,6 +394,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const rankings: RankingEntry[] = rankedTurns.map((turn, index) => ({ playerId: turn.playerId, place: index + 1, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }))
   const winnerId = rankedTurns[0]?.playerId ?? null
   let itemWinnerId = winnerId
+  // 传奇夺宝令只动最终藏品：排名奖励、预测和赢家付款仍使用正常第一名。
+  // 它在绑匪之前落定，因此绑匪不能覆盖这次夺宝。
+  const legendaryLoot = usedCards.find(({ use }) => use.cardId === 'legendaryLoot')
+  if (legendaryLoot) {
+    itemWinnerId = legendaryLoot.playerId
+    cardEffects.push(cardEffect('legendaryLoot', `一张传奇夺宝令夺走了本回合的最终藏品：${item.emoji}${item.name}。`))
+  }
 
   const kidnapTurn = turns.find((turn) => turn.identityAction?.type === 'kidnap' && playerById.get(turn.playerId)?.identity?.id === 'assassin')
   if (kidnapTurn?.identityAction?.type === 'kidnap') {
@@ -403,7 +410,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     if (kidnapper && kidnapDelta) {
       kidnapper.balanceUnits -= paid
       kidnapDelta.identityUnits -= paid
-      if (winnerId === kidnapTurn.identityAction.targetPlayerId) {
+      if (!legendaryLoot && itemWinnerId === kidnapTurn.identityAction.targetPlayerId) {
         kidnapper.balanceUnits += paid
         kidnapDelta.identityUnits += paid
         itemWinnerId = kidnapper.id

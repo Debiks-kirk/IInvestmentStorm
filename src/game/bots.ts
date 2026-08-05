@@ -555,6 +555,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     if (use.cardId === 'fateCoin') return total + coinsToUnits(1) * (1 + behavior.riskBias * .5)
     if (use.cardId === 'peek') return total + coinsToUnits(.35)
     if (use.cardId === 'prizeReroll') return total + Math.max(coinsToUnits(.25), assetUnits * .35)
+    if (use.cardId === 'legendaryLoot') return total + coinsToUnits((observation.item?.value ?? 0) * (.72 + profile.collect * .28)) + assetUnits * (1 + profile.collect)
     return total
   }, 0)
   for (const plan of planCandidates(observation)) {
@@ -654,7 +655,10 @@ export function decideBotIdentity({ choices, player, players, cardOfferIds }: { 
 export function decideBotMerchantBid(player: Player, cardId: CardId): { bidUnits: number; mode: StrategyMode; reason: string } {
   const profile = player.controller?.kind === 'bot' ? botProfile(player.controller.profileId) : botProfile('adaptive')
   const behavior = player.botMemory?.behavior ?? createBotBehavior(player.id)
-  const value = cardId === 'red' || cardId === 'doubleBid' || cardId === 'reverseRank' ? 7.5 : cardId === 'bananaPeel' || cardId === 'swap' ? 6.2 : cardId === 'fateCoin' ? 3.5 : 4.5
+  const value = cardId === 'legendaryLoot' ? 12
+    : cardId === 'red' || cardId === 'doubleBid' || cardId === 'reverseRank' ? 7.5
+      : cardId === 'bananaPeel' || cardId === 'swap' ? 6.2
+        : cardId === 'fateCoin' ? 3.5 : 4.5
   const center = coinsToUnits(value * (.42 + profile.cards * .24 + behavior.cardBias * .08))
   const reserve = Math.max(0, coinsToUnits(1.5 + behavior.reserveBias * 1.2))
   const cap = Math.max(0, player.balanceUnits - reserve)

@@ -127,7 +127,7 @@ describe('道具卡结算', () => {
   it('逐张卡的目标范围明确：香蕉皮和换日均可指定任意其他玩家', () => {
     expect(CARD_DEFINITIONS.map((card) => [card.id, cardTargetScope(card.id)])).toEqual([
       ['red', 'none'], ['peek', 'previous'], ['swap', 'other'], ['redistribute', 'none'], ['doubleBid', 'none'],
-      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'], ['prizeReroll', 'none'],
+      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'], ['prizeReroll', 'none'], ['legendaryLoot', 'none'],
     ])
   })
 
@@ -258,6 +258,21 @@ describe('道具卡结算', () => {
     expect(result.deltas.every((delta) => delta.cardUnits === 0)).toBe(true)
   })
 
+  it('传奇夺宝令直接取得最终藏品，但不改变排名奖励或预测结算', () => {
+    const settled = settle(players([20, 20, 20]), [
+      turn('p1', 9),
+      turn('p2', 7, 'p1'),
+      turn('p3', 2, null, { cardId: 'legendaryLoot' }),
+    ])
+    expect(settled.result.winnerId).toBe('p1')
+    expect(settled.result.itemWinnerId).toBe('p3')
+    expect(settled.result.rankings[0]?.playerId).toBe('p1')
+    expect(settled.result.predictionOutcomes.find((outcome) => outcome.playerId === 'p2')?.status).toBe('correct')
+    expect(settled.players.find((player) => player.id === 'p1')?.items).toEqual([])
+    expect(settled.players.find((player) => player.id === 'p3')?.items).toEqual([{ item, roundIndex: 0 }])
+    expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'legendaryLoot' })]))
+  })
+
   it('反客为主在交换后将自己的排名金额翻倍', () => {
     const result = settle(players([20, 20, 20]), [
       turn('p1', 5),
@@ -355,7 +370,7 @@ describe('道具发放', () => {
   it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
-    expect(deck).toHaveLength((CARD_DEFINITIONS.length - 3) * 2)
+    expect(deck).toHaveLength(CARD_DEFINITIONS.filter((card) => !['red', 'black', 'peek'].includes(card.id)).reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 2), 0))
   })
 
   it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
@@ -365,6 +380,8 @@ describe('道具发放', () => {
     expect(createCardDeck(['fateCoin'])).not.toContain('fateCoin')
     expect(createCardDeck([])).toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
     expect(createCardDeck(['bananaPeel', 'reflectShield'])).not.toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
+    expect(createCardDeck([]).filter((cardId) => cardId === 'legendaryLoot')).toHaveLength(1)
+    expect(createCardDeck(['legendaryLoot'])).not.toContain('legendaryLoot')
   })
 
   it('两张已使用道具都会在下轮前回到卡池', () => {

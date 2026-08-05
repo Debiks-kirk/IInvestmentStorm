@@ -57,7 +57,7 @@ export interface SeatConfig {
   controller: PlayerController
 }
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
@@ -337,7 +337,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 17
+  version: 18
   id: string
   phase: GamePhase
   settings: GameSettings

@@ -62,7 +62,7 @@ describe('对局存档迁移', () => {
   it('新局默认预留首轮系统竞购卡，关闭后不进入竞购流程', () => {
     const enabled = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     expect(enabled.merchantAuction).toMatchObject({ source: 'system', merchantId: null, roundIndex: 0, bidderIndex: 0 })
-    expect(enabled.cardDeck).toHaveLength(CARD_DEFINITIONS.length * 2 - 1)
+    expect(enabled.cardDeck).toHaveLength(CARD_DEFINITIONS.reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 2), 0) - 1)
     const settings = createDefaultSettings(3)
     settings.firstRoundSystemAuction = false
     const disabled = createSession(['甲', '乙', '丙'], settings)
@@ -87,7 +87,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 17, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, midRoundSystemAuction: true } })
+    expect(loadSession()).toMatchObject({ version: 18, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, midRoundSystemAuction: true } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -104,7 +104,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(17)
+    expect(first?.version).toBe(18)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(first?.players[0].botMemory?.decisionLog).toEqual(legacy.players[0].botMemory.decisionLog)
     expect(first?.players[0].botMemory?.recentBidUnits).toEqual([])
@@ -120,7 +120,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(17)
+    expect(migrated?.version).toBe(18)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)
@@ -128,6 +128,7 @@ describe('对局存档迁移', () => {
     expect(migrated?.players[0].items[0].item.category).toBeTruthy()
     expect(migrated?.cardDeck).toContain('reverseRank')
     expect(migrated?.cardDeck).toEqual(expect.arrayContaining(['fateCoin', 'bananaPeel', 'reflectShield']))
+    expect(migrated?.cardDeck).toContain('legendaryLoot')
     expect(migrated?.settings.turnTimeLimitSeconds).toBe(20)
     expect(migrated?.settings.turnTimerEnabled).toBe(false)
   })
