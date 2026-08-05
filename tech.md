@@ -155,6 +155,12 @@
 
 - 真实设备的浏览器存储配额、不同平台 emoji 风格和长时聚会体验需通过线下试玩继续观察。
 
+## 说客两步发布弹窗（2026-08-05）
+
+- `LobbyistTaskPicker` 只管理临时 UI 步骤：首层选择随机或指定，指定层才渲染任务列表。随机任务直接进入任务对象卡；指定任务选定后进入相同人物／比较对象流程。
+- 费用与任务仍由既有 `PrivateTurn` 状态和提交校验处理；人物选择说明统一显示基础费用、指定费与合计，不提前扣款。关闭弹窗会卸载临时步骤，故不会留下未安排任务。
+- 指定任务卡在窄屏强制单列，容器使用 `min-width: 0`、受限宽度和 `overflow-x: hidden`；`prefers-reduced-motion` 沿用全局动画降级。`tools/smoke.mjs` 支持 `SMOKE_ONLY=lobbyist` 运行此交互回归。
+
 ## 分阶段回合揭晓
 
 - `RoundResults` 仅使用本地展示状态 `ties | rankings | settlement`，不修改 `GameSession`，因此刷新恢复、结算幂等性和历史回放不受动画影响。
