@@ -943,7 +943,14 @@ function identityActionReview(action: IdentityAction, players: Player[], divinat
         : nightwalkerOutcome.reason === 'shadowHigherNet' ? 'B 的排名净收益更高'
           : 'A 的排名净收益相同或更高'
     const item = (wins: boolean) => wins ? '，获得拍品' : ''
-    return `夜行者：A ${formatCoins(nightwalkerOutcome.baseBidUnits)}（第 ${nightwalkerOutcome.basePlace ?? '未获奖'} 名，净 ${formatCoins(nightwalkerOutcome.baseNetUnits)}${item(nightwalkerOutcome.baseWinsItem)}）／B ${formatCoins(nightwalkerOutcome.shadowBidUnits)}（第 ${nightwalkerOutcome.shadowPlace ?? '未获奖'} 名，净 ${formatCoins(nightwalkerOutcome.shadowNetUnits)}${item(nightwalkerOutcome.shadowWinsItem)}）；${chosen}，因为${reason}。`
+    const usesShadow = nightwalkerOutcome.chosenBidUnits === nightwalkerOutcome.shadowBidUnits
+    const bidDifference = Math.abs(nightwalkerOutcome.shadowBidUnits - nightwalkerOutcome.baseBidUnits)
+    const chosenNet = usesShadow ? nightwalkerOutcome.shadowNetUnits : nightwalkerOutcome.baseNetUnits
+    const otherNet = usesShadow ? nightwalkerOutcome.baseNetUnits : nightwalkerOutcome.shadowNetUnits
+    const bidComparison = usesShadow ? `比 A 多投入 ${formatCoins(bidDifference)}` : `比 B 少投入 ${formatCoins(bidDifference)}`
+    const netDifference = chosenNet - otherNet
+    const netComparison = netDifference > 0 ? `净收益高 ${formatCoins(netDifference)}` : netDifference < 0 ? `净收益低 ${formatCoins(-netDifference)}` : '净收益相同'
+    return `夜行者：A ${formatCoins(nightwalkerOutcome.baseBidUnits)}（第 ${nightwalkerOutcome.basePlace ?? '未获奖'} 名，净 ${formatCoins(nightwalkerOutcome.baseNetUnits)}${item(nightwalkerOutcome.baseWinsItem)}）／B ${formatCoins(nightwalkerOutcome.shadowBidUnits)}（第 ${nightwalkerOutcome.shadowPlace ?? '未获奖'} 名，净 ${formatCoins(nightwalkerOutcome.shadowNetUnits)}${item(nightwalkerOutcome.shadowWinsItem)}）；${chosen}，因为${reason}。本次${bidComparison} 金币，${netComparison}。`
   }
   const target = playerName(players, action.targetPlayerId)
   const comparison = action.comparisonPlayerId ? `（比较对象：${playerName(players, action.comparisonPlayerId)}）` : ''

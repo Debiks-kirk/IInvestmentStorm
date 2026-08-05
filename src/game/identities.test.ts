@@ -87,6 +87,7 @@ describe('身份选角与私密卡牌', () => {
       reason: 'shadowWinsItem',
     })
     expect(prioritize.result.itemWinnerId).toBe('night')
+    expect(prioritize.result.identityEvents.find((event) => event.title === '双影下注结算')?.detail).toContain('比明面 A 多投入 4 金币')
 
     const optimizeCoins = input(createPlayers(), false)
     expect(optimizeCoins.result.nightwalkerOutcomes[0]).toMatchObject({
@@ -97,6 +98,7 @@ describe('身份选角与私密卡牌', () => {
       reason: 'baseHigherOrEqualNet',
     })
     expect(optimizeCoins.result.itemWinnerId).toBe('rival')
+    expect(optimizeCoins.result.identityEvents.find((event) => event.title === '双影下注结算')?.detail).toContain('比影价 B 少投入 4 金币')
   })
 
   it('同一张新卡只会被一名成功小偷偷走', () => {

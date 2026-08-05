@@ -224,6 +224,18 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       ? (shadow.winsItem ? 'shadowWinsItem' : 'baseWinsItem')
       : (useShadow ? 'shadowHigherNet' : 'baseHigherOrEqualNet')
     const chosenBidUnits = useShadow ? shadowBidUnits : baseBidUnits
+    const chosen = useShadow ? shadow : base
+    const other = useShadow ? base : shadow
+    const bidDifferenceUnits = Math.abs(shadowBidUnits - baseBidUnits)
+    const bidComparison = useShadow
+      ? `比明面 A 多投入 ${formatCoins(bidDifferenceUnits)} 金币`
+      : `比影价 B 少投入 ${formatCoins(bidDifferenceUnits)} 金币`
+    const netDifferenceUnits = chosen.netUnits - other.netUnits
+    const netComparison = netDifferenceUnits > 0
+      ? `排名净收益高 ${formatCoins(netDifferenceUnits)} 金币`
+      : netDifferenceUnits < 0
+        ? `排名净收益低 ${formatCoins(-netDifferenceUnits)} 金币`
+        : '排名净收益相同'
     settledBidUnits.set(turn.playerId, chosenBidUnits)
     const player = playerById.get(turn.playerId)
     if (player && chosenBidUnits > baseBidUnits) player.balanceUnits = Math.max(0, player.balanceUnits - (chosenBidUnits - baseBidUnits))
@@ -249,12 +261,12 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       roundIndex,
       title: '双影下注结算',
       detail: reason === 'shadowWinsItem'
-        ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；已开启优先拿藏品，只有影价能获得拍品，系统采用了影价。`
+        ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；已开启优先拿藏品，只有影价能获得拍品，系统采用了影价。采用后${bidComparison}，${netComparison}。`
         : reason === 'baseWinsItem'
-          ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；已开启优先拿藏品，只有明面能获得拍品，系统保留明面下注。`
+          ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；已开启优先拿藏品，只有明面能获得拍品，系统保留明面下注。采用后${bidComparison}，${netComparison}。`
           : useShadow
-            ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；影价的排名净收益更高，系统采用了影价。`
-            : `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；明面净收益相同或更高，系统保留明面下注。`,
+            ? `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；影价的排名净收益更高，系统采用了影价。采用后${bidComparison}，${netComparison}。`
+            : `明面 ${formatCoins(baseBidUnits)}、夜行影价 ${formatCoins(shadowBidUnits)}；明面净收益相同或更高，系统保留明面下注。采用后${bidComparison}，${netComparison}。`,
       deltaUnits: 0,
     })
   }
