@@ -621,7 +621,16 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       {tutorial && <TutorialCoach roundIndex={session.roundIndex} />}
       {activeLobbyTasks.length > 0 && <section className="task-inbox" aria-label="本轮收到的任务">
         <div className="task-inbox__head"><span aria-hidden="true">✉</span><strong>收到的任务</strong><small>完成则无需付款</small></div>
-        <div>{activeLobbyTasks.map((contract) => <article key={contract.id}><span>{taskLabel(contract.taskType)}{contract.comparisonPlayerId ? ` ${playerName(session.players, contract.comparisonPlayerId)}` : ''}</span><small>未完成支付 {formatCoins(Math.round(session.settings.identitySettings.lobbyistFailurePaymentCoins * 2))} 金币</small></article>)}</div>
+        <div>{activeLobbyTasks.map((contract) => {
+          const task = LOBBYIST_TASKS.find((entry) => entry.type === contract.taskType)
+          const comparisonName = contract.comparisonPlayerId ? playerName(session.players, contract.comparisonPlayerId) : null
+          const detail = (task?.detail ?? '请完成本轮指定任务。').replace('指定玩家', comparisonName ?? '指定玩家')
+          return <article key={contract.id}>
+            <strong>{taskLabel(contract.taskType)}</strong>
+            <p>{detail}</p>
+            <small>未完成支付 {formatCoins(Math.round(session.settings.identitySettings.lobbyistFailurePaymentCoins * 2))} 金币</small>
+          </article>
+        })}</div>
       </section>}
       <div className="turn-grid">
         <div className="bid-panel panel">
