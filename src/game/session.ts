@@ -68,7 +68,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     ? { source: 'system' as const, merchantId: null, cardId: firstDraw.cardId, roundIndex: 0, bidderIndex: 0, bids: [] }
     : null
   return {
-    version: 13,
+    version: 14,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -77,6 +77,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     prophecyDeck: initialItemDeck.map((item) => ({ ...item })),
     roundStartBalanceUnits: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     pendingPrizeReroll: null,
+    pendingFateCoinUse: null,
     cardDeck: firstDraw.cardDeck,
     pendingCardGrants: [],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),

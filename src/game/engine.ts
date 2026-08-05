@@ -191,18 +191,27 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
 
   for (const { playerId, use } of usedCards) {
     if (use.cardId !== 'fateCoin') continue
-    const player = playerById.get(playerId)
     const delta = deltaByPlayer.get(playerId)
-    if (!player || !delta) continue
+    if (!delta) continue
+    const immediateDelta = use.fateDeltaUnits
     if (use.coinResult === 'heads') {
-      const gained = coinsToUnits(6)
-      player.balanceUnits += gained
-      delta.cardUnits += gained
-      cardEffects.push(cardEffect('fateCoin', '命运硬币：正面朝上，获得 6 金币。'))
+      // 命运硬币已在私密操作阶段即时结算；这里仅写入公开结算说明。
+      if (immediateDelta === undefined) {
+        const player = playerById.get(playerId)
+        const gained = coinsToUnits(6)
+        if (player) player.balanceUnits += gained
+        delta.cardUnits += gained
+      }
+      cardEffects.push(cardEffect('fateCoin', `命运硬币：正面朝上，获得 ${formatCoins(immediateDelta ?? coinsToUnits(6))} 金币。`))
     } else {
-      const lost = Math.min(player.balanceUnits, coinsToUnits(4))
-      player.balanceUnits -= lost
-      delta.cardUnits -= lost
+      const lost = immediateDelta === undefined
+        ? Math.min(playerById.get(playerId)?.balanceUnits ?? 0, coinsToUnits(4))
+        : Math.abs(immediateDelta)
+      if (immediateDelta === undefined) {
+        const player = playerById.get(playerId)
+        if (player) player.balanceUnits -= lost
+        delta.cardUnits -= lost
+      }
       cardEffects.push(cardEffect('fateCoin', `命运硬币：反面朝上，损失 ${formatCoins(lost)} 金币。`))
     }
   }

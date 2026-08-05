@@ -53,6 +53,8 @@ export interface CardUse {
   cardId: CardId
   targetPlayerId?: string
   coinResult?: 'heads' | 'tails'
+  /** 命运硬币在私密操作时已立即结算的实际变动，回合结算仅用于展示。 */
+  fateDeltaUnits?: number
   prizeReroll?: {
     originalItemId: string
     offeredItemIds: string[]
@@ -288,7 +290,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 13
+  version: 14
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -306,6 +308,8 @@ export interface GameSession {
     offeredItems: Item[]
     chosenItemId?: string
   } | null
+  /** 命运硬币翻面后立即扣/加余额；在本次提交前保留，防止刷新后重掷。 */
+  pendingFateCoinUse: { playerId: string; roundIndex: number; use: CardUse } | null
   cardDeck: CardId[]
   pendingCardGrants: CardGrant[]
   identityAvailableIds: IdentityId[]
