@@ -1,0 +1,34 @@
+import { describe, expect, it } from 'vitest'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard } from './prophet'
+
+describe('预言家天机推演', () => {
+  it('观财只使用开局快照，并令每个区间包含真实余额', () => {
+    const intel = createWealthDivination({ id: 'd', playerId: 'p', roundIndex: 1, costUnits: 10, balanceSnapshot: { a: 30, b: 7, c: 18 }, roll: () => .5 })
+    expect(intel.wealth?.highestRangeUnits[0]).toBeLessThanOrEqual(30)
+    expect(intel.wealth?.highestRangeUnits[1]).toBeGreaterThanOrEqual(30)
+    expect(intel.wealth?.lowestRangeUnits[0]).toBeLessThanOrEqual(7)
+    expect(intel.wealth?.lowestRangeUnits[1]).toBeGreaterThanOrEqual(7)
+  })
+
+  it('观星至多展示未来两轮，最后一轮不可用', () => {
+    const deck = [{ id: 'a' }, { id: 'b' }, { id: 'c' }] as never
+    expect(createStarsDivination({ id: 'd', playerId: 'p', roundIndex: 0, costUnits: 10, prophecyDeck: deck })?.starItemIds).toEqual(['b', 'c'])
+    expect(createStarsDivination({ id: 'd', playerId: 'p', roundIndex: 2, costUnits: 10, prophecyDeck: deck })).toBeNull()
+  })
+
+  it('观身份限制重复组合与已猜对玩家', () => {
+    const history = [{ id: 'a', playerId: 'p', roundIndex: 0, mode: 'identity', costUnits: 10, identityGuess: { targetPlayerId: 't', identityId: 'gambler', correct: false } }, { id: 'b', playerId: 'p', roundIndex: 1, mode: 'identity', costUnits: 10, identityGuess: { targetPlayerId: 'win', identityId: 'collector', correct: true } }] as const
+    expect(canMakeIdentityGuess([...history], 'p', 't', 'gambler')).toBe(false)
+    expect(canMakeIdentityGuess([...history], 'p', 't', 'collector')).toBe(true)
+    expect(canMakeIdentityGuess([...history], 'p', 'win', 'prophet')).toBe(false)
+  })
+
+  it('观身份奖励从未持有且未预留的卡池抽卡，空池时补一张', () => {
+    const drawn = drawProphetRewardCard({ cardDeck: ['red', 'black', 'peek'], disabledCardIds: [], heldCardIds: ['red'], reservedCardId: 'black', roll: () => 0 })
+    expect(drawn.cardId).toBe('peek')
+    expect(drawn.cardDeck).toEqual(['red', 'black'])
+    const replenished = drawProphetRewardCard({ cardDeck: [], disabledCardIds: ['red'], heldCardIds: [], roll: () => 0 })
+    expect(replenished.replenished).toBe(true)
+    expect(replenished.cardId).not.toBe('red')
+  })
+})

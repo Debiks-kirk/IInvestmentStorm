@@ -97,6 +97,7 @@ export interface IdentitySettings {
   gamblerCorrectBonusMultiplier: number
   gamblerWrongPenaltyMultiplier: number
   gamblerSkipPenaltyMultiplier: number
+  prophetDivinationCoins: number
   reverserActivationCoins: number
   kidnapActivationCoins: number
   thiefSuccessProbability: number
@@ -107,6 +108,19 @@ export interface IdentitySettings {
   lobbyistFeeCoins: number
   lobbyistSpecifiedTaskFeeCoins: number
   lobbyistFailurePaymentCoins: number
+}
+
+export type ProphetDivinationMode = 'wealth' | 'stars' | 'identity'
+
+export interface ProphetDivination {
+  id: string
+  playerId: string
+  roundIndex: number
+  mode: ProphetDivinationMode
+  costUnits: number
+  wealth?: { highestRangeUnits: [number, number]; lowestRangeUnits: [number, number] }
+  starItemIds?: string[]
+  identityGuess?: { targetPlayerId: string; identityId: IdentityId; correct: boolean; rewardCardId?: CardId }
 }
 
 export interface PlayerIdentity {
@@ -169,6 +183,7 @@ export interface MerchantAuction {
 }
 
 export type IdentityAction =
+  | { type: 'prophetDivination'; divinationId: string }
   | { type: 'merchantAuction' }
   | { type: 'reverserInvert' }
   | { type: 'kidnap'; targetPlayerId: string }
@@ -261,7 +276,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 11
+  version: 12
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -269,6 +284,8 @@ export interface GameSession {
   itemDeck: Item[]
   /** The original deck is immutable: prophets always see this version. */
   prophecyDeck: Item[]
+  /** Round-start balances are frozen before any player submits, preventing seat-order leakage. */
+  roundStartBalanceUnits: Record<string, number>
   /** A confirmed prize-reroll draw survives a handoff/refresh until its owner submits. */
   pendingPrizeReroll: {
     playerId: string
@@ -285,6 +302,7 @@ export interface GameSession {
   pendingIdentityNotices: IdentityNotice[]
   identityContracts: LobbyistContract[]
   identityEvents: IdentityEvent[]
+  prophetDivinations: ProphetDivination[]
   merchantAuction: MerchantAuction | null
   /** 已进入私密竞拍/竞购后的绝对截止时间；刷新降级为传递页时保留。 */
   operationDeadlineAt: number | null

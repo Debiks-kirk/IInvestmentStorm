@@ -12,7 +12,7 @@ export interface IdentityDefinition {
 }
 
 export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
-  { id: 'prophet', name: '预言家', symbol: '◌', summary: '每轮偷看下一轮拍品。', repeatable: true },
+  { id: 'prophet', name: '预言家', symbol: '◌', summary: '主动发动天机推演：观财、观星或观身份。', repeatable: true },
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
   { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: true },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产；拿下同类拍品额外得 5 金币。', repeatable: true, needsCategory: true },
@@ -27,7 +27,7 @@ export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
 }
 
 export function identitySkillMode(id: IdentityId): 'active' | 'passive' {
-  return id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' ? 'active' : 'passive'
+  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' ? 'active' : 'passive'
 }
 
 export function defaultIdentitySettings(enabled = true): IdentitySettings {
@@ -37,6 +37,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     gamblerCorrectBonusMultiplier: 0.5,
     gamblerWrongPenaltyMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
+    prophetDivinationCoins: 5,
     reverserActivationCoins: 6,
     kidnapActivationCoins: 5,
     thiefSuccessProbability: 50,
@@ -53,7 +54,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
 export function normalizeIdentitySettings(value: Partial<IdentitySettings> | undefined, enabled = false): IdentitySettings {
   const defaults = defaultIdentitySettings(enabled)
   const legacyPenalty = value?.gamblerSkipPenaltyMultiplier ?? defaults.gamblerSkipPenaltyMultiplier
-  return { ...defaults, ...value, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
+  return { ...defaults, ...value, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, prophetDivinationCoins: value?.prophetDivinationCoins ?? defaults.prophetDivinationCoins, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
 }
 
 export function enabledIdentityIds(settings: IdentitySettings): IdentityId[] {
@@ -96,6 +97,7 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
   if (enabled.length < 2) errors.push('身份系统至少需要启用 2 个身份')
   if (enabled.filter((id) => id !== 'lobbyist').length < 2) errors.push('身份系统至少需要启用 2 个非说客身份，才能持续提供不同候选')
   if (settings.thiefSuccessProbability < 0 || settings.thiefSuccessProbability > 100) errors.push('小偷成功率应为 0–100%')
+  if (settings.prophetDivinationCoins < 0 || settings.prophetDivinationCoins > 20 || settings.prophetDivinationCoins * 2 % 1 !== 0) errors.push('预言家推演费用应为 0–20，且按 0.5 递增')
   if (settings.thiefMaxSteals < 0 || settings.thiefMaxSteals > 10) errors.push('小偷上限应为 0–10 次')
   if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
   if (settings.merchantInitialOfferCount < 1 || settings.merchantInitialOfferCount > 6) errors.push('商人初始选卡数量应为 1–6')

@@ -143,7 +143,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     balanceEstimates: [],
     cardDeckSize: session.cardDeck.length,
     activeTask: session.identityContracts.find((contract) => contract.targetPlayerId === playerId && contract.status === 'pending' && contract.executeRoundIndex === session.roundIndex) ? (() => { const contract = session.identityContracts.find((entry) => entry.targetPlayerId === playerId && entry.status === 'pending' && entry.executeRoundIndex === session.roundIndex)!; return { type: contract.taskType, comparisonPlayerId: contract.comparisonPlayerId } })() : undefined,
-    nextItem: player.identity?.id === 'prophet' ? session.prophecyDeck[session.roundIndex + 1] : undefined,
+    nextItem: undefined,
   }
   observation.balanceEstimates = estimateBalances(observation)
   if (player.controller?.kind === 'bot' && player.controller.difficulty === 'expert' && prior.length > 0) {

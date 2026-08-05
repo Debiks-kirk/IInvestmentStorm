@@ -8,10 +8,12 @@ import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, prophetModeLabel } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
-import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'game'
+type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' }>
 
 const MEDALS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', 'Ⅹ']
 
@@ -255,6 +257,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                     <label>赌徒命中加成<input type="number" min="0" max="1" step="0.05" value={settings.identitySettings.gamblerCorrectBonusMultiplier} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, gamblerCorrectBonusMultiplier: Number(event.target.value) } })} /></label>
                     <label>赌徒猜错罚款<input type="number" min="0" max="1" step="0.05" value={settings.identitySettings.gamblerWrongPenaltyMultiplier} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, gamblerWrongPenaltyMultiplier: Number(event.target.value) } })} /></label>
                     <label>赌徒跳过罚款<input type="number" min="0" max="1" step="0.05" value={settings.identitySettings.gamblerSkipPenaltyMultiplier} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, gamblerSkipPenaltyMultiplier: Number(event.target.value) } })} /></label>
+                    <label>预言家天机推演费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.prophetDivinationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, prophetDivinationCoins: Number(event.target.value) } })} /></label>
                     <label>绑匪发动费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.kidnapActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapActivationCoins: Number(event.target.value) } })} /></label>
                     <label>小偷成功率 %<input type="number" min="0" max="100" value={settings.identitySettings.thiefSuccessProbability} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefSuccessProbability: Number(event.target.value) } })} /></label>
                     <label>小偷上限<input type="number" min="0" max="10" value={settings.identitySettings.thiefMaxSteals} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefMaxSteals: Number(event.target.value) } })} /></label>
@@ -436,7 +439,17 @@ function LobbyistTaskPicker({ extraCost, onSelect, onClose }: { extraCost: numbe
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lobby-task-picker-title"><section className="target-picker-sheet lobby-task-picker"><p className="eyebrow">说客 · 发动技能</p><h2 id="lobby-task-picker-title">选择发布方式</h2><p>随后会自动进入人物卡选择。两种方式的基础发布费用照常计算，只有“指定发布”会额外收费。</p><section className="lobby-task-section"><div><strong>随机发布</strong><span className="status-token status-token--free">不额外支付</span></div><small>系统随机决定任务内容，适合低成本施压。</small><button className="lobby-task-card lobby-task-card--random" onClick={() => onSelect(null)}><span>?</span><div><strong>随机抽取一张任务</strong><small>内容由系统现在锁定，下一轮私密送达。</small></div><i>→</i></button></section><section className="lobby-task-section"><div><strong>指定发布</strong><span className="status-token status-token--cost">额外支付 {extraCost} 金币</span></div><small>自己挑选要对对方提出的任务。</small><div className="lobby-task-grid">{LOBBYIST_TASKS.map((task) => <button key={task.type} className="lobby-task-card" onClick={() => onSelect(task.type)}><span>{task.needsComparison ? '↔' : task.type === 'winFirst' ? 'Ⅰ' : task.type === 'winSecond' ? 'Ⅱ' : task.type === 'bidZero' ? '0' : '—'}</span><div><strong>{task.label}</strong><small>{task.detail}</small></div><i>→</i></button>)}</div></section><button className="button button--paper" onClick={onClose}>取消</button></section></div>
 }
 
-function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll, onArmDeadline }: { session: GameSession; onSubmit: (turn: RoundTurn, timedOut?: boolean) => void; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string) => void; onChoosePrizeReroll: (itemId: string) => void; onArmDeadline: () => void }) {
+function ProphetResult({ divination, session }: { divination: ProphetDivination; session: GameSession }) {
+  if (divination.mode === 'wealth' && divination.wealth) return <div className="prophet-result"><strong>观财已启示</strong><span>本轮开始时，最高余额：约 {formatCoins(divination.wealth.highestRangeUnits[0])}–{formatCoins(divination.wealth.highestRangeUnits[1])} 金币</span><span>本轮开始时，最低余额：约 {formatCoins(divination.wealth.lowestRangeUnits[0])}–{formatCoins(divination.wealth.lowestRangeUnits[1])} 金币</span><small>不对应任何姓名；范围已锁定，刷新不会改变。</small></div>
+  if (divination.mode === 'stars') {
+    const items = (divination.starItemIds ?? []).map((id) => session.prophecyDeck.find((item) => item.id === id) ?? ITEM_POOL.find((item) => item.id === id)).filter(Boolean)
+    return <div className="prophet-result"><strong>观星已启示</strong><span>未来拍品：{items.map((item) => `${item!.emoji}${item!.name}`).join('、') || '没有未来拍品'}</span><small>看到的是预设牌堆；改拍令不会改变这份预言。</small></div>
+  }
+  const guess = divination.identityGuess
+  return <div className="prophet-result"><strong>观身份已启示</strong><span>{guess?.correct ? `你猜对了 ${playerName(session.players, guess.targetPlayerId)} 的身份：${getIdentityDefinition(guess.identityId).name}。${guess.rewardCardId ? `获得 ${getCardDefinition(guess.rewardCardId).name}。` : '卡池没有可用道具。'}` : `你猜错了 ${playerName(session.players, guess?.targetPlayerId ?? null)} 的身份；费用不退，但没有额外罚款。`}</span><small>同一玩家与身份组合不能再次猜测。</small></div>
+}
+
+function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll, onUseProphetDivination, onArmDeadline }: { session: GameSession; onSubmit: (turn: RoundTurn, timedOut?: boolean) => void; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string) => void; onChoosePrizeReroll: (itemId: string) => void; onUseProphetDivination: (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId) => boolean; onArmDeadline: () => void }) {
   const player = session.players[session.currentTurnIndex]
   const item = session.itemDeck[session.roundIndex]
   const tutorial = session.tutorial?.kind === 'firstGame'
@@ -455,7 +468,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const [lobbySpecified, setLobbySpecified] = useState(false)
   const [lobbyTask, setLobbyTask] = useState<LobbyistTaskType>('avoidPrize')
   const [lobbyCompareId, setLobbyCompareId] = useState('')
-  const [identityConfirming, setIdentityConfirming] = useState<IdentityAction | null>(null)
+  const [identityConfirming, setIdentityConfirming] = useState<ScheduledIdentityAction | null>(null)
+  const [prophetDialog, setProphetDialog] = useState<'menu' | 'target' | 'identity' | null>(null)
+  const [prophetTargetId, setProphetTargetId] = useState('')
   const [confirming, setConfirming] = useState(false)
   const setBid = (value: number) => {
     const reservedIdentityUnits = identityAction?.type === 'reverserInvert'
@@ -510,7 +525,11 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   }, [cardConfirming, coinFlipResult, coinFlipStarted])
   const identity = advancedToolsUnlocked ? player.identity : undefined
   const visibleCardInventory = advancedToolsUnlocked ? player.cardInventory : []
-  const nextItem = session.prophecyDeck[session.roundIndex + 1]
+  const currentProphetDivination = session.prophetDivinations.find((entry) => entry.playerId === player.id && entry.roundIndex === session.roundIndex)
+  const prophetCostUnits = Math.round(session.settings.identitySettings.prophetDivinationCoins * 2)
+  const prophetShortfallUnits = Math.max(0, bidUnits + prophetCostUnits - player.balanceUnits)
+  const prophetFutureItems = session.prophecyDeck.slice(session.roundIndex + 1, session.roundIndex + 3)
+  const prophetTargetAlreadySolved = (targetPlayerId: string) => session.prophetDivinations.some((entry) => entry.playerId === player.id && entry.mode === 'identity' && entry.identityGuess?.targetPlayerId === targetPlayerId && entry.identityGuess.correct)
   const lobbyFee = ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || identity?.lobbyistNextFree) ? 0 : session.settings.identitySettings.lobbyistFeeCoins
   const reverserCost = session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 2 : 1)
   const reverserCostUnits = Math.round(reverserCost * 2)
@@ -546,7 +565,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       setCardConfirming(null)
       setCoinFlipStarted(false)
     }
-    onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(confirmedCardUses.length > 0 ? { cardUses: confirmedCardUses } : {}), ...(identityAction ? { identityAction } : {}) }, timedOut)
+    const resolvedIdentityAction = identityAction ?? (currentProphetDivination ? { type: 'prophetDivination' as const, divinationId: currentProphetDivination.id } : undefined)
+    onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(confirmedCardUses.length > 0 ? { cardUses: confirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
   }
   return (
     <section className="private-turn">
@@ -589,7 +609,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
         {!identity ? <div className="identity-skill-placeholder"><span>◎</span><div><strong>本局未启用身份系统</strong><small>下局可在高级设置中开启。</small></div></div> : <div className="identity-live">
           <div className="identity-live-head"><span>{getIdentityDefinition(identity.id).symbol}</span><div><strong>{getIdentityDefinition(identity.id).name}</strong><small>{getIdentityDefinition(identity.id).summary}</small></div></div>
           <p className="identity-task">{identitySkillMode(identity.id) === 'active' ? '主动技能：请在这个区域完成选择，再点击对应按钮安排本轮发动。' : '被动技能：没有可点击的主动技能；系统会在符合条件时自动结算。'}</p>
-          {identity.id === 'prophet' && <p>{nextItem ? <>下一轮拍品：<strong>{nextItem.emoji} {nextItem.name}</strong> · 价值 {nextItem.value}</> : '最后一轮，没有下一轮拍品。'}</p>}
+          {identity.id === 'prophet' && <div className="prophet-skill"><p><strong>天机推演</strong>是主动技能：每回合至多一次，花费 <b className="status-token status-token--cost">{session.settings.identitySettings.prophetDivinationCoins} 金币</b>，从观财、观星、观身份中选一种。选择后立即生效并保存。</p>{currentProphetDivination ? <ProphetResult divination={currentProphetDivination} session={session} /> : <button className="button button--prophet" disabled={prophetShortfallUnits > 0} onClick={() => setProphetDialog('menu')}>{prophetShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(prophetShortfallUnits)} 金币` : '发动天机推演'}</button>}</div>}
           {identity.id === 'assassin' && <><p>花费 {session.settings.identitySettings.kidnapActivationCoins} 金币选择一名玩家。若他拿下本轮拍品，费用会报销，拍品会被你抢走；失败则这笔钱不会返还。</p><button className={cx('button', identityAction?.type === 'kidnap' && 'button--primary')} disabled={!identityAction && !kidnapAffordable} onClick={() => identityAction?.type === 'kidnap' ? setIdentityAction(undefined) : setTargetPicker('kidnap')}>{identityAction?.type === 'kidnap' ? `已盯上 ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : kidnapAffordable ? `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币选择目标` : `余额不足，还差 ${formatCoins(kidnapShortfallUnits)} 金币`}</button></>}
           {identity.id === 'collector' && <p>已为 <strong>{categoryConfig(identity.collectorCategory ?? 'leisure').name}</strong> 永久额外计入 1 件固定资产。</p>}
           {identity.id === 'thief' && <p>目标：<strong>{playerName(session.players, identity.targetPlayerId ?? null)}</strong> · 成功 {identity.thiefSuccesses}/{session.settings.identitySettings.thiefMaxSteals} 次。</p>}
@@ -626,6 +646,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           </div>
         </div>
       )}
+      {prophetDialog === 'menu' && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="target-picker-sheet prophet-picker"><p className="eyebrow">预言家 · 天机推演</p><h2>花费 {session.settings.identitySettings.prophetDivinationCoins} 金币，选择一种推演</h2><p>选择后立即扣费并锁定本轮结果；观身份猜错不退费，但没有额外罚款。</p><div className="prophet-option-grid"><button onClick={() => { if (onUseProphetDivination(player.id, 'wealth')) setProphetDialog(null) }}><span>◒</span><strong>观财</strong><small>读取本轮开始时的最高、最低余额区间，不显示姓名。</small></button><button disabled={prophetFutureItems.length === 0} onClick={() => { if (onUseProphetDivination(player.id, 'stars')) setProphetDialog(null) }}><span>✦</span><strong>观星</strong><small>{prophetFutureItems.length > 0 ? '查看未来至多两轮的预设拍品。' : '最后一轮没有未来拍品。'}</small></button><button onClick={() => setProphetDialog('target')}><span>◉</span><strong>观身份</strong><small>猜一名玩家的身份；猜对获得一张道具。</small></button></div><button className="button button--paper" onClick={() => setProphetDialog(null)}>取消使用</button></section></div>}
+      {prophetDialog === 'target' && <PlayerTargetPicker title="选择要观测身份的玩家" detail="本回合只能猜一次；猜对过的玩家不能再猜。之后会显示所有启用身份供你猜测。" players={session.players.filter((candidate) => candidate.id !== player.id && !prophetTargetAlreadySolved(candidate.id))} selectedPlayerId={prophetTargetId} onSelect={(id) => { setProphetTargetId(id); setProphetDialog('identity') }} onClose={() => setProphetDialog(null)} />}
+      {prophetDialog === 'identity' && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="target-picker-sheet prophet-picker"><p className="eyebrow">预言家 · 观身份</p><h2>猜测 {playerName(session.players, prophetTargetId)} 的身份</h2><p>候选包含全部未禁用身份，即使某身份已被别人选走。猜错只损失本次 {session.settings.identitySettings.prophetDivinationCoins} 金币。</p><div className="identity-choice-grid prophet-identity-grid">{IDENTITY_DEFINITIONS.filter((definition) => !session.settings.identitySettings.disabledIdentityIds.includes(definition.id)).map((definition) => { const allowed = canMakeIdentityGuess(session.prophetDivinations, player.id, prophetTargetId, definition.id); return <button key={definition.id} disabled={!allowed} className="identity-choice-card" onClick={() => { if (onUseProphetDivination(player.id, 'identity', prophetTargetId, definition.id)) setProphetDialog(null) }}><span>{definition.symbol}</span><h2>{definition.name}</h2><p>{allowed ? '确认猜测此身份' : '这个玩家与身份组合已经猜过'}</p></button> })}</div><button className="button button--paper" onClick={() => setProphetDialog('target')}>返回选人</button></section></div>}
       {cardConfirming && targetPicker !== 'card' && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="card-confirm-title"><div className="confirm-sheet card-use-confirm"><p className="eyebrow">{cardConfirming.cardId === 'fateCoin' ? coinFlipStarted ? '命运硬币' : '准备使用道具' : '准备使用道具'}</p><h2 id="card-confirm-title">{getCardDefinition(cardConfirming.cardId).name}</h2>{cardConfirming.cardId === 'fateCoin' ? <div className="fate-coin-wrap"><div className={cx('fate-coin', coinFlipResult && 'is-settled')}><span>{coinFlipResult === 'heads' ? '正' : coinFlipResult === 'tails' ? '反' : '?'}</span></div><p>{!coinFlipStarted ? '确认后才会掷出硬币；结果出现后不能取消或重掷。' : coinFlipResult === null ? '硬币正在翻转…' : coinFlipResult === 'heads' ? '正面朝上：本轮获得 6 金币。结果已锁定。' : '反面朝上：本轮损失 4 金币。结果已锁定。'}</p></div> : cardConfirming.cardId === 'prizeReroll' ? <p>确认后将立刻抽出 6 张新拍品，供你私密选择下一轮拍品。抽取结果会立即锁定，不能取消或重抽。</p> : cardTargetScope(cardConfirming.cardId) !== 'none' ? <p>确认后会立刻弹出玩家卡片，请选择这张卡的生效对象；选择前随时可以取消。</p> : <p>确认后，这张卡会安排在本轮结算时使用。</p>}<div>{!(cardConfirming.cardId === 'fateCoin' && coinFlipStarted) && <button className="button button--paper" onClick={() => { setCardConfirming(null); setCoinFlipResult(null); setCoinFlipStarted(false) }}>取消</button>}<button className="button button--primary" disabled={cardConfirming.cardId === 'fateCoin' && coinFlipStarted && coinFlipResult === null} onClick={confirmCardUse}>{cardConfirming.cardId === 'fateCoin' ? !coinFlipStarted ? '确认并掷硬币' : coinFlipResult === null ? '正在掷硬币…' : '确认结果' : cardConfirming.cardId === 'prizeReroll' ? '确认并抽取 6 张' : cardTargetScope(cardConfirming.cardId) !== 'none' ? '确认并选择玩家' : '确认使用'}</button></div></div></div>}
       {identityConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-confirm-title"><div className="confirm-sheet identity-action-confirm"><p className="eyebrow">确认身份技能</p><h2 id="identity-confirm-title">{identityConfirming.type === 'kidnap' ? '锁定绑匪目标' : identityConfirming.type === 'reverserInvert' ? '发动逆转排名' : identityConfirming.type === 'merchantAuction' ? '发起下轮竞购' : '发布说客任务'}</h2><p>{identityConfirming.type === 'kidnap' ? `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币盯上 ${playerName(session.players, identityConfirming.targetPlayerId)}。若对方拿下拍品，你会获得拍品并报销费用。` : identityConfirming.type === 'reverserInvert' ? `花费 ${reverserCost} 金币，在本轮结算时倒转获奖区名次。` : identityConfirming.type === 'merchantAuction' ? `下一轮抽奖前公开一张道具，让其他玩家依次秘密竞购；本轮提交前仍可撤销。` : `向 ${playerName(session.players, identityConfirming.targetPlayerId)} 发布${identityConfirming.specified && identityConfirming.taskType ? `指定任务「${taskLabel(identityConfirming.taskType)}」` : '随机任务'}，下一轮才会私密送达。`}</p><div><button className="button button--paper" onClick={() => setIdentityConfirming(null)}>取消</button><button className="button button--primary" onClick={() => { setIdentityAction(identityConfirming); setIdentityConfirming(null) }}>确认安排</button></div></div></div>}
       {visibleGrant && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="grant-title"><div className="card-grant-sheet"><span>{getCardDefinition(visibleGrant.cardId).symbol}</span><p className="eyebrow">秘密支援</p><h2 id="grant-title">你获得了{getCardDefinition(visibleGrant.cardId).name}</h2><p>{getCardDefinition(visibleGrant.cardId).description}</p><small>这张卡已加入你的库存。请勿告诉其他人。</small><button className="button button--primary" onClick={() => onAcknowledgeGrant(player.id)}>收下道具卡</button></div></div>}
@@ -741,7 +764,13 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
   )
 }
 
-function identityActionReview(action: IdentityAction, players: Player[]): string {
+function identityActionReview(action: IdentityAction, players: Player[], divinations: ProphetDivination[] = []): string {
+  if (action.type === 'prophetDivination') {
+    const divination = divinations.find((entry) => entry.id === action.divinationId)
+    if (!divination) return '预言家发动了天机推演'
+    if (divination.mode === 'identity' && divination.identityGuess) return `预言家观身份：猜测 ${playerName(players, divination.identityGuess.targetPlayerId)} 是 ${getIdentityDefinition(divination.identityGuess.identityId).name}（${divination.identityGuess.correct ? '猜中' : '猜错'}）`
+    return `预言家发动天机推演：${prophetModeLabel(divination.mode)}（花费 ${formatCoins(divination.costUnits)} 金币）`
+  }
   if (action.type === 'reverserInvert') return '逆转者发动了获奖区排名逆转'
   if (action.type === 'merchantAuction') return '道具商人发起了下一轮道具竞购'
   if (action.type === 'kidnap') return `绑匪盯上了 ${playerName(players, action.targetPlayerId)}`
@@ -766,7 +795,7 @@ function RoundReview({ session }: { session: GameSession }) {
             <div className="round-review-grid">
               <article className="review-block"><h3>全部下注</h3>{result.turns.map((turn) => { const ranking = result.rankings.find((entry) => entry.playerId === turn.playerId); return <div className="review-row" key={turn.playerId}><strong>{playerName(session.players, turn.playerId)}</strong><span>实际下注 <CoinValue units={turn.bidUnits} /></span>{ranking && ranking.bidUnits !== turn.bidUnits && <small>排名下注 {formatCoins(ranking.bidUnits)}</small>}</div> })}</article>
               <article className="review-block"><h3>道具使用</h3>{cardTurns.length === 0 ? <p>本轮没有使用道具。</p> : cardTurns.map(({ playerId, use }, index) => { const target = use.targetPlayerId ? ` → ${playerName(session.players, use.targetPlayerId)}` : ''; const coin = use.cardId === 'fateCoin' ? `（${use.coinResult === 'heads' ? '正面' : '反面'}）` : ''; const chosen = use.cardId === 'prizeReroll' && use.prizeReroll ? ITEM_POOL.find((item) => item.id === use.prizeReroll?.chosenItemId) : null; const reroll = chosen ? `（改为 ${chosen.emoji}${chosen.name}）` : ''; return <div className="review-row" key={`${playerId}-${use.cardId}-${index}`}><strong>{playerName(session.players, playerId)}</strong><span>{getCardDefinition(use.cardId).symbol} {getCardDefinition(use.cardId).name}{coin}{reroll}{target}</span></div> })}{result.cardEffects.length > 0 && <div className="review-effects">{result.cardEffects.map((effect, index) => <small key={`${effect.cardId ?? effect.symbol}-${index}`}>{effect.description}</small>)}</div>}</article>
-              <article className="review-block"><h3>身份技能</h3>{skillTurns.length === 0 && identityEvents.length === 0 ? <p>本轮没有身份技能记录。</p> : <>{skillTurns.map((turn) => <div className="review-row" key={`${turn.playerId}-${turn.identityAction!.type}`}><strong>{playerName(session.players, turn.playerId)}</strong><span>{identityActionReview(turn.identityAction!, session.players)}</span></div>)}{identityEvents.map((event, index) => <div className="review-row review-row--event" key={`${event.playerId}-${event.title}-${index}`}><strong>{playerName(session.players, event.playerId)} · {event.title}</strong><span>{event.detail}</span>{event.deltaUnits !== 0 && <DeltaLabel units={event.deltaUnits} />}</div>)}</>}</article>
+              <article className="review-block"><h3>身份技能</h3>{skillTurns.length === 0 && identityEvents.length === 0 ? <p>本轮没有身份技能记录。</p> : <>{skillTurns.map((turn) => <div className="review-row" key={`${turn.playerId}-${turn.identityAction!.type}`}><strong>{playerName(session.players, turn.playerId)}</strong><span>{identityActionReview(turn.identityAction!, session.players, session.prophetDivinations)}</span></div>)}{identityEvents.map((event, index) => <div className="review-row review-row--event" key={`${event.playerId}-${event.title}-${index}`}><strong>{playerName(session.players, event.playerId)} · {event.title}</strong><span>{event.detail}</span>{event.deltaUnits !== 0 && <DeltaLabel units={event.deltaUnits} />}</div>)}</>}</article>
               <article className="review-block"><h3>奖励如何发放</h3>{result.rankings.length === 0 ? <p>没有唯一排名，排名奖励与拍品均未发放。</p> : <>{result.rankings.map((entry) => <div className="review-row" key={entry.playerId}><strong>第 {entry.place} 名 · {playerName(session.players, entry.playerId)}</strong><span>获奖 <CoinValue units={entry.rewardUnits} signed /></span>{entry.playerId === result.itemWinnerId && <small>获得拍品：{result.item.emoji} {result.item.name}</small>}</div>)}{result.itemWinnerId && !result.rankings.some((entry) => entry.playerId === result.itemWinnerId) && <p>拍品归属：{playerName(session.players, result.itemWinnerId)} 获得 {result.item.emoji} {result.item.name}</p>}{result.tiedPlayerIds.length > 0 && <p>并列出局：{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')}</p>}</>}</article>
               <article className="review-block review-block--wide"><h3>预测与本轮结算</h3><div className="review-settlement">{result.predictionOutcomes.map((outcome) => <div className="review-row" key={outcome.playerId}><strong>{playerName(session.players, outcome.playerId)}</strong><span>{outcome.status === 'skipped' ? '未预测' : outcome.status === 'correct' ? `猜中 ${playerName(session.players, outcome.predictedPlayerId)}` : `猜错（选择 ${playerName(session.players, outcome.predictedPlayerId)}）`}</span><DeltaLabel units={outcome.deltaUnits} /></div>)}</div>{result.winnerPaymentUnits > 0 && <p>第一名向猜中者共支付 {formatCoins(result.winnerPaymentUnits)}。</p>}<div className="review-delta-list">{result.deltas.map((delta) => <small key={delta.playerId}>{playerName(session.players, delta.playerId)}：获奖 {delta.rewardUnits > 0 ? '+' : ''}{formatCoins(delta.rewardUnits)} · 预测 {delta.predictionUnits > 0 ? '+' : ''}{formatCoins(delta.predictionUnits)} · 身份 {delta.identityUnits > 0 ? '+' : ''}{formatCoins(delta.identityUnits)}</small>)}</div></article>
               {botRecords.length > 0 && <article className="review-block review-block--wide"><h3>Bot 决策回顾</h3>{botRecords.map(({ player, record }, index) => <div className="review-row review-row--event" key={`${player.id}-${record.stage}-${index}`}><strong>{player.name} · {modeLabel(record.mode)}</strong><span>{record.reason}</span>{record.intel && <small>{record.intel}</small>}</div>)}</article>}
@@ -844,7 +873,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const nextIndex = draft.playerIndex + 1
     if (nextIndex >= players.length) {
       const routed = routeCardAwards({ players, awards: pendingAwards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex: 0 })
-      patch({ players: routed.players, cardDeck, pendingIdentityCardAwards: [], pendingIdentityNotices: [...session.pendingIdentityNotices, ...routed.notices], identityEvents: [...session.identityEvents, ...routed.events], identityAvailableIds: enabledIdentityIds(session.settings.identitySettings), identityDraft: null, phase: session.merchantAuction?.source === 'system' ? 'auctionIntro' : 'roundIntro' })
+      patch({ players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck, pendingIdentityCardAwards: [], pendingIdentityNotices: [...session.pendingIdentityNotices, ...routed.notices], identityEvents: [...session.identityEvents, ...routed.events], identityAvailableIds: enabledIdentityIds(session.settings.identitySettings), identityDraft: null, phase: session.merchantAuction?.source === 'system' ? 'auctionIntro' : 'roundIntro' })
       return
     }
     patch({ players, cardDeck, pendingIdentityCardAwards: pendingAwards, identityAvailableIds: enabledIdentityIds(session.settings.identitySettings), identityDraft: { playerIndex: nextIndex, choiceIds: dealIdentityChoices(selectedIds, session.settings.identitySettings) }, phase: 'identityHandoff' })
@@ -868,9 +897,44 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (!chosenItem) return
     patch({ itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, chosenItem), pendingPrizeReroll: { ...pending, chosenItemId: chosenItem.id } })
   }
+  const useProphetDivination = (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId): boolean => {
+    const player = session.players[session.currentTurnIndex]
+    const costUnits = Math.round(session.settings.identitySettings.prophetDivinationCoins * 2)
+    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'prophet' || player.balanceUnits < costUnits || session.prophetDivinations.some((entry) => entry.playerId === playerId && entry.roundIndex === session.roundIndex)) return false
+    const id = `prophet-${session.roundIndex}-${playerId}-${Date.now()}`
+    let divination: ProphetDivination | null = null
+    let cardDeck = [...session.cardDeck]
+    let players = session.players.map((entry) => ({ ...entry, cardInventory: [...entry.cardInventory] }))
+    if (mode === 'wealth') divination = createWealthDivination({ id, playerId, roundIndex: session.roundIndex, costUnits, balanceSnapshot: session.roundStartBalanceUnits })
+    if (mode === 'stars') divination = createStarsDivination({ id, playerId, roundIndex: session.roundIndex, costUnits, prophecyDeck: session.prophecyDeck })
+    if (mode === 'identity') {
+      const target = session.players.find((entry) => entry.id === targetPlayerId)
+      const validIdentity = identityId && !session.settings.identitySettings.disabledIdentityIds.includes(identityId)
+      if (!target || target.id === playerId || !validIdentity || !canMakeIdentityGuess(session.prophetDivinations, playerId, target.id, identityId)) return false
+      const correct = target.identity?.id === identityId
+      let rewardCardId: CardId | undefined
+      if (correct) {
+        const drawn = drawProphetRewardCard({ cardDeck, disabledCardIds: session.settings.disabledCardIds, heldCardIds: players.flatMap((entry) => entry.cardInventory), reservedCardId: session.merchantAuction?.cardId })
+        cardDeck = drawn.cardDeck
+        rewardCardId = drawn.cardId ?? undefined
+        const recipient = players.find((entry) => entry.id === playerId)
+        if (recipient && rewardCardId) recipient.cardInventory.push(rewardCardId)
+      }
+      divination = { id, playerId, roundIndex: session.roundIndex, mode: 'identity', costUnits, identityGuess: { targetPlayerId: target.id, identityId, correct, ...(rewardCardId ? { rewardCardId } : {}) } }
+    }
+    if (!divination) return false
+    players = players.map((entry) => entry.id === playerId ? { ...entry, balanceUnits: entry.balanceUnits - costUnits } : entry)
+    patch({ players, cardDeck, prophetDivinations: [...session.prophetDivinations, divination] })
+    return true
+  }
   const submitTurn = (turn: RoundTurn, botRecord?: { mode: import('./game/types').StrategyMode; reason: string; intel?: string }, timedOut = false) => {
     const currentPlayer = session.players.find((player) => player.id === turn.playerId)
     if (!currentPlayer || turn.bidUnits < 0 || turn.bidUnits > currentPlayer.balanceUnits) return false
+    if (turn.identityAction?.type === 'prophetDivination') {
+      const action = turn.identityAction
+      const divination = session.prophetDivinations.find((entry) => entry.id === action.divinationId && entry.playerId === turn.playerId && entry.roundIndex === session.roundIndex)
+      if (currentPlayer.identity?.id !== 'prophet' || !divination) return false
+    }
     if (turn.identityAction?.type === 'reverserInvert') {
       const isLastTwoRounds = session.roundIndex >= session.settings.rounds - 2
       const costUnits = Math.round(session.settings.identitySettings.reverserActivationCoins * (isLastTwoRounds ? 4 : 2))
@@ -972,7 +1036,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const strippedPlayers = grants.players.map((player) => ({ ...player, cardInventory: player.cardInventory.filter((cardId) => !awards.some((award) => award.playerId === player.id && award.cardId === cardId)) }))
     const routed = routeCardAwards({ players: strippedPlayers, awards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex })
     const deliveredKeys = new Set(routed.delivered.map((award) => `${award.playerId}-${award.cardId}`))
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: 0, turns: [], players: routed.players, cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, operationDeadlineAt: null })
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: 0, turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: grants.cardDeck, pendingCardGrants: grants.pendingCardGrants.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, operationDeadlineAt: null })
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult' })
@@ -1121,7 +1185,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       {session.phase === 'auctionBid' && <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />}
       {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={allBots} onContinue={() => patch({ phase: 'handoff' })} />}
       {session.phase === 'handoff' && <Handoff session={session} onReady={() => patch({ phase: 'privateTurn' })} />}
-      {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onArmDeadline={armTurnDeadline} />)}
+      {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onUseProphetDivination={useProphetDivination} onArmDeadline={armTurnDeadline} />)}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
       {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
       {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}

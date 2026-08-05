@@ -52,13 +52,14 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     ? { source: 'system' as const, merchantId: null, cardId: initialCardDeck[0], roundIndex: 0, bidderIndex: 0, bids: [] }
     : null
   return {
-    version: 11,
+    version: 12,
     id: createId('game'),
     phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
     itemDeck: initialItemDeck,
     prophecyDeck: initialItemDeck.map((item) => ({ ...item })),
+    roundStartBalanceUnits: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     pendingPrizeReroll: null,
     cardDeck: systemAuction ? initialCardDeck.slice(1) : initialCardDeck,
     pendingCardGrants: [],
@@ -68,6 +69,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     pendingIdentityNotices: [],
     identityContracts: [],
     identityEvents: [],
+    prophetDivinations: [],
     merchantAuction: systemAuction,
     operationDeadlineAt: null,
     cardRulesStartRound: 1,
