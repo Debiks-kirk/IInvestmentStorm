@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createGamePreset } from './presets'
+import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
 import { loadPresets, loadSession, savePresets } from './storage'
 import { CARD_DEFINITIONS } from './cards'
@@ -41,6 +41,20 @@ describe('配置预设存储', () => {
   it('损坏的预设存储会被安全忽略', () => {
     values.set('who-is-raising:presets:v1', '{not-json')
     expect(loadPresets()).toEqual([])
+  })
+
+  it('配置可导出为可移植文本并在另一台设备导入为新配置', () => {
+    const settings = createDefaultSettings(3)
+    settings.identitySettings.identityChoiceCount = 3
+    const source = createGamePreset('社区三人局', [{ name: '甲', controller: { kind: 'human' } }, { name: '乙', controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'expert' } }, { name: '丙', controller: { kind: 'human' } }], settings)
+    const raw = exportGamePreset(source)
+    expect(JSON.parse(raw)).toMatchObject({ format: 'who-is-raising-preset', version: 1, preset: { name: '社区三人局' } })
+    expect(importGamePreset(raw)).toMatchObject({ name: '社区三人局', seats: [{ name: '甲' }, { name: '乙', controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'expert' } }, { name: '丙' }], settings: { playerCount: 3, identitySettings: { identityChoiceCount: 3 } } })
+  })
+
+  it('无效的共享文本不会导入', () => {
+    expect(importGamePreset('{"format":"other"}')).toBeNull()
+    expect(importGamePreset('not-json')).toBeNull()
   })
 })
 

@@ -4,7 +4,7 @@ import { CARD_DEFINITIONS, cardTargetScope, drawCard, getCardDefinition } from '
 import { createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
-import { cloneSettings, createGamePreset, SYSTEM_PRESETS } from './game/presets'
+import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
 import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
@@ -167,6 +167,11 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
   const [errors, setErrors] = useState<string[]>([])
   const [presetName, setPresetName] = useState('')
   const [activePresetId, setActivePresetId] = useState<string | null>(null)
+  const [sharePreset, setSharePreset] = useState<GamePreset | null>(null)
+  const [shareStatus, setShareStatus] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importError, setImportError] = useState('')
 
   const applyConfiguration = (nextSeats: SeatConfig[], nextSettings: GameSettings, preset?: GamePreset) => {
     setSeats(nextSeats.map((seat) => ({ ...seat, controller: { ...seat.controller } })))
@@ -208,6 +213,40 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
     onSavePresets(presets.filter((preset) => preset.id !== presetId))
     if (activePresetId === presetId) { setActivePresetId(null); setPresetName('') }
   }
+  const sharedText = sharePreset ? exportGamePreset(sharePreset) : ''
+  const copyPreset = async () => {
+    try {
+      await navigator.clipboard.writeText(sharedText)
+      setShareStatus('已复制，可直接发给朋友或社区。')
+    } catch {
+      setShareStatus('请手动复制下方文本。')
+    }
+  }
+  const downloadPreset = () => {
+    if (!sharePreset) return
+    const blob = new Blob([sharedText], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${sharePreset.name.replace(/[\\/:*?"<>|]/g, '-') || '谁在加码配置'}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    setShareStatus('已下载配置文件。')
+  }
+  const importPreset = () => {
+    const imported = importGamePreset(importText)
+    if (!imported || !imported.name) { setImportError('这不是有效的《谁在加码》配置文件。'); return }
+    const next = createGamePreset(imported.name, imported.seats, imported.settings)
+    onSavePresets([...presets, next])
+    applyConfiguration(next.seats ?? next.names.map((name) => ({ name, controller: { kind: 'human' as const } })), next.settings, next)
+    setImportOpen(false)
+    setImportText('')
+    setImportError('')
+  }
+  const readImportFile = async (file: File | undefined) => {
+    if (!file) return
+    try { setImportText(await file.text()); setImportError('') } catch { setImportError('无法读取这个文件。') }
+  }
 
   return (
     <AppShell>
@@ -235,9 +274,9 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
           <div className="panel settings-panel">
             <div className="setting-row"><label htmlFor="rounds">轮数</label><div><input id="rounds" type="number" min="1" max="12" value={settings.rounds} onChange={(event) => setSettings({ ...settings, rounds: Number(event.target.value) })} /><span>轮</span></div></div>
             <div className="setting-row"><label htmlFor="coins">初始金币</label><div><input id="coins" type="number" min="10" max="200" value={settings.initialCoins} onChange={(event) => setSettings({ ...settings, initialCoins: Number(event.target.value) })} /><span>枚</span></div></div>
-            <button className="advanced-toggle" onClick={() => setAdvanced((value) => !value)} aria-expanded={advanced}>高级设置 <span>{advanced ? '−' : '+'}</span></button>
+            <button className="advanced-toggle" onClick={() => setAdvanced(true)} aria-haspopup="dialog"><span><strong>高级规则</strong><small>奖励、道具、身份与动画</small></span><em>打开 →</em></button>
             {advanced && (
-              <div className="advanced-settings">
+              <><button className="advanced-backdrop" aria-label="关闭高级设置" onClick={() => setAdvanced(false)} /><section className="advanced-settings" role="dialog" aria-modal="true" aria-labelledby="advanced-settings-title"><header className="advanced-settings__head"><div><p className="eyebrow">可随时保存到配置</p><h2 id="advanced-settings-title">高级规则</h2><small>调整后会立即反映在本局摘要与保存的配置中。</small></div><button className="icon-button" aria-label="关闭高级设置" onClick={() => setAdvanced(false)}>×</button></header><div className="advanced-settings__body">
                 <div className="setting-row"><label htmlFor="reward-count">获奖人数</label><select id="reward-count" value={settings.rewardMultipliers.length} onChange={(event) => setRewardCount(Number(event.target.value))}>{Array.from({ length: settings.playerCount }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 人</option>)}</select></div>
                 <div className="reward-editors">
                   {settings.rewardMultipliers.map((reward, index) => <label key={index}>第 {index + 1} 名<select value={reward} onChange={(event) => setSettings({ ...settings, rewardMultipliers: settings.rewardMultipliers.map((value, rewardIndex) => rewardIndex === index ? Number(event.target.value) : value) })}>{Array.from({ length: 10 }, (_, i) => (i + 1) / 2).map((value) => <option key={value} value={value}>{value}V</option>)}</select></label>)}
@@ -277,16 +316,18 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                 </div>
                 {settings.identitySettings.enabled && <div className="identity-settings-fields"><p>赌徒的猜中、猜错与跳过效果可分别设置；新局默认均为拍品价值的 50%。</p><label>逆转者发动费用<input type="number" min="0" max="30" step="0.5" value={settings.identitySettings.reverserActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, reverserActivationCoins: Number(event.target.value) } })} /></label><label>说客指定任务加价<input type="number" min="0" max="30" step="0.5" value={settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, lobbyistSpecifiedTaskFeeCoins: Number(event.target.value) } })} /></label></div>}
                 <div className="setting-row"><label htmlFor="motion">动画速度</label><select id="motion" value={settings.animationSpeed} onChange={(event) => setSettings({ ...settings, animationSpeed: event.target.value as GameSettings['animationSpeed'] })}><option value="full">完整</option><option value="fast">快速</option><option value="reduced">极简</option></select></div>
-              </div>
+              </div><footer className="advanced-settings__foot"><button className="button button--primary" onClick={() => setAdvanced(false)}>完成高级设置</button></footer></section></>
             )}
           </div>
         </div>
         <section className="preset-save panel"><div><p className="eyebrow">常用配置</p><h2>保存这套设置</h2><small>保存玩家姓名、轮数与所有高级规则，不会影响当前进行中的对局。</small></div><div><input aria-label="配置名称" placeholder="例如：周末六人局" maxLength={20} value={presetName} onChange={(event) => { setPresetName(event.target.value); setActivePresetId(null) }} /><button className="button button--paper" onClick={saveCurrentPreset}>{activePresetId ? '覆盖保存' : '另存配置'}</button></div></section>
         <section className="preset-panel panel">
-          <div className="panel-title"><div><p className="eyebrow">一键开局</p><h2>系统配置</h2></div><span>载入后仍可继续微调</span></div>
+          <div className="panel-title"><div><p className="eyebrow">一键开局</p><h2>系统配置</h2></div><div className="preset-library-actions"><span>载入后仍可继续微调</span><button className="button button--paper" onClick={() => { setImportOpen(true); setImportError('') }}>导入配置</button></div></div>
           <div className="preset-grid">{SYSTEM_PRESETS.map((preset) => <button key={preset.id} className="preset-choice" onClick={() => applyConfiguration(preset.seats, preset.settings)}><strong>{preset.name}</strong><small>{preset.description}</small></button>)}</div>
-          {presets.length > 0 && <><div className="panel-title saved-preset-title"><div><p className="eyebrow">本机保存</p><h2>我的配置</h2></div><span>含座位、Bot 与高级设置</span></div><div className="preset-grid">{presets.map((preset) => <div key={preset.id} className={cx('preset-choice', activePresetId === preset.id && 'is-active')}><button onClick={() => applyConfiguration(preset.seats ?? preset.names.map((name) => ({ name, controller: { kind: 'human' } })), preset.settings, preset)}><strong>{preset.name}</strong><small>{preset.names.join('、')} · {preset.settings.rounds} 轮</small></button><button className="preset-delete" aria-label={`删除${preset.name}`} onClick={() => deletePreset(preset.id)}>×</button></div>)}</div></>}
+          {presets.length > 0 && <><div className="panel-title saved-preset-title"><div><p className="eyebrow">本机保存</p><h2>我的配置</h2></div><span>含座位、Bot 与高级设置</span></div><div className="preset-grid">{presets.map((preset) => <div key={preset.id} className={cx('preset-choice', activePresetId === preset.id && 'is-active')}><button onClick={() => applyConfiguration(preset.seats ?? preset.names.map((name) => ({ name, controller: { kind: 'human' } })), preset.settings, preset)}><strong>{preset.name}</strong><small>{preset.names.join('、')} · {preset.settings.rounds} 轮</small></button><div className="preset-choice__actions"><button className="preset-export" aria-label={`导出${preset.name}`} onClick={() => { setSharePreset(preset); setShareStatus('') }}>⇧</button><button className="preset-delete" aria-label={`删除${preset.name}`} onClick={() => deletePreset(preset.id)}>×</button></div></div>)}</div></>}
         </section>
+        {sharePreset && <div className="modal-backdrop preset-transfer-backdrop" role="dialog" aria-modal="true" aria-labelledby="preset-export-title"><section className="preset-transfer-sheet"><header><div><p className="eyebrow">配置分享</p><h2 id="preset-export-title">导出「{sharePreset.name}」</h2><small>只包含玩家座位与规则，不含任何对局进度或余额。</small></div><button className="icon-button" aria-label="关闭导出" onClick={() => setSharePreset(null)}>×</button></header><textarea readOnly value={sharedText} aria-label="可分享的配置文本" /><div className="preset-transfer-actions"><button className="button button--paper" onClick={downloadPreset}>下载 .json</button><button className="button button--primary" onClick={copyPreset}>复制配置</button></div>{shareStatus && <p className="preset-transfer-status" role="status">{shareStatus}</p>}</section></div>}
+        {importOpen && <div className="modal-backdrop preset-transfer-backdrop" role="dialog" aria-modal="true" aria-labelledby="preset-import-title"><section className="preset-transfer-sheet"><header><div><p className="eyebrow">配置分享</p><h2 id="preset-import-title">导入一个配置</h2><small>粘贴别人分享的文本，或选择导出的 .json 文件。导入后会保存为本机的新配置并立刻载入。</small></div><button className="icon-button" aria-label="关闭导入" onClick={() => setImportOpen(false)}>×</button></header><textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportError('') }} placeholder="把配置文本粘贴到这里" aria-label="导入配置文本" /><label className="preset-file-picker">选择 .json 文件<input type="file" accept="application/json,.json" onChange={(event) => readImportFile(event.target.files?.[0])} /></label>{importError && <p className="preset-transfer-error" role="alert">{importError}</p>}<div className="preset-transfer-actions"><button className="button button--paper" onClick={() => setImportOpen(false)}>取消</button><button className="button button--primary" onClick={importPreset}>导入并载入</button></div></section></div>}
         {errors.length > 0 && <div className="error-box" role="alert">{errors.map((error) => <span key={error}>{error}</span>)}</div>}
         <div className="sticky-action"><div><strong>{settings.playerCount} 人 · {settings.rounds} 轮</strong><span>每人 {settings.initialCoins} 金币</span></div><button className="button button--primary button--large" onClick={submit}>开始这局 <span>→</span></button></div>
       </section>

@@ -212,6 +212,11 @@
 - `IdentitySettings.identityChoiceCount` controls how many distinct cards are dealt to each player at setup (2–5). `dealIdentityChoices` preserves the existing repeat-minimizing weighting and returns that many unique candidates; validation requires at least that many enabled non-lobbyist identities, so a candidate screen never silently shows fewer cards.
 - The advanced settings carry per-game caps for active roles. Merchant continues to use its auction counter and Nightwalker its double-bid counter; prophet uses persisted divination history; kidnapper, thief, reverser and lobbyist share `PlayerIdentity.activeSkillUses` because a player owns only one identity. UI affordances, submit validation and Bot candidate planning all use the same persisted counters.
 
+## 可移植配置格式与高级设置弹窗
+
+- `exportGamePreset` emits a standalone JSON object with `format: "who-is-raising-preset"` and `version: 1`. The payload includes only preset name, seats and cloned settings. `importGamePreset` accepts only this format, reconstructs defaults for missing legacy fields, bounds seat count to 3–10, and returns fresh data without importing IDs or timestamps.
+- The setup screen keeps mutable `settings` and `seats` as its source of truth. The advanced dialog edits those same values directly, so closing it never requires an extra save; `createGamePreset` still captures the full state. Export/import dialogs are separate from the advanced dialog and use a JSON textarea plus an optional browser file picker, avoiding any backend dependency.
+
 ## Bot 联合计划与反并列（v15）
 
 - `BotMemory.behavior` 存储每局固定、UI 不公开的七项行为倾向；`recentBidUnits` 仅保留最近八次自己报价作长期风格记录。新会话以 `gameId:playerId` 创建，迁移缺失字段时以相同稳定种子补齐；`createRematchSession` 重新保留新会话的行为字段，只映射 `grudgeByPlayerId`。
