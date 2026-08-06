@@ -3,10 +3,12 @@ import { normalizeItem } from './items'
 import { cloneSettings } from './presets'
 import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
 import { emptyBotMemory } from './bots'
-import type { CardId, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig } from './types'
+import type { CardId, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
+const HISTORY_STORAGE_KEY = 'who-is-raising:history:v1'
+const HISTORY_LIMIT = 12
 
 export function saveSession(session: GameSession): void {
   try {
@@ -166,6 +168,46 @@ export function savePresets(presets: GamePreset[]): void {
   } catch {
     // Presets remain usable for the current setup form when storage is unavailable.
   }
+}
+
+function isHistoryEntry(value: unknown): value is GameHistoryEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<GameHistoryEntry>
+  return typeof entry.id === 'string'
+    && typeof entry.completedAt === 'string'
+    && Boolean(entry.session)
+    && entry.session?.phase === 'finalResult'
+    && Array.isArray(entry.session.players)
+    && Array.isArray(entry.session.results)
+}
+
+/** Reads archived final games without touching the active-game save. */
+export function loadGameHistory(): GameHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { version?: number; entries?: unknown }
+    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return []
+    return parsed.entries.filter(isHistoryEntry).slice(0, HISTORY_LIMIT)
+  } catch {
+    return []
+  }
+}
+
+export function saveGameHistory(entries: GameHistoryEntry[]): void {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: 1, entries: entries.slice(0, HISTORY_LIMIT) }))
+  } catch {
+    // A full or blocked storage area must not interrupt the completed game.
+  }
+}
+
+/** Inserts or updates one completed session while retaining the original completion time. */
+export function archiveGameHistory(entries: GameHistoryEntry[], session: GameSession, completedAt = new Date().toISOString()): GameHistoryEntry[] {
+  if (session.phase !== 'finalResult') return entries
+  const previous = entries.find((entry) => entry.id === session.id)
+  const snapshot = JSON.parse(JSON.stringify(session)) as GameSession
+  return [{ id: session.id, completedAt: previous?.completedAt ?? completedAt, session: snapshot }, ...entries.filter((entry) => entry.id !== session.id)].slice(0, HISTORY_LIMIT)
 }
 
 export function clearSession(): void {

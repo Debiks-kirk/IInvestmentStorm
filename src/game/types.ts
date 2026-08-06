@@ -409,3 +409,11 @@ export interface GamePreset {
   updatedAt: string
   seats?: SeatConfig[]
 }
+
+/** A read-only snapshot captured when a game reaches its final leaderboard. */
+export interface GameHistoryEntry {
+  /** Uses the original session ID so repeated saves replace rather than duplicate a game. */
+  id: string
+  completedAt: string
+  session: GameSession
+}

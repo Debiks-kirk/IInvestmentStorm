@@ -6,13 +6,13 @@ import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentit
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
-import { clearSession, loadPresets, loadSession, savePresets, saveSession } from './game/storage'
+import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, prophetModeLabel } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
-import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
-type Screen = 'home' | 'setup' | 'rules' | 'game'
+type Screen = 'home' | 'setup' | 'rules' | 'history' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
 
 const MEDALS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', 'Ⅹ']
@@ -87,13 +87,15 @@ function TutorialCoach({ roundIndex }: { roundIndex: number }) {
   return <aside className="tutorial-coach" aria-live="polite"><span>✦</span><div><small>{content.step}</small><strong>{content.title}</strong><p>{content.body}</p><em>{content.note}</em></div></aside>
 }
 
-function Home({ saved, onQuickStart, onTutorial, onSetup, onContinue, onRules, onDelete }: {
+function Home({ saved, historyCount, onQuickStart, onTutorial, onSetup, onContinue, onRules, onHistory, onDelete }: {
   saved: GameSession | null
+  historyCount: number
   onQuickStart: () => void
   onTutorial: () => void
   onSetup: () => void
   onContinue: () => void
   onRules: () => void
+  onHistory: () => void
   onDelete: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -106,12 +108,12 @@ function Home({ saved, onQuickStart, onTutorial, onSetup, onContinue, onRules, o
           <h1>把筹码藏好。<br /><em>看谁笑到最后。</em></h1>
           <p className="lead">秘密下注，猜中赢家，避开并列。每一次把设备递出去，都是一次不动声色的加码。</p>
           <div className="home-actions">
-            {saved && <button className="button button--primary button--large" onClick={onContinue}>继续第 {saved.roundIndex + 1} 轮 <span>→</span></button>}
+            {saved && <button className="button button--primary button--large" onClick={onContinue}>{saved.phase === 'finalResult' ? '查看上局结果' : `继续第 ${saved.roundIndex + 1} 轮`} <span>→</span></button>}
             <button className={cx('button button--large', saved ? 'button--paper' : 'button--primary')} onClick={onSetup}>创建新对局</button>
             <button className="button button--ghost" onClick={onQuickStart}>三人快速开始</button>
             <button className="text-button home-tutorial" onClick={onTutorial}>✦ 先玩 3 轮新手引导</button>
           </div>
-          <button className="text-button" onClick={onRules}>用 30 秒看懂规则</button>
+          <div className="home-links"><button className="text-button" onClick={onRules}>用 30 秒看懂规则</button><button className="text-button" onClick={onHistory}>对局历史{historyCount > 0 ? ` · ${historyCount}` : ''}</button></div>
         </div>
         <div className="hero-table" aria-hidden="true">
           <div className="hero-table__ring">
@@ -135,6 +137,42 @@ function Home({ saved, onQuickStart, onTutorial, onSetup, onContinue, onRules, o
           ) : <button className="text-button text-button--danger" onClick={() => setConfirmDelete(true)}>删除旧局</button>}
         </footer>
       )}
+    </AppShell>
+  )
+}
+
+function historyWinner(entry: GameHistoryEntry): string {
+  const standings = rankFinalPlayers(entry.session.players)
+  const firstPlace = standings.filter((standing) => standing.place === 1)
+  return firstPlace.length ? firstPlace.map((standing) => standing.player.name).join('、') : '未产生赢家'
+}
+
+function History({ entries, onBack, onOpen, onDelete }: { entries: GameHistoryEntry[]; onBack: () => void; onOpen: (entry: GameHistoryEntry) => void; onDelete: (id: string) => void }) {
+  return (
+    <AppShell>
+      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回">←</button><Brand /><span /></header>
+      <section className="history-page">
+        <div className="history-heading"><div><p className="eyebrow">本机存档</p><h1>对局<em>历史</em></h1><p>已结束的对局会自动保存在这台设备上，不会影响正在进行的游戏。</p></div><span className="history-count">{entries.length} 局</span></div>
+        {entries.length === 0 ? <section className="history-empty panel"><span>▣</span><h2>还没有完成的对局</h2><p>完成一局后，这里会保留最终排行榜、名场面和逐轮复盘。</p><button className="button button--primary" onClick={onBack}>去开一局</button></section> : <div className="history-list">{entries.map((entry) => <article className="history-card" key={entry.id} onClick={() => onOpen(entry)} tabIndex={0} role="button" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(entry) }}><div className="history-card__date"><small>{new Date(entry.completedAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}</small><span>{new Date(entry.completedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div><div className="history-card__copy"><small>{entry.session.players.length} 人 · {entry.session.settings.rounds} 轮</small><h2>{historyWinner(entry)}</h2><p>最终赢家{rankFinalPlayers(entry.session.players).filter((standing) => standing.place === 1).length > 1 ? '们' : ''} · 点击查看完整复盘</p></div><div className="history-card__players">{entry.session.players.slice(0, 5).map((player) => <span key={player.id} style={{ '--player-color': player.color } as React.CSSProperties}>{player.name.slice(0, 1)}</span>)}{entry.session.players.length > 5 && <i>+{entry.session.players.length - 5}</i>}</div><button className="history-card__delete" aria-label="删除这局历史" title="删除这局历史" onClick={(event) => { event.stopPropagation(); onDelete(entry.id) }}>×</button><b>查看复盘 →</b></article>)}</div>}
+      </section>
+    </AppShell>
+  )
+}
+
+function HistoryDetail({ entry, onBack }: { entry: GameHistoryEntry; onBack: () => void }) {
+  const { session } = entry
+  const standings = rankFinalPlayers(session.players)
+  const highlights = createGameHighlights(session)
+  return (
+    <AppShell>
+      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回历史">←</button><Brand /><span /></header>
+      <section className="history-detail">
+        <div className="history-heading"><div><p className="eyebrow">{new Date(entry.completedAt).toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })}</p><h1>这一局的<em>结局</em></h1><p>{session.players.length} 人 · {session.settings.rounds} 轮 · 终局记录已封存。</p></div><button className="button button--paper" onClick={onBack}>返回历史</button></div>
+        <section className="history-standings panel"><div className="panel-title"><div><p className="eyebrow">最终资产</p><h2>最终排行榜</h2></div><span>现金 + 固定资产</span></div><div>{standings.map((standing) => <article key={standing.player.id} className={cx('history-standing', standing.place === 1 && 'is-first')} style={{ '--player-color': standing.player.color } as React.CSSProperties}><span>{standing.place}</span><div className="history-standing__avatar">{standing.player.name.slice(0, 1)}</div><div><strong>{standing.player.name}</strong><small>{standing.player.items.length ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有拍品收藏'}</small></div><div className="history-standing__assets"><b><CoinValue units={standing.totalAssetUnits} /></b><small>现金 {formatCoins(standing.cashUnits)} · 固定资产 +{formatCoins(standing.fixedAssetUnits)}</small></div></article>)}</div></section>
+        <section className="history-highlights panel"><div className="panel-title"><div><p className="eyebrow">终局收官</p><h2>本局名场面</h2></div><span>基于已封存的逐轮记录</span></div><div>{highlights.map((highlight) => <article key={highlight.id}><span>{highlight.symbol}</span><div><strong>{highlight.title}</strong><p>{highlight.detail}</p></div></article>)}</div></section>
+        {session.settings.identitySettings.enabled && <section className="identity-final panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>身份公开</h2></div><span>完整记录</span></div><div>{session.players.map((player) => { const identity = player.identity ? getIdentityDefinition(player.identity.id) : null; return <article key={player.id}><span>{identity?.symbol ?? '—'}</span><div><strong>{player.name} · {identity?.name ?? '未选择身份'}</strong><small>{identity?.summary ?? '本局未启用身份。'}</small></div></article> })}</div></section>}
+        <RoundReview session={session} />
+      </section>
     </AppShell>
   )
 }
@@ -1485,24 +1523,36 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [saved, setSaved] = useState<GameSession | null>(() => loadSession())
   const [presets, setPresets] = useState<GamePreset[]>(() => loadPresets())
+  const [history, setHistory] = useState<GameHistoryEntry[]>(() => loadGameHistory())
+  const [historyEntry, setHistoryEntry] = useState<GameHistoryEntry | null>(null)
   const [session, setSession] = useState<GameSession | null>(null)
 
   useEffect(() => {
     if (!session) return
     saveSession(session)
     setSaved(session)
+    if (session.phase === 'finalResult') {
+      setHistory((current) => {
+        const next = archiveGameHistory(current, session)
+        saveGameHistory(next)
+        return next
+      })
+    }
   }, [session])
 
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
   const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.seats, cloneSettings(preset.settings))) }
   const tutorialStart = () => begin(createTutorialSession())
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
+  const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
   const rematch = (keepBotGrudges: boolean) => { if (session) begin(createRematchSession(session, keepBotGrudges)) }
 
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
   if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} />
+  if (historyEntry) return <HistoryDetail entry={historyEntry} onBack={() => { setHistoryEntry(null); setScreen('history') }} />
+  if (screen === 'history') return <History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} />
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} />
-  return <Home saved={saved} onQuickStart={quickStart} onTutorial={tutorialStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onDelete={removeSaved} />
+  return <Home saved={saved} historyCount={history.length} onQuickStart={quickStart} onTutorial={tutorialStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onDelete={removeSaved} />
 }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
-import { loadPresets, loadSession, savePresets } from './storage'
+import { archiveGameHistory, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets } from './storage'
 import { CARD_DEFINITIONS } from './cards'
 
 const values = new Map<string, string>()
@@ -57,6 +57,28 @@ describe('配置预设存储', () => {
   it('无效的共享文本不会导入', () => {
     expect(importGamePreset('{"format":"other"}')).toBeNull()
     expect(importGamePreset('not-json')).toBeNull()
+  })
+})
+
+describe('对局历史存储', () => {
+  it('终局快照会按对局 ID 归档、覆盖更新并保持原完成时间', () => {
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    session.phase = 'finalResult'
+    session.results = []
+    const first = archiveGameHistory([], session, '2026-08-06T01:00:00.000Z')
+    const changed = { ...session, players: session.players.map((player, index) => index === 0 ? { ...player, balanceUnits: player.balanceUnits + 4 } : player) }
+    const second = archiveGameHistory(first, changed, '2026-08-06T02:00:00.000Z')
+    saveGameHistory(second)
+    expect(loadGameHistory()).toHaveLength(1)
+    expect(loadGameHistory()[0]).toMatchObject({ id: session.id, completedAt: '2026-08-06T01:00:00.000Z' })
+    expect(loadGameHistory()[0].session.players[0].balanceUnits).toBe(session.players[0].balanceUnits + 4)
+  })
+
+  it('损坏的历史库会被安全忽略，进行中对局不会写入历史', () => {
+    values.set('who-is-raising:history:v1', '{bad json')
+    expect(loadGameHistory()).toEqual([])
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    expect(archiveGameHistory([], session)).toEqual([])
   })
 })
 

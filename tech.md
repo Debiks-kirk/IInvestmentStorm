@@ -1,6 +1,6 @@
 # 技术基线
 
-> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-05（配置卡片视觉修复）。
+> 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-06（本地对局历史）。
 
 相关文档：[项目记忆](memory.md) · [计划](plan.md) · [进度](progress.md) · [调研](research.md)
 
@@ -155,6 +155,12 @@
 
 - 完整可玩首版已实现；28 个单元测试、3/6/10 人端到端冒烟测试和生产构建均通过。
 - Render Blueprint 已配置并已由连接的 GitHub 仓库部署为 Vite 静态站点；后续发布可由仓库推送触发，或在 Render 控制台手动同步。
+
+## 本地对局历史
+
+- `GameHistoryEntry` 保存 `id`、`completedAt` 与完整的终局 `GameSession` 深拷贝。`storage.ts` 以独立键 `who-is-raising:history:v1` 读写，历史容量上限为 12；解析失败或结构不合法时安全返回空列表。
+- 根组件只在 `phase === 'finalResult'` 时调用 `archiveGameHistory`。同一会话 ID 会替换旧快照且保留原完成时间，因此终局页面重渲染或刷新不会产生重复历史。
+- 历史详情复用 `rankFinalPlayers`、`createGameHighlights` 与 `RoundReview` 的纯展示路径；不提供继续、重开、提交或结算入口，因此存档不会被历史浏览污染。
 
 ## 开放技术问题
 
