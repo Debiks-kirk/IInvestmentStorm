@@ -120,6 +120,28 @@ describe('Bot 信息边界与决策', () => {
     expect(decision.predictedPlayerId).toBeNull()
   })
 
+  it('收藏家会把命中类别的即时金币与资产跳档一起计入竞拍计划', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    session.players[0].identity = { id: 'collector', collectorCategory: 'luxury', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    session.players[0].items = [{ item: { ...session.itemDeck[0], id: 'old-luxury', category: 'luxury', value: 7 }, roundIndex: -1 }]
+    session.itemDeck[0] = { ...session.itemDeck[0], id: 'current-luxury', category: 'luxury', value: 9 }
+    const target = decideBotTurn(buildBotObservation(session, session.players[0].id), 'collectorBot', 'standard', emptyBotMemory('collector-focus'))
+    const unrelatedSession = { ...session, itemDeck: [{ ...session.itemDeck[0], category: 'transport' as const }, ...session.itemDeck.slice(1)] }
+    const unrelated = decideBotTurn(buildBotObservation(unrelatedSession, unrelatedSession.players[0].id), 'collectorBot', 'standard', emptyBotMemory('collector-focus'))
+    expect(target.mode).toBe('collect')
+    expect(target.reason).toContain('即时奖励与套装增量')
+    expect(unrelated.mode).not.toBe('collect')
+  })
+
+  it('稳健 Bot 会在非终局保留周转金，而不是把全部余额投入普通拍品', () => {
+    const session = createSession(seats(), createDefaultSettings(6))
+    session.players[0].balanceUnits = 60
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 7, category: 'leisure' }
+    const decision = decideBotTurn(buildBotObservation(session, session.players[0].id), 'steady', 'standard', emptyBotMemory('cash-buffer'))
+    expect(decision.bidUnits).toBeLessThan(session.players[0].balanceUnits)
+    expect(decision.reason).toContain('预留约')
+  })
+
   it('命运硬币被 Bot 纳入计划时会在提交前固定正反面', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     session.players[0].cardInventory = ['fateCoin']

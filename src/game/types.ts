@@ -34,6 +34,10 @@ export interface BotMemory {
 
 export interface BotBehavior {
   reserveBias: number
+  /** Per-game appetite for keeping a playable cash buffer. */
+  bankrollBias: number
+  /** How strongly this bot commits to item-category combinations. */
+  assetFocusBias: number
   edgeBias: number
   riskBias: number
   antiLeaderBias: number
@@ -337,7 +341,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 18
+  version: 19
   id: string
   phase: GamePhase
   settings: GameSettings
