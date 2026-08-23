@@ -1,5 +1,12 @@
 # 技术基线
 
+## 预言家双轨推演（v20 兼容）
+
+- `GameSession.prophetIdentityCandidates` 按“预言家 ID → 目标 ID”保存六个身份候选，身份草案完成时生成；候选含真实身份，顺序已锁定，刷新不重新随机。
+- `ProphetDivination.identityGuesses` 允许同一回合保存两条猜测。`canMakeIdentityGuess` 同时读取新数组与旧版单条 `identityGuess`，以兼容历史会话，并阻止重复组合及已识破目标。
+- `PrivateTurn` 将观财／观星和观身份分别限流：前者每回合一次、受 `prophetDivinationLimit` 限制；后者免费、每回合最多两名，独立于该次数。累计正确数跨回合统计，达到 `min(3, 其他玩家数)` 后写入 `pendingProphetCardOffers`，候选六张不同道具在产生时即锁定。
+- 奖励选择会从循环卡池移走所选实体；若池中没有该实体仍保留奖励发卡语义，避免被库存状态阻断。Bot 在私密回合优先完成尚未选满的奖励，确保全 Bot 对局不会停滞。
+
 > 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-06（本地对局历史）。
 
 相关文档：[项目记忆](memory.md) · [计划](plan.md) · [进度](progress.md) · [调研](research.md)

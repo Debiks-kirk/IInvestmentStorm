@@ -41,9 +41,11 @@ export function createStarsDivination({ id, playerId, roundIndex, costUnits, pro
 }
 
 export function canMakeIdentityGuess(divinations: ProphetDivination[], playerId: string, targetPlayerId: string, identityId: IdentityId): boolean {
-  const guesses = divinations.filter((entry) => entry.playerId === playerId && entry.mode === 'identity' && entry.identityGuess)
-  if (guesses.some((entry) => entry.identityGuess!.targetPlayerId === targetPlayerId && entry.identityGuess!.correct)) return false
-  return !guesses.some((entry) => entry.identityGuess!.targetPlayerId === targetPlayerId && entry.identityGuess!.identityId === identityId)
+  const guesses = divinations
+    .filter((entry) => entry.playerId === playerId && entry.mode === 'identity')
+    .flatMap((entry) => entry.identityGuesses ?? (entry.identityGuess ? [entry.identityGuess] : []))
+  if (guesses.some((guess) => guess.targetPlayerId === targetPlayerId && guess.correct)) return false
+  return !guesses.some((guess) => guess.targetPlayerId === targetPlayerId && guess.identityId === identityId)
 }
 
 export function drawProphetRewardCard({ cardDeck, disabledCardIds, heldCardIds, reservedCardId, roll = Math.random }: {

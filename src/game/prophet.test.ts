@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard } from './prophet'
+import type { ProphetDivination } from './types'
 
 describe('预言家天机推演', () => {
   it('观财只使用开局快照，并令每个区间包含真实余额', () => {
@@ -21,6 +22,19 @@ describe('预言家天机推演', () => {
     expect(canMakeIdentityGuess([...history], 'p', 't', 'gambler')).toBe(false)
     expect(canMakeIdentityGuess([...history], 'p', 't', 'collector')).toBe(true)
     expect(canMakeIdentityGuess([...history], 'p', 'win', 'prophet')).toBe(false)
+  })
+
+  it('同一回合的两次观身份都会计入排除与已识破限制', () => {
+    const history: ProphetDivination[] = [{
+      id: 'two-guesses', playerId: 'p', roundIndex: 2, mode: 'identity', costUnits: 0,
+      identityGuesses: [
+        { targetPlayerId: 'a', identityId: 'gambler', correct: false },
+        { targetPlayerId: 'b', identityId: 'collector', correct: true },
+      ],
+    }]
+    expect(canMakeIdentityGuess([...history], 'p', 'a', 'gambler')).toBe(false)
+    expect(canMakeIdentityGuess([...history], 'p', 'a', 'merchant')).toBe(true)
+    expect(canMakeIdentityGuess([...history], 'p', 'b', 'prophet')).toBe(false)
   })
 
   it('观身份奖励从未持有且未预留的卡池抽卡，空池时补一张', () => {
