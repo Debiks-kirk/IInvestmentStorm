@@ -500,8 +500,7 @@ function applyBidJitter(best: ScoredPlan, observation: BotObservation, profile: 
     : best.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits
       : best.identityAction?.type === 'thiefSteal' ? observation.thiefActivationUnits
         : best.identityAction?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits : 0
-  const fateReserve = best.cardUses.some((use) => use.cardId === 'fateCoin') && memory.behavior.riskBias < .45 ? coinsToUnits(4) : 0
-  const cap = Math.max(0, observation.self.balanceUnits - identityCost - fateReserve)
+  const cap = Math.max(0, observation.self.balanceUnits - identityCost)
   const standardDeviation = behavioralTemperatureUnits(observation, profile, difficulty, mode, memory) * .65
   // 绝大多数报价落在中心附近，少量较大胆/保守的偏移来自正态尾部；截断避免无意义的梭哈或归零。
   const fingerprintOffset = (memory.behavior.quoteFingerprint % 5) - 2
@@ -587,10 +586,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     const valueMultiplier = plan.cardUses.reduce((multiplier, use) => use.cardId === 'red' ? multiplier * 2 : use.cardId === 'black' ? multiplier * .5 : multiplier, 1)
     const valueUnits = coinsToUnits(observation.item?.value ?? 0) * valueMultiplier
     const actionCost = identityCost(plan.identityAction)
-    const fateReserve = plan.cardUses.some((use) => use.cardId === 'fateCoin') && behavior.riskBias < .45 ? coinsToUnits(4) : 0
-    const capUnits = Math.max(0, observation.self.balanceUnits - actionCost - fateReserve - reserveUnits)
+    const capUnits = Math.max(0, observation.self.balanceUnits - actionCost - reserveUnits)
     for (const bidUnits of planBidCandidates(plan, capUnits)) {
-      if (bidUnits + actionCost + fateReserve > observation.self.balanceUnits) continue
+      if (bidUnits + actionCost > observation.self.balanceUnits) continue
       const rankingBidUnits = (plan.rankingBidFromTargetId ? expectedCurrentBid(observation, plan.rankingBidFromTargetId) : bidUnits) * plan.rankingMultiplier
       const overrides = plan.rivalBidOverrides ? { ...plan.rivalBidOverrides } : {}
       if (plan.rankingBidFromTargetId) overrides[plan.rankingBidFromTargetId] = bidUnits
@@ -613,7 +611,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const kidnapValue = kidnapChance * kidnapAssetValue
       const kidnapRisk = (plan.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits : 0) * (1 - kidnapChance)
       const cashRisk = bidUnits * (mode === 'conserve' ? 1.28 : mode === 'finalSprint' ? .78 : 1) * riskFactor + actionCost + kidnapRisk
-      const remainingCash = observation.self.balanceUnits - bidUnits - actionCost - fateReserve
+      const remainingCash = observation.self.balanceUnits - bidUnits - actionCost
       const bankruptcyFloor = coinsToUnits(1.5 + Math.max(0, behavior.bankrollBias) * .8)
       const bankruptcyPenalty = observation.roundIndex < observation.totalRounds - 2 && remainingCash < bankruptcyFloor
         ? (bankruptcyFloor - Math.max(0, remainingCash)) * (1.15 + (1 - profile.risk) * .8)
@@ -646,7 +644,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     const baseEstimate = estimatePlaceAndChance(observation, best.rankingBidUnits, observation.playerId, {}, quoteCache)
     const baseReward = valueUnits * (observation.rewardMultipliers[baseEstimate.place - 1] ?? 0) * baseEstimate.uniqueChance
     const baseNet = baseReward - best.bidUnits
-    const availableAfterImmediateCards = Math.max(0, observation.self.balanceUnits - (cardUses.some((use) => use.cardId === 'fateCoin' && use.coinResult === 'tails') ? coinsToUnits(4) : 0))
+    const availableAfterImmediateCards = observation.self.balanceUnits + (cardUses.some((use) => use.cardId === 'fateCoin' && use.coinResult === 'heads') ? coinsToUnits(10) : 0)
     const shadows = Array.from({ length: Math.max(0, availableAfterImmediateCards - best.bidUnits) }, (_, index) => best.bidUnits + index + 1)
     const prioritizeItem = profile.collect + behavior.cardBias * .12 >= .42
     const baseLikelyWinsItem = baseEstimate.place === 1 && baseEstimate.uniqueChance >= .42
