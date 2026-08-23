@@ -1,5 +1,19 @@
 import { CARD_DEFINITIONS } from './cards'
-import type { CardId, GameSession, IdentityId, ProphetDivination, ProphetDivinationMode } from './types'
+import type { CardId, GameSession, IdentityId, ProphetDivination, ProphetDivinationMode, ProphetIdentityProgress } from './types'
+
+export function getProphetIdentityProgress(divinations: ProphetDivination[], playerId: string, targetPlayerId: string, persisted?: ProphetIdentityProgress): ProphetIdentityProgress {
+  const guesses = divinations
+    .filter((entry) => entry.playerId === playerId && entry.mode === 'identity')
+    .flatMap((entry) => entry.identityGuesses ?? (entry.identityGuess ? [entry.identityGuess] : []))
+    .filter((guess) => guess.targetPlayerId === targetPlayerId)
+  const excludedIdentityIds = new Set<IdentityId>(persisted?.excludedIdentityIds ?? [])
+  let solvedIdentityId = persisted?.solvedIdentityId
+  for (const guess of guesses) {
+    if (guess.correct) solvedIdentityId = guess.identityId
+    else excludedIdentityIds.add(guess.identityId)
+  }
+  return { excludedIdentityIds: [...excludedIdentityIds], ...(solvedIdentityId ? { solvedIdentityId } : {}) }
+}
 
 function intervalContaining(valueUnits: number, roll: () => number): [number, number] {
   const widthUnits = 4 // Two coins wide, expressed in half-coin units.
@@ -41,11 +55,8 @@ export function createStarsDivination({ id, playerId, roundIndex, costUnits, pro
 }
 
 export function canMakeIdentityGuess(divinations: ProphetDivination[], playerId: string, targetPlayerId: string, identityId: IdentityId): boolean {
-  const guesses = divinations
-    .filter((entry) => entry.playerId === playerId && entry.mode === 'identity')
-    .flatMap((entry) => entry.identityGuesses ?? (entry.identityGuess ? [entry.identityGuess] : []))
-  if (guesses.some((guess) => guess.targetPlayerId === targetPlayerId && guess.correct)) return false
-  return !guesses.some((guess) => guess.targetPlayerId === targetPlayerId && guess.identityId === identityId)
+  const progress = getProphetIdentityProgress(divinations, playerId, targetPlayerId)
+  return !progress.solvedIdentityId && !progress.excludedIdentityIds.includes(identityId)
 }
 
 export function drawProphetRewardCard({ cardDeck, disabledCardIds, heldCardIds, reservedCardId, roll = Math.random }: {

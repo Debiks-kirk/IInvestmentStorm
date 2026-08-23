@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard } from './prophet'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress } from './prophet'
 import type { ProphetDivination } from './types'
 
 describe('预言家天机推演', () => {
@@ -35,6 +35,21 @@ describe('预言家天机推演', () => {
     expect(canMakeIdentityGuess([...history], 'p', 'a', 'gambler')).toBe(false)
     expect(canMakeIdentityGuess([...history], 'p', 'a', 'merchant')).toBe(true)
     expect(canMakeIdentityGuess([...history], 'p', 'b', 'prophet')).toBe(false)
+  })
+
+  it('会从历史记录重建持久排除与识破状态', () => {
+    const history: ProphetDivination[] = [{
+      id: 'past', playerId: 'p', roundIndex: 0, mode: 'identity', costUnits: 0,
+      identityGuesses: [
+        { targetPlayerId: 'target', identityId: 'gambler', correct: false },
+        { targetPlayerId: 'target', identityId: 'merchant', correct: false },
+      ],
+    }, {
+      id: 'solved', playerId: 'p', roundIndex: 1, mode: 'identity', costUnits: 0,
+      identityGuess: { targetPlayerId: 'solved-target', identityId: 'collector', correct: true },
+    }]
+    expect(getProphetIdentityProgress(history, 'p', 'target')).toEqual({ excludedIdentityIds: ['gambler', 'merchant'] })
+    expect(getProphetIdentityProgress(history, 'p', 'solved-target')).toEqual({ excludedIdentityIds: [], solvedIdentityId: 'collector' })
   })
 
   it('观身份奖励从未持有且未预留的卡池抽卡，空池时补一张', () => {

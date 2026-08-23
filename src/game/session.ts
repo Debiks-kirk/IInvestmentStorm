@@ -86,7 +86,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   const firstDraw = drawCard(initialCardDeck, settings.disabledCardIds)
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 20,
+    version: 21,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -110,6 +110,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     roundAuctions: firstDraw.cardId ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system', merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }] : [],
     pendingMerchantOffers: [],
     prophetIdentityCandidates: {},
+    prophetIdentityProgress: {},
     pendingProphetCardOffers: [],
     finalReceiptIndex: null,
     operationDeadlineAt: null,

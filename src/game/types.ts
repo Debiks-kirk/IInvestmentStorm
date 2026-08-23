@@ -176,6 +176,12 @@ export interface ProphetDivination {
   identityGuesses?: Array<{ targetPlayerId: string; identityId: IdentityId; correct: boolean; rewardCardId?: CardId }>
 }
 
+/** Durable per-target progress. This is deliberately separate from the replay log so old guesses cannot reappear after a UI rerender or migration. */
+export interface ProphetIdentityProgress {
+  excludedIdentityIds: IdentityId[]
+  solvedIdentityId?: IdentityId
+}
+
 export interface PlayerIdentity {
   id: IdentityId
   targetPlayerId?: string
@@ -356,7 +362,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 20
+  version: 21
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -394,6 +400,8 @@ export interface GameSession {
   pendingMerchantOffers: Array<{ playerId: string; roundIndex: number; offeredCardIds: CardId[]; chosenCardId?: CardId }>
   /** Prophet-private stable candidate identities, keyed by prophet then target. */
   prophetIdentityCandidates: Record<string, Record<string, IdentityId[]>>
+  /** Prophet-private solved/excluded state, keyed by prophet then target. */
+  prophetIdentityProgress: Record<string, Record<string, ProphetIdentityProgress>>
   /** One-time six-card / choose-two reward, locked before the owner can choose. */
   pendingProphetCardOffers: Array<{ playerId: string; offeredCardIds: CardId[]; chosenCardIds: CardId[] }>
   /** Final round receipts are shown seat by seat before the public leaderboard. */

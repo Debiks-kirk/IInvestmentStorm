@@ -4,6 +4,7 @@
 
 - `GameSession.prophetIdentityCandidates` 按“预言家 ID → 目标 ID”保存六个身份候选，身份草案完成时生成；候选含真实身份，顺序已锁定，刷新不重新随机。
 - `ProphetDivination.identityGuesses` 允许同一回合保存两条猜测。`canMakeIdentityGuess` 同时读取新数组与旧版单条 `identityGuess`，以兼容历史会话，并阻止重复组合及已识破目标。
+- `GameSession.prophetIdentityProgress` 是预言家跨轮私密进度的权威快照：每个目标保存 `excludedIdentityIds` 与可选的 `solvedIdentityId`。迁移通过完整历史重建该快照；UI 同时读取快照与历史作防御性合并，提交校验也拒绝已排除或已识破目标，防止状态重新出现。
 - `PrivateTurn` 将观财／观星和观身份分别限流：前者每回合一次、受 `prophetDivinationLimit` 限制；后者免费、每回合最多两名，独立于该次数。累计正确数跨回合统计，达到 `min(3, 其他玩家数)` 后写入 `pendingProphetCardOffers`，候选六张不同道具在产生时即锁定。
 - 奖励选择会从循环卡池移走所选实体；若池中没有该实体仍保留奖励发卡语义，避免被库存状态阻断。Bot 在私密回合优先完成尚未选满的奖励，确保全 Bot 对局不会停滞。
 
