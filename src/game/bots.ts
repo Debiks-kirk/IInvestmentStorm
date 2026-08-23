@@ -407,6 +407,10 @@ function cardUseVariants(observation: BotObservation): CardUse[][] {
     if (candidates[left].cardId === 'prizeReroll' || candidates[right].cardId === 'prizeReroll') continue
     if (candidates[left].cardId !== candidates[right].cardId) variants.push([candidates[left], candidates[right]])
   }
+  // The player-facing rule has no per-round card cap. Keep planning bounded, but
+  // include a combined multi-card option so Bots can still exploit a full hand.
+  const combined = candidates.filter((candidate, index, all) => candidate.cardId !== 'prizeReroll' && all.findIndex((entry) => entry.cardId === candidate.cardId) === index)
+  if (combined.length > 2) variants.push(combined)
   const seen = new Set<string>()
   const unique = variants.filter((variant) => {
     const key = variant.map((use) => `${use.cardId}:${use.targetPlayerId ?? ''}`).sort().join('|')

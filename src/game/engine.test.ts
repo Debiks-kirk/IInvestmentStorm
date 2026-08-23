@@ -320,14 +320,14 @@ describe('道具卡结算', () => {
     expect(result.effectiveValueUnits).toBe(coinsToUnits(5))
   })
 
-  it('结算内核最多读取每位玩家的两张道具', () => {
+  it('结算内核读取每位玩家本轮安排的全部不同道具', () => {
     const result = settle(players([20, 20, 20]), [
       { ...turn('p1', 9), cardUses: [{ cardId: 'red' }, { cardId: 'black' }, { cardId: 'fateCoin', coinResult: 'heads' }] },
       turn('p2', 7),
       turn('p3', 2),
     ]).result
     expect(result.effectiveValueUnits).toBe(coinsToUnits(5))
-    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(0)
+    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(10))
   })
 
   it('劫富济贫在奖励前按半金币公平分配，并在公开收益中保持匿名', () => {

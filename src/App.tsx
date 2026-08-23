@@ -564,6 +564,37 @@ function ProphetResult({ divination, session }: { divination: ProphetDivination;
   return <div className="prophet-result"><strong>观身份记录</strong>{guesses.map((guess, index) => <span key={`${guess.targetPlayerId}-${guess.identityId}-${index}`}>{guess.correct ? `✓ ${playerName(session.players, guess.targetPlayerId)} 是${getIdentityDefinition(guess.identityId).name}。${guess.rewardCardId ? `获得 ${getCardDefinition(guess.rewardCardId).name}。` : '卡池没有可用道具。'}` : `× ${playerName(session.players, guess.targetPlayerId)} 不是${getIdentityDefinition(guess.identityId).name}，已排除。`}</span>)}<small>同一玩家与身份组合不能再次猜测。</small></div>
 }
 
+function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], requiredCount, onChoose }: {
+  eyebrow: string
+  title: string
+  detail: string
+  cardIds: CardId[]
+  chosenCardIds?: CardId[]
+  requiredCount: number
+  onChoose: (cardId: CardId) => void
+}) {
+  const selectedCount = chosenCardIds.length
+  const remainingCount = Math.max(0, requiredCount - selectedCount)
+  return <section className="confirm-sheet card-offer-sheet">
+    <div className="card-offer-sheet__head">
+      <div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{detail}</p></div>
+      <div className={cx('card-offer-progress', remainingCount === 0 && 'is-complete')} aria-live="polite"><strong>{selectedCount} / {requiredCount}</strong><small>{remainingCount > 0 ? `还需选择 ${remainingCount} 张` : '选择完成'}</small></div>
+    </div>
+    <div className="card-offer-grid" role="list" aria-label={title}>
+      {cardIds.map((cardId) => {
+        const card = getCardDefinition(cardId)
+        const chosen = chosenCardIds.includes(cardId)
+        return <button key={cardId} type="button" role="listitem" className={cx('card-offer-choice', chosen && 'is-selected')} disabled={chosen} onClick={() => onChoose(cardId)}>
+          <span className="card-offer-choice__symbol">{card.symbol}</span>
+          <strong>{card.name} <CardRarityTag cardId={cardId} /></strong>
+          <small>{chosen ? '已选入奖励' : card.description}</small>
+          <em>{chosen ? '✓ 已选择' : requiredCount > 1 ? '点击选择' : '选择这张'}</em>
+        </button>
+      })}
+    </div>
+  </section>
+}
+
 function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll, onStartMerchantOffer, onChooseMerchantOffer, onChooseProphetOffer, onUseProphetDivination, onResolveFateCoin, onArmDeadline }: { session: GameSession; onSubmit: (turn: RoundTurn, timedOut?: boolean) => void; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string) => void; onChoosePrizeReroll: (itemId: string) => void; onStartMerchantOffer: (playerId: string) => void; onChooseMerchantOffer: (cardId: CardId) => void; onChooseProphetOffer: (playerId: string, cardId: CardId) => void; onUseProphetDivination: (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId) => boolean; onResolveFateCoin: (playerId: string, result: 'heads' | 'tails') => CardUse | null; onArmDeadline: () => void }) {
   const player = session.players[session.currentTurnIndex]
   const item = session.itemDeck[session.roundIndex]
@@ -611,7 +642,6 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const lockedPrizeReroll = session.pendingPrizeReroll?.playerId === player.id && session.pendingPrizeReroll.roundIndex === session.roundIndex ? session.pendingPrizeReroll : null
   const lockedFateCoinUse = session.pendingFateCoinUse?.playerId === player.id && session.pendingFateCoinUse.roundIndex === session.roundIndex ? session.pendingFateCoinUse.use : null
   const allConfirmedCardUses = [...confirmedCardUses.filter((use) => use.cardId !== 'fateCoin'), ...(lockedFateCoinUse ? [lockedFateCoinUse] : [])]
-  const cardSlotsRemaining = 2 - allConfirmedCardUses.length - (lockedPrizeReroll ? 1 : 0)
   const canSubmitCards = !cardConfirming && targetPicker !== 'card' && (!lockedPrizeReroll || Boolean(lockedPrizeReroll.chosenItemId))
   const openCardConfirmation = (use: CardUse) => {
     setCardConfirming(use)
@@ -819,7 +849,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {identity.id === 'lobbyist' && <>{lobbyUnavailableReason ? <><p>{lobbyUnavailableReason}。</p><button className="button" disabled>{lobbyUnavailableReason}</button></> : <div className="lobbyist-form"><strong>本局还可发布 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b> · 发布下一轮任务 {lobbyFee === 0 ? <b className="status-token status-token--free">本轮免费</b> : <>· 基础费用 {lobbyFee} 金币</>}</strong><p>下回合向指定玩家发布一项任务，若对方未完成任务，则向你支付一定金币。指定任务额外支付 {session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币。</p><button className={cx('button', identityAction?.type === 'lobbyistContract' && 'button--primary')} disabled={identityAction?.type !== 'lobbyistContract' && lobbyOpeningShortfallUnits > 0} onClick={() => identityAction?.type === 'lobbyistContract' ? setIdentityAction(undefined) : setTargetPicker('lobbyTask')}>{identityAction?.type === 'lobbyistContract' ? lobbyShortfallUnits > 0 ? `任务已选，但余额还差 ${formatCoins(lobbyShortfallUnits)} 金币` : `已安排：${identityAction.specified && identityAction.taskType ? taskLabel(identityAction.taskType) : '随机任务'} → ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : lobbyOpeningShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(lobbyOpeningShortfallUnits)} 金币` : '发动技能'}</button></div>}</>}</div>}
       </section>
       <section className="card-inventory panel">
-        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮还可使用 <b className="status-token status-token--count">{cardSlotsRemaining} 张</b></span></div>
+        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的道具</h2></div><span>本轮已安排 <b className="status-token status-token--count">{allConfirmedCardUses.length + (lockedPrizeReroll ? 1 : 0)} 张</b></span></div>
         {visibleCardInventory.length === 0 ? <p className="empty-cards">{tutorial && !advancedToolsUnlocked ? '第 3 轮会解锁一张简单道具卡；先专注这一轮的新选择。' : '暂时没有道具卡。落后时，下一轮可能得到秘密支援。'}</p> : <div className="card-list">{visibleCardInventory.map((cardId) => {
           const card = getCardDefinition(cardId)
           const unavailable = cardTargetScope(cardId) !== 'none' && targetPlayersForCard(cardId).length === 0
@@ -828,7 +858,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           const prizeRerollBusy = cardId === 'prizeReroll' && Boolean(lockedPrizeReroll)
           const passiveShield = cardId === 'reflectShield'
           const nonCancelable = cardId === 'fateCoin' || cardId === 'peek'
-          return <button key={cardId} className={cx('card-choice', `card-choice--${card.rarity}`, (confirmed || prizeRerollBusy) && 'is-selected')} disabled={passiveShield || (nonCancelable && Boolean(confirmed)) || (!confirmed && (unavailable || prizeRerollUnavailable || prizeRerollBusy || cardSlotsRemaining === 0 || (nightwalkerActive && rankChangingCardIds.includes(cardId))))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name} <CardRarityTag cardId={cardId} /></strong><small>{passiveShield ? '自动防御：受到香蕉皮或偷天换日影响时自动反弹并消耗，不占本轮道具次数。' : confirmed ? cardId === 'fateCoin' ? '硬币结果已锁定，本轮不能重掷。' : cardId === 'peek' ? '已查看投资额，本轮使用已锁定。' : '本轮已安排，点击取消。' : nightwalkerActive && rankChangingCardIds.includes(cardId) ? '已发动双影下注，本轮不能搭配改变排名下注的效果。' : prizeRerollUnavailable ? '最后一轮没有下一轮拍品，无法使用。' : prizeRerollBusy ? '候选拍品已锁定，请完成选择。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : cardSlotsRemaining === 0 ? '本轮已安排两张道具。' : card.description}</small></div><i>{(confirmed || prizeRerollBusy) ? '✓' : ''}</i></button>
+          return <button key={cardId} className={cx('card-choice', `card-choice--${card.rarity}`, (confirmed || prizeRerollBusy) && 'is-selected')} disabled={passiveShield || (nonCancelable && Boolean(confirmed)) || (!confirmed && (unavailable || prizeRerollUnavailable || prizeRerollBusy || (nightwalkerActive && rankChangingCardIds.includes(cardId))))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name} <CardRarityTag cardId={cardId} /></strong><small>{passiveShield ? '自动防御：受到香蕉皮或偷天换日影响时自动反弹并消耗。' : confirmed ? cardId === 'fateCoin' ? '硬币结果已锁定，本轮不能重掷。' : cardId === 'peek' ? '已查看投资额，本轮使用已锁定。' : '本轮已安排，点击取消。' : nightwalkerActive && rankChangingCardIds.includes(cardId) ? '已发动双影下注，本轮不能搭配改变排名下注的效果。' : prizeRerollUnavailable ? '最后一轮没有下一轮拍品，无法使用。' : prizeRerollBusy ? '候选拍品已锁定，请完成选择。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : card.description}</small></div><i>{(confirmed || prizeRerollBusy) ? '✓' : ''}</i></button>
         })}</div>}
       </section>
       {lockedPrizeReroll && <section className="panel prize-reroll-picker" aria-label="改拍令选择">
@@ -836,8 +866,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
         <p>{lockedPrizeReroll.chosenItemId ? '你已锁定下一轮拍品，不能更改。' : '这 6 张拍品已在确认后抽出并写入存档；选择后不能撤销或重抽。'}</p>
         <div className="prize-reroll-options">{lockedPrizeReroll.offeredItems.map((candidate) => <button key={candidate.id} className={cx('prize-reroll-option', lockedPrizeReroll.chosenItemId === candidate.id && 'is-selected')} disabled={Boolean(lockedPrizeReroll.chosenItemId)} onClick={() => onChoosePrizeReroll(candidate.id)}><span>{candidate.emoji}</span><strong>{candidate.name}</strong><small>价值 {candidate.value}</small></button>)}</div>
       </section>}
-      {pendingMerchantOffer && !pendingMerchantOffer.chosenCardId && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="confirm-sheet"><p className="eyebrow">道具商人 · 已锁定候选</p><h2>选择下一轮要竞购的道具</h2><p>三张候选已经抽出并保存；选择后不能重抽，另外两张会回到循环池。</p><div className="merchant-offer-list">{pendingMerchantOffer.offeredCardIds.map((cardId) => { const card = getCardDefinition(cardId); return <button key={cardId} onClick={() => onChooseMerchantOffer(cardId)}><span>{card.symbol}</span><strong>{card.name} <CardRarityTag cardId={cardId} /></strong><small>{card.description}</small></button> })}</div></section></div>}
-      {pendingProphetOffer && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="confirm-sheet"><p className="eyebrow">预言家 · 识破里程碑</p><h2>从 6 张不同道具中选择 2 张</h2><p>你已累计识破足够多的身份。候选已锁定，选择不能撤销。</p><div className="merchant-offer-list">{pendingProphetOffer.offeredCardIds.map((cardId) => { const card = getCardDefinition(cardId); const chosen = pendingProphetOffer.chosenCardIds.includes(cardId); return <button key={cardId} disabled={chosen} onClick={() => onChooseProphetOffer(player.id, cardId)}><span>{card.symbol}</span><strong>{card.name} <CardRarityTag cardId={cardId} /></strong><small>{chosen ? '已选择' : card.description}</small></button> })}</div></section></div>}
+      {pendingMerchantOffer && !pendingMerchantOffer.chosenCardId && <div className="modal-backdrop" role="dialog" aria-modal="true"><CardOfferPicker eyebrow="道具商人 · 已锁定候选" title="选择下一轮要竞购的道具" detail="三张候选已经抽出并保存；选择后不能重抽，另外两张会回到循环池。" cardIds={pendingMerchantOffer.offeredCardIds} requiredCount={1} onChoose={onChooseMerchantOffer} /></div>}
+      {pendingProphetOffer && <div className="modal-backdrop" role="dialog" aria-modal="true"><CardOfferPicker eyebrow="预言家 · 识破里程碑" title="从 6 张不同道具中选择 2 张" detail="候选已锁定且不能重抽。每次点击都会立刻收下该卡，选满两张后自动结束。" cardIds={pendingProphetOffer.offeredCardIds} chosenCardIds={pendingProphetOffer.chosenCardIds} requiredCount={2} onChoose={(cardId) => onChooseProphetOffer(player.id, cardId)} /></div>}
       <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{[...allConfirmedCardUses.map((use) => getCardDefinition(use.cardId).name), ...(lockedPrizeReroll ? ['改拍令'] : [])].join('、') || '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCards || !lobbyActionValid || (identityAction?.type === 'lobbyistContract' && lobbyShortfallUnits > 0)} onClick={() => setConfirming(true)}>确认我的选择</button></div>
       {confirming && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
@@ -1299,7 +1329,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         chosenItemId: lockedPrizeReroll.chosenItemId as string,
       },
     }] : [])]
-    if (cardUses.length > 2 || new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return false
+    if (new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return false
     for (const use of cardUses) {
       if (use.cardId === 'reflectShield') return false
       const isLockedPrizeReroll = use.cardId === 'prizeReroll' && Boolean(lockedPrizeReroll)

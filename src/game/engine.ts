@@ -109,7 +109,7 @@ function identityEffect(symbol: string, description: string): CardEffect {
 }
 
 function cardUses(turn: RoundTurn): CardUse[] {
-  return (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).slice(0, 2)
+  return turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])
 }
 
 function rankingReversalDescription(count: number): string {

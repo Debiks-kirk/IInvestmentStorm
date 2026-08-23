@@ -40,7 +40,7 @@ describe('Bot 信息边界与决策', () => {
     expect(first).toEqual(second)
     expect(first.bidUnits).toBeGreaterThanOrEqual(0)
     expect(first.bidUnits).toBeLessThanOrEqual(session.players[0].balanceUnits)
-    expect(first.cardUses.length).toBeLessThanOrEqual(2)
+    expect(new Set(first.cardUses.map((use) => use.cardId)).size).toBe(first.cardUses.length)
   })
 
   it('相同资源的不同 Bot 种子会在高价值候选中做出不同报价，而非固定指向同一结果', () => {
