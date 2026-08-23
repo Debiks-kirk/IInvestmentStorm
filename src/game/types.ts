@@ -149,6 +149,19 @@ export interface IdentitySettings {
   lobbyistFailurePaymentCoins: number
 }
 
+export interface AuctionLot {
+  id: string
+  source: 'system' | 'merchant'
+  merchantId: string | null
+  cardId: CardId
+  roundIndex: number
+}
+
+export interface AuctionBid {
+  lotId: string
+  bidUnits: number
+}
+
 export type ProphetDivinationMode = 'wealth' | 'stars' | 'identity'
 
 export interface ProphetDivination {
@@ -160,6 +173,7 @@ export interface ProphetDivination {
   wealth?: { highestRangeUnits: [number, number]; lowestRangeUnits: [number, number] }
   starItemIds?: string[]
   identityGuess?: { targetPlayerId: string; identityId: IdentityId; correct: boolean; rewardCardId?: CardId }
+  identityGuesses?: Array<{ targetPlayerId: string; identityId: IdentityId; correct: boolean; rewardCardId?: CardId }>
 }
 
 export interface PlayerIdentity {
@@ -266,6 +280,7 @@ export interface RoundTurn {
   cardUses?: CardUse[]
   cardUse?: CardUse
   identityAction?: IdentityAction
+  auctionBids?: AuctionBid[]
 }
 
 export interface RankingEntry {
@@ -341,7 +356,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 19
+  version: 20
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -373,6 +388,14 @@ export interface GameSession {
   merchantAuction: MerchantAuction | null
   /** Auctions waiting after the current one; the first entry always runs next. */
   auctionQueue: MerchantAuction[]
+  /** v20: all current-round lots are bid on beside the normal sealed bid. */
+  roundAuctions: AuctionLot[]
+  /** Merchant's already drawn three-card offer; survives refresh and cannot be rerolled. */
+  pendingMerchantOffers: Array<{ playerId: string; roundIndex: number; offeredCardIds: CardId[]; chosenCardId?: CardId }>
+  /** Prophet-private stable candidate identities, keyed by prophet then target. */
+  prophetIdentityCandidates: Record<string, Record<string, IdentityId[]>>
+  /** One-time six-card / choose-two reward, locked before the owner can choose. */
+  pendingProphetCardOffers: Array<{ playerId: string; offeredCardIds: CardId[]; chosenCardIds: CardId[] }>
   /** Final round receipts are shown seat by seat before the public leaderboard. */
   finalReceiptIndex: number | null
   /** 已进入私密竞拍/竞购后的绝对截止时间；刷新降级为传递页时保留。 */

@@ -83,15 +83,12 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     }
   })
   const initialCardDeck = createCardDeck(settings.disabledCardIds)
+  const firstDraw = drawCard(initialCardDeck, settings.disabledCardIds)
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
-  const firstDraw = settings.firstRoundSystemAuction ? drawCard(initialCardDeck, settings.disabledCardIds) : { cardId: null, cardDeck: initialCardDeck, replenished: false }
-  const systemAuction = firstDraw.cardId
-    ? { source: 'system' as const, merchantId: null, cardId: firstDraw.cardId, roundIndex: 0, bidderIndex: 0, bids: [] }
-    : null
   return {
-    version: 19,
+    version: 20,
     id: gameId,
-    phase: settings.identitySettings.enabled ? 'identityHandoff' : systemAuction ? 'auctionIntro' : 'roundIntro',
+    phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
     itemDeck: initialItemDeck,
@@ -108,8 +105,12 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     identityContracts: [],
     identityEvents: [],
     prophetDivinations: [],
-    merchantAuction: systemAuction,
+    merchantAuction: null,
     auctionQueue: [],
+    roundAuctions: firstDraw.cardId ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system', merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }] : [],
+    pendingMerchantOffers: [],
+    prophetIdentityCandidates: {},
+    pendingProphetCardOffers: [],
     finalReceiptIndex: null,
     operationDeadlineAt: null,
     cardRulesStartRound: 1,

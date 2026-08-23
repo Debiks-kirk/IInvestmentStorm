@@ -16,8 +16,8 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
   { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '花钱盯上一人；他拍下物品时可将物品抢走。', repeatable: true },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产；拿下同类拍品额外得 5 金币。', repeatable: true, needsCategory: true },
-  { id: 'thief', name: '小偷', symbol: '◒', summary: '主动花钱尝试偷走本轮别人未使用的道具。', repeatable: true },
-  { id: 'merchant', name: '道具商人', symbol: '◇', summary: '初始拿卡，并可发起两次竞购。', repeatable: true, needsMerchantCard: true },
+  { id: 'thief', name: '小偷', symbol: '◒', summary: '主动偷走别人的未使用道具；没偷到时会盯上最富者。', repeatable: false },
+  { id: 'merchant', name: '道具商人', symbol: '◇', summary: '每轮获赠一张道具，并可安排下一轮竞购。', repeatable: true },
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
   { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: false },
   { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。', repeatable: true },
@@ -39,11 +39,12 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     gamblerCorrectBonusMultiplier: 0.5,
     gamblerWrongPenaltyMultiplier: 0.5,
     gamblerSkipPenaltyMultiplier: 0.5,
-    prophetDivinationCoins: 3,
+    prophetDivinationCoins: 0,
     reverserActivationCoins: 5,
     kidnapActivationCoins: 5,
-    thiefActivationCoins: 5,
-    thiefSuccessProbability: 75,
+    thiefActivationCoins: 2,
+    thiefSuccessProbability: 100,
+    thiefMaxSteals: 2,
     merchantInitialOfferCount: 3,
     merchantAuctionLimit: 2,
     prophetDivinationLimit: 12,
@@ -79,7 +80,7 @@ export function dealIdentityChoices(selectedIds: IdentityId[], settings: Identit
   const enabled = enabledIdentityIds(settings)
   const counts = new Map<IdentityId, number>()
   selectedIds.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1))
-  const normal = enabled.filter((id) => id === 'lobbyist' ? (counts.get(id) ?? 0) === 0 : (counts.get(id) ?? 0) < 2)
+  const normal = enabled.filter((id) => (id === 'lobbyist' || id === 'thief') ? (counts.get(id) ?? 0) === 0 : (counts.get(id) ?? 0) < 2)
   const pick = (pool: IdentityId[], current: IdentityId[]) => {
     const candidates = pool.filter((id) => !current.includes(id))
     if (candidates.length === 0) return null
@@ -89,7 +90,7 @@ export function dealIdentityChoices(selectedIds: IdentityId[], settings: Identit
   while (choices.length < settings.identityChoiceCount) {
     const normalPick = pick(normal, choices)
     if (normalPick) { choices.push(normalPick); continue }
-    const fallback = enabled.filter((id) => id !== 'lobbyist').filter((id) => !choices.includes(id))
+    const fallback = enabled.filter((id) => id !== 'lobbyist' && id !== 'thief').filter((id) => !choices.includes(id))
       .sort((left, right) => (counts.get(left) ?? 0) - (counts.get(right) ?? 0))
     const next = pick(fallback, choices)
     if (!next) break
@@ -109,7 +110,7 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
   if (settings.prophetDivinationCoins < 0 || settings.prophetDivinationCoins > 20 || settings.prophetDivinationCoins * 2 % 1 !== 0) errors.push('预言家推演费用应为 0–20，且按 0.5 递增')
   if (settings.thiefActivationCoins < 0 || settings.thiefActivationCoins > 20 || settings.thiefActivationCoins * 2 % 1 !== 0) errors.push('小偷发动费用应为 0–20，且按 0.5 递增')
   if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
-  if (settings.merchantInitialOfferCount < 1 || settings.merchantInitialOfferCount > 6) errors.push('商人初始选卡数量应为 1–6')
+  if (enabledIdentityIds(settings).includes('prophet') && enabled.length < 6) errors.push('启用预言家时至少需要启用 6 个身份')
   if (settings.merchantAuctionLimit < 1 || settings.merchantAuctionLimit > 5) errors.push('商人拍卖次数应为 1–5 次')
   const limits = [settings.prophetDivinationLimit, settings.kidnapActivationLimit, settings.thiefActivationLimit, settings.reverserActivationLimit, settings.lobbyistActivationLimit, settings.nightwalkerUseLimit]
   if (limits.some((limit) => !Number.isInteger(limit) || limit < 1 || limit > 12)) errors.push('主动身份技能次数应为 1–12 次')

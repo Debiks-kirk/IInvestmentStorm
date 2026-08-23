@@ -6,6 +6,12 @@
 
 ## 目标与方案
 
+### v20 页内竞购
+
+- `GameSession.roundAuctions` 是本轮所有竞购卡的唯一运行时来源；`RoundTurn.auctionBids` 按 lot ID 保存每位玩家的私密报价。提交时用“普通下注 + 身份费用 + 所有竞购报价”做预算上限校验；结算时仅扣每张卡最高唯一价。
+- `pendingMerchantOffers` 在商人确认发动时就从实体牌堆抽走三张不同卡，刷新后继续同一候选；选择一张安排下轮，其余立即回池。每轮开局每名商人私密获得一张循环卡。
+- 回合结算先处理所有竞购卡，再进入纯竞拍结算函数，因此最终回合不依赖下一回合退款。旧 `merchantAuction` 字段仅保留 v19 迁移完成路径。
+
 - React + TypeScript + Vite 单页应用；原生 CSS；Render Static Site。
 - 无后端、数据库、账号或网络对局，状态保存在版本化 `localStorage` 中。
 

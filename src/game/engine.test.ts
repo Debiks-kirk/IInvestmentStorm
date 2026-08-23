@@ -305,9 +305,9 @@ describe('道具卡结算', () => {
       turn('p2', 7),
       turn('p3', 2),
     ]).result
-    expect(heads.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(6))
-    expect(tails.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(-coinsToUnits(4))
-    expect(heads.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'fateCoin', description: '命运硬币：正面朝上，获得 6 金币。' })]))
+    expect(heads.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(10))
+    expect(tails.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(0)
+    expect(heads.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'fateCoin', description: '命运硬币：正面朝上，获得 10 金币。' })]))
   })
 
   it('改拍令只公开下一轮拍品被改写，不影响当前轮结算', () => {
@@ -337,9 +337,9 @@ describe('道具卡结算', () => {
       turn('p3', 1),
     ]).result
     expect(result.cardEffects[0]?.cardId).toBe('redistribute')
-    expect(result.redistributionTransferUnits).toBe(coinsToUnits(5))
-    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(-5))
-    expect(result.deltas.find((delta) => delta.playerId === 'p2')?.cardUnits).toBe(coinsToUnits(2.5))
+    expect(result.redistributionTransferUnits).toBe(coinsToUnits(6.5))
+    expect(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits).toBe(coinsToUnits(-6.5))
+    expect(result.deltas.find((delta) => delta.playerId === 'p2')?.cardUnits).toBe(coinsToUnits(3.5))
     expect(result.deltas.find((delta) => delta.playerId === 'p1')?.publicDeltaUnits).not.toBe(result.deltas.find((delta) => delta.playerId === 'p1')?.cardUnits)
   })
 
@@ -370,7 +370,7 @@ describe('道具发放', () => {
   it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
-    expect(deck).toHaveLength(CARD_DEFINITIONS.filter((card) => !['red', 'black', 'peek'].includes(card.id)).reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 2), 0))
+    expect(deck).toHaveLength(CARD_DEFINITIONS.filter((card) => !['red', 'black', 'peek'].includes(card.id)).reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 4), 0))
   })
 
   it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
@@ -436,11 +436,11 @@ describe('固定资产与默认配置', () => {
 
   it('按类别与实际数量计算轻量固定资产档位', () => {
     expect(fixedAssetCoins('leisure', 1)).toBe(0)
-    expect(fixedAssetCoins('leisure', 2)).toBe(3)
-    expect(fixedAssetCoins('leisure', 3)).toBe(10)
-    expect(fixedAssetCoins('leisure', 4)).toBe(20)
-    expect(fixedAssetCoins('leisure', 5)).toBe(30)
-    expect(fixedAssetCoins('property', 5)).toBe(72)
+    expect(fixedAssetCoins('leisure', 2)).toBe(8)
+    expect(fixedAssetCoins('leisure', 3)).toBe(20)
+    expect(fixedAssetCoins('leisure', 4)).toBe(30)
+    expect(fixedAssetCoins('leisure', 5)).toBe(40)
+    expect(fixedAssetCoins('property', 5)).toBe(50)
   })
 
   it('固定资产只在终局并入总资产并改变终局名次', () => {
@@ -448,8 +448,8 @@ describe('固定资产与默认配置', () => {
     base[0].items = ITEM_POOL.filter((entry) => entry.category === 'leisure').slice(0, 3).map((item, roundIndex) => ({ item, roundIndex }))
     const standings = rankFinalPlayers(base)
     expect(base[0].balanceUnits).toBe(coinsToUnits(22))
-    expect(standings[0]).toMatchObject({ player: { id: 'p1' }, cashUnits: coinsToUnits(22), fixedAssetUnits: coinsToUnits(10), totalAssetUnits: coinsToUnits(32), place: 1 })
-    expect(calculateFixedAssets(base[0].items).find((entry) => entry.category === 'leisure')).toMatchObject({ itemCount: 3, units: coinsToUnits(10) })
+    expect(standings[0]).toMatchObject({ player: { id: 'p1' }, cashUnits: coinsToUnits(22), fixedAssetUnits: coinsToUnits(20), totalAssetUnits: coinsToUnits(42), place: 1 })
+    expect(calculateFixedAssets(base[0].items).find((entry) => entry.category === 'leisure')).toMatchObject({ itemCount: 3, units: coinsToUnits(20) })
   })
 
   it('新默认设置与六个系统配置使用确认后的规则', () => {

@@ -154,7 +154,7 @@ describe('身份结算', () => {
     collector.identity = { id: 'collector', collectorCategory: 'leisure', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     collector.items = [{ item, roundIndex: 0 }]
     const standing = rankFinalPlayers([collector])[0]
-    expect(standing.fixedAssetUnits).toBe(coinsToUnits(3))
+    expect(standing.fixedAssetUnits).toBe(coinsToUnits(8))
     expect(collector.balanceUnits).toBe(coinsToUnits(20))
   })
 

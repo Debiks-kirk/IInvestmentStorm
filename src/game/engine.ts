@@ -278,12 +278,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   if (redistributionUse) {
     const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
     const lowestBalance = Math.min(...players.map((player) => player.balanceUnits))
-    const richest = players.filter((player) => player.balanceUnits === highestBalance)
+    const turnOrder = new Map(turns.map((turn, index) => [turn.playerId, index]))
+    const richest = players.filter((player) => player.balanceUnits === highestBalance).sort((left, right) => (turnOrder.get(right.id) ?? 0) - (turnOrder.get(left.id) ?? 0)).slice(0, 1)
     const poorest = players.filter((player) => player.balanceUnits === lowestBalance)
-    const poolUnits = richest.reduce((total, player) => total + floorToHalfUnits(player.balanceUnits / 4), 0)
+    const poolUnits = highestBalance === lowestBalance ? 0 : richest.reduce((total, player) => total + floorToHalfUnits(player.balanceUnits * .33), 0)
     redistributionTransferUnits = poolUnits
     for (const player of richest) {
-      const payment = floorToHalfUnits(player.balanceUnits / 4)
+      const payment = highestBalance === lowestBalance ? 0 : floorToHalfUnits(player.balanceUnits * .33)
       player.balanceUnits -= payment
       ;(deltaByPlayer.get(player.id) as PlayerRoundDelta).cardUnits -= payment
     }
@@ -295,6 +296,10 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       ;(deltaByPlayer.get(playerId) as PlayerRoundDelta).cardUnits += payment
     }
     cardEffects.push(cardEffect('redistribute', poolUnits > 0 ? `劫富济贫已生效：本轮共转移 ${formatCoins(poolUnits)} 金币。` : '劫富济贫已使用，但本轮没有可转移的金币。'))
+    if (poolUnits > 0) {
+      for (const rich of richest) identityEvents.push({ playerId: rich.id, identityId: 'thief', roundIndex, title: '劫富济贫转出', detail: `本轮转出了 ${formatCoins(floorToHalfUnits(highestBalance * .33))} 金币。`, deltaUnits: -floorToHalfUnits(highestBalance * .33) })
+      for (const [playerId, amount] of allocations) identityEvents.push({ playerId, identityId: 'thief', roundIndex, title: '劫富济贫收款', detail: `本轮获得了 ${formatCoins(amount)} 金币。`, deltaUnits: amount })
+    }
   }
 
   for (const { playerId, use } of usedCards) {
@@ -306,21 +311,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       // 命运硬币已在私密操作阶段即时结算；这里仅写入公开结算说明。
       if (immediateDelta === undefined) {
         const player = playerById.get(playerId)
-        const gained = coinsToUnits(6)
+        const gained = coinsToUnits(10)
         if (player) player.balanceUnits += gained
         delta.cardUnits += gained
       }
-      cardEffects.push(cardEffect('fateCoin', `命运硬币：正面朝上，获得 ${formatCoins(immediateDelta ?? coinsToUnits(6))} 金币。`))
+      cardEffects.push(cardEffect('fateCoin', `命运硬币：正面朝上，获得 ${formatCoins(immediateDelta ?? coinsToUnits(10))} 金币。`))
     } else {
-      const lost = immediateDelta === undefined
-        ? Math.min(playerById.get(playerId)?.balanceUnits ?? 0, coinsToUnits(4))
-        : Math.abs(immediateDelta)
-      if (immediateDelta === undefined) {
-        const player = playerById.get(playerId)
-        if (player) player.balanceUnits -= lost
-        delta.cardUnits -= lost
-      }
-      cardEffects.push(cardEffect('fateCoin', `命运硬币：反面朝上，损失 ${formatCoins(lost)} 金币。`))
+      cardEffects.push(cardEffect('fateCoin', '命运硬币：反面朝上，本次没有变化。'))
     }
   }
 
@@ -595,10 +592,35 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       if (choice) {
         choice.owner.cardInventory.splice(choice.cardIndex, 1)
         thief.cardInventory.push(choice.cardId)
+        thief.identity = thief.identity ? { ...thief.identity, thiefSuccesses: (thief.identity.thiefSuccesses ?? 0) + 1 } : thief.identity
         identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡成功', detail: `花费 ${formatCoins(paid)} 金币，获得了一张未使用道具卡。`, deltaUnits: -paid })
         identityEvents.push({ playerId: choice.owner.id, identityId: 'thief', roundIndex, title: '道具被偷走', detail: '你的一张未使用道具卡被人偷走了。', deltaUnits: 0 })
       } else {
-        identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币，但本轮没有偷到道具。`, deltaUnits: -paid })
+        const balances = players.map((player) => player.balanceUnits)
+        const richestBalance = Math.max(...balances)
+        const poorestBalance = Math.min(...balances)
+        const turnOrder = new Map(turns.map((turn, index) => [turn.playerId, index]))
+        const richest = richestBalance === poorestBalance ? undefined : players
+          .filter((player) => player.id !== thief.id && player.balanceUnits === richestBalance)
+          .sort((left, right) => (turnOrder.get(right.id) ?? -1) - (turnOrder.get(left.id) ?? -1))[0]
+        if (!richest) {
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币，但无人持有可偷道具，且全员余额相同。`, deltaUnits: -paid })
+        } else if (richest.items.length > 0 && roll() < .05) {
+          const itemIndex = Math.min(richest.items.length - 1, Math.floor(roll() * richest.items.length))
+          const [stolenItem] = richest.items.splice(itemIndex, 1)
+          if (stolenItem) thief.items.push(stolenItem)
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `花费 ${formatCoins(paid)} 金币后没有偷到道具，转而偷走了一件拍品。`, deltaUnits: -paid })
+          identityEvents.push({ playerId: richest.id, identityId: 'thief', roundIndex, title: '拍品被偷走', detail: '你的一件拍品被人偷走了。', deltaUnits: 0 })
+        } else {
+          const transfer = floorToHalfUnits(richest.balanceUnits * .1)
+          richest.balanceUnits -= transfer
+          thief.balanceUnits += transfer
+          if (delta) delta.identityUnits += transfer
+          const richestDelta = deltaByPlayer.get(richest.id)
+          if (richestDelta) richestDelta.identityUnits -= transfer
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币后没有偷到道具，获得了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
+          identityEvents.push({ playerId: richest.id, identityId: 'thief', roundIndex, title: '金币被偷走', detail: `你被转移了 ${formatCoins(transfer)} 金币。`, deltaUnits: -transfer })
+        }
       }
     }
   }
