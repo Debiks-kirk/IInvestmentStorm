@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig } from './game/assets'
 import { CARD_DEFINITIONS, CARD_RARITY_LABELS, cardTargetScope, drawCard, getCardDefinition } from './game/cards'
-import { createGameHighlights, createRoundBulletin } from './game/highlights'
+import { createAssetTrajectories, createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
@@ -1034,11 +1034,34 @@ function identityActionReview(action: IdentityAction, players: Player[], divinat
   return `说客向 ${target} 发布${action.specified ? '指定' : '随机'}任务：${action.taskType ? taskLabel(action.taskType) : '任务待定'}${comparison}`
 }
 
+function AssetTrajectoryChart({ session }: { session: GameSession }) {
+  const [focusedPlayerId, setFocusedPlayerId] = useState<string | null>(null)
+  const trajectories = createAssetTrajectories(session)
+  const pointCount = Math.max(1, ...trajectories.map((series) => series.points.length))
+  const maximum = Math.max(1, ...trajectories.flatMap((series) => series.points))
+  const chart = { width: 640, height: 260, left: 42, right: 16, top: 18, bottom: 42 }
+  const innerWidth = chart.width - chart.left - chart.right
+  const innerHeight = chart.height - chart.top - chart.bottom
+  const point = (value: number, index: number) => ({ x: chart.left + (pointCount <= 1 ? 0 : index / (pointCount - 1)) * innerWidth, y: chart.top + (1 - value / maximum) * innerHeight })
+  const roundLabel = (index: number) => index === 0 ? '开局' : `第 ${index} 轮`
+  return <section className="asset-trajectory panel" aria-label="总资产走势">
+    <div className="panel-title"><div><p className="eyebrow">终局公开</p><h2>总资产走势</h2></div><span>现金 + 当时已触发的固定资产</span></div>
+    <p>每条线记录开局和每轮结算后的总资产。点击名字可只看一位玩家，再次点击恢复全体对比。</p>
+    <div className="asset-trajectory__legend">{trajectories.map((series) => { const focused = focusedPlayerId === series.playerId; return <button key={series.playerId} type="button" className={cx(focused && 'is-focused', focusedPlayerId && !focused && 'is-muted')} onClick={() => setFocusedPlayerId((current) => current === series.playerId ? null : series.playerId)}><i style={{ background: series.color }} /><strong>{series.name}</strong><small>{formatCoins(series.points.at(-1) ?? 0)}</small></button> })}</div>
+    <div className="asset-trajectory__canvas"><svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="各玩家总资产随回合变化的折线图">
+      {[0, .5, 1].map((fraction) => { const value = Math.round(maximum * (1 - fraction)); const y = chart.top + fraction * innerHeight; return <g key={fraction}><line x1={chart.left} x2={chart.width - chart.right} y1={y} y2={y} className="asset-trajectory__grid" /><text x={chart.left - 8} y={y + 4} textAnchor="end">{formatCoins(value)}</text></g> })}
+      {Array.from({ length: pointCount }, (_, index) => <text key={index} x={point(0, index).x} y={chart.height - 14} textAnchor="middle">{roundLabel(index)}</text>)}
+      {trajectories.map((series) => { const visible = !focusedPlayerId || focusedPlayerId === series.playerId; const positions = series.points.map((value, index) => point(value, index)); return <g key={series.playerId} className={cx('asset-trajectory__line', !visible && 'is-muted')}><path d={positions.map((position, index) => `${index === 0 ? 'M' : 'L'} ${position.x} ${position.y}`).join(' ')} style={{ stroke: series.color }} />{positions.map((position, index) => <circle key={index} cx={position.x} cy={position.y} r={visible ? 4 : 2.5} style={{ fill: series.color }} />)}</g> })}
+    </svg></div>
+  </section>
+}
+
 function RoundReview({ session }: { session: GameSession }) {
   return (
     <section className="round-review panel">
       <div className="panel-title"><div><p className="eyebrow">终局公开</p><h2>逐轮复盘</h2></div><span>下注、道具与身份技能现已全部公开</span></div>
       <p className="round-review-note">按回合查看每个人的实际下注、道具与技能操作，以及排名奖励和预测结算。</p>
+      <AssetTrajectoryChart session={session} />
       <div className="round-review-list">
         {session.results.map((result) => {
           const cardTurns = result.turns.flatMap((turn) => turnCardUses(turn).map((use) => ({ playerId: turn.playerId, use })))

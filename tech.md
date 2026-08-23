@@ -13,6 +13,11 @@
 - 三选一和六选二共用 `CardOfferPicker`，使用独立的响应式网格而非旧的 `merchant-offer-list`。它在桌面端三列、窄屏两列、360px 单列显示，并以 `已选 / 需要` 进度和绿色已选状态明确反馈六选二的第一次点击。
 - `RoundTurn.cardUses` 不再在结算内核截断为两张，提交校验只拒绝同名道具重复使用。普通玩家可安排全部不同道具；Bot 为避免组合爆炸仍保留有界搜索，但包含一个所有可用不同卡的联合候选。
 
+## 终局总资产走势（2026-08-24）
+
+- `createAssetTrajectories` 是纯展示数据函数：将开局 `initialCoins` 和每份 `RoundResult.totalAssetUnitsAfter` 合成为每位玩家的总资产序列；旧结果缺少该字段时安全回退至 `balancesAfter`。
+- `AssetTrajectoryChart` 在逐轮复盘顶部用内联 SVG 绘图，不写入会话。图例可点击聚焦某条线；响应式布局在窄屏保留可横向查看的图表坐标区，避免压缩折线或文字。
+
 > 当前有效的架构、数据流与关键技术决策。最后更新：2026-08-06（本地对局历史）。
 
 相关文档：[项目记忆](memory.md) · [计划](plan.md) · [进度](progress.md) · [调研](research.md)

@@ -9,6 +9,25 @@ export interface GameHighlight {
   detail: string
 }
 
+export interface AssetTrajectorySeries {
+  playerId: string
+  name: string
+  color: string
+  /** Initial total assets followed by the end-of-round total for each round. */
+  points: number[]
+}
+
+/** Builds display-only total-asset history from persisted round snapshots. */
+export function createAssetTrajectories(session: Pick<GameSession, 'players' | 'results' | 'settings'>): AssetTrajectorySeries[] {
+  const initialUnits = session.settings.initialCoins * 2
+  return session.players.map((player) => ({
+    playerId: player.id,
+    name: player.name,
+    color: player.color,
+    points: [initialUnits, ...session.results.map((result) => result.totalAssetUnitsAfter?.[player.id] ?? result.balancesAfter[player.id] ?? 0)],
+  }))
+}
+
 function nameOf(players: Player[], playerId: string | null | undefined): string {
   return players.find((player) => player.id === playerId)?.name ?? '一位玩家'
 }
