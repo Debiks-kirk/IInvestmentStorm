@@ -672,7 +672,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       thief.balanceUnits -= paid
       delta.identityUnits -= paid
       const candidates = players.flatMap((owner) => owner.id === thief.id ? [] : owner.cardInventory.map((cardId, cardIndex) => ({ owner, cardId, cardIndex })))
-      const choice = candidates.length > 0 && roll() < identitySettings.thiefSuccessProbability / 100
+      const cardStealLimit = identitySettings.thiefMaxSteals ?? 2
+      const canStealCard = (thief.identity?.thiefSuccesses ?? 0) < cardStealLimit
+      const choice = canStealCard && candidates.length > 0 && roll() < identitySettings.thiefSuccessProbability / 100
         ? candidates[Math.min(candidates.length - 1, Math.floor(roll() * candidates.length))]
         : undefined
       if (choice) {
@@ -682,6 +684,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡成功', detail: `花费 ${formatCoins(paid)} 金币，获得了一张未使用道具卡。`, deltaUnits: -paid })
         identityEvents.push({ playerId: choice.owner.id, identityId: 'thief', roundIndex, title: '道具被偷走', detail: '你的一张未使用道具卡被人偷走了。', deltaUnits: 0 })
       } else {
+        const fallbackReason = !canStealCard
+          ? `已偷满 ${cardStealLimit} 张道具卡，改为寻找金币或拍品。`
+          : '没有可偷到的道具卡，改为寻找金币或拍品。'
         const balances = players.map((player) => player.balanceUnits)
         const richestBalance = Math.max(...balances)
         const poorestBalance = Math.min(...balances)
@@ -690,12 +695,12 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
           .filter((player) => player.id !== thief.id && player.balanceUnits === richestBalance)
           .sort((left, right) => (turnOrder.get(right.id) ?? -1) - (turnOrder.get(left.id) ?? -1))[0]
         if (!richest) {
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币，但无人持有可偷道具，且全员余额相同。`, deltaUnits: -paid })
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}但全员余额相同。`, deltaUnits: -paid })
         } else if (richest.items.length > 0 && roll() < .05) {
           const itemIndex = Math.min(richest.items.length - 1, Math.floor(roll() * richest.items.length))
           const [stolenItem] = richest.items.splice(itemIndex, 1)
           if (stolenItem) thief.items.push(stolenItem)
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `花费 ${formatCoins(paid)} 金币后没有偷到道具，转而偷走了一件拍品。`, deltaUnits: -paid })
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}转而偷走了一件拍品。`, deltaUnits: -paid })
           identityEvents.push({ playerId: richest.id, identityId: 'thief', roundIndex, title: '拍品被偷走', detail: '你的一件拍品被人偷走了。', deltaUnits: 0 })
         } else {
           const transfer = floorToHalfUnits(richest.balanceUnits * .1)
@@ -704,7 +709,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
           if (delta) delta.identityUnits += transfer
           const richestDelta = deltaByPlayer.get(richest.id)
           if (richestDelta) richestDelta.identityUnits -= transfer
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币后没有偷到道具，获得了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}获得了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
           identityEvents.push({ playerId: richest.id, identityId: 'thief', roundIndex, title: '金币被偷走', detail: `你被转移了 ${formatCoins(transfer)} 金币。`, deltaUnits: -transfer })
         }
       }

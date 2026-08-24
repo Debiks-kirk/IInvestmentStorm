@@ -152,6 +152,30 @@ describe('身份选角与私密卡牌', () => {
     const missed = routeCardAwards({ players, awards: [{ playerId: 'target', cardId: 'black' }], settings, fairnessOrderIds: players.map((entry) => entry.id), roundIndex: 1, roll: () => 0 })
     expect(missed.players.find((entry) => entry.id === 'target')?.cardInventory).toContain('black')
   })
+
+  it('小偷偷满道具卡后仍可发动技能，并自动转为偷钱分支', () => {
+    const settings = defaultIdentitySettings(true)
+    settings.thiefMaxSteals = 2
+    const players = [player('thief', 20), player('rich', 20), player('third', 10)]
+    players[0].identity = { id: 'thief', thiefSuccesses: 2, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    players[1].cardInventory = ['red']
+    const settled = settleRound({
+      playersAfterBids: players,
+      turns: [{ ...turn('thief', 1), identityAction: { type: 'thiefSteal' } }, turn('rich', 4), turn('third', 2)],
+      item,
+      roundIndex: 0,
+      rewardMultipliers: [2, 1],
+      correctPredictionMultiplier: 1,
+      wrongPredictionMultiplier: 1.5,
+      fairnessOrderIds: players.map((entry) => entry.id),
+      identitySettings: settings,
+      roll: () => .9,
+    })
+    expect(settled.players.find((entry) => entry.id === 'rich')?.cardInventory).toEqual(['red'])
+    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: 'thief', title: '偷卡落空，转移金币' }),
+    ]))
+  })
 })
 
 describe('身份结算', () => {

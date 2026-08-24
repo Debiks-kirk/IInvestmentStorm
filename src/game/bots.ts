@@ -436,7 +436,7 @@ function planCandidates(observation: BotObservation): TurnPlan[] {
   if (observation.self.identity?.id === 'assassin' && (observation.self.identity.activeSkillUses ?? 0) < observation.kidnapActivationLimit && observation.self.balanceUnits >= kidnapActionCost(observation)) {
     for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:kidnap:${opponent.id}`, identityAction: { type: 'kidnap' as const, targetPlayerId: opponent.id }, specialReason: `盯上 ${opponent.name}；若他拿下拍品，就抢走藏品，并赢得下回合的免费行动与道具奖励。` })))
   }
-  if (observation.self.identity?.id === 'thief' && (observation.self.identity.activeSkillUses ?? 0) < observation.thiefActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
+  if (observation.self.identity?.id === 'thief' && observation.roundIndex < observation.totalRounds - 1) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:thief`, identityAction: { type: 'thiefSteal' as const }, specialReason: '发动偷卡，争取从其他玩家的未使用库存中夺取机会。' })))
   }
   if (observation.self.identity?.id === 'merchant' && observation.roundIndex < observation.totalRounds - 1 && observation.cardDeckSize > 0 && (observation.self.identity.merchantAuctionCount ?? 0) < observation.merchantAuctionLimit && observation.self.identity.merchantLastAuctionRound !== observation.roundIndex) {

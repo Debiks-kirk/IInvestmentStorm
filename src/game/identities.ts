@@ -112,8 +112,9 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
   if (settings.kidnapActivationCoins < 0 || settings.kidnapActivationCoins > 20 || settings.kidnapActivationCoins * 2 % 1 !== 0) errors.push('绑匪发动费用应为 0–20，且按 0.5 递增')
   if (enabledIdentityIds(settings).includes('prophet') && enabled.length < 6) errors.push('启用预言家时至少需要启用 6 个身份')
   if (settings.merchantAuctionLimit < 1 || settings.merchantAuctionLimit > 5) errors.push('商人拍卖次数应为 1–5 次')
-  const limits = [settings.prophetDivinationLimit, settings.kidnapActivationLimit, settings.thiefActivationLimit, settings.reverserActivationLimit, settings.lobbyistActivationLimit, settings.nightwalkerUseLimit]
+  const limits = [settings.prophetDivinationLimit, settings.kidnapActivationLimit, settings.reverserActivationLimit, settings.lobbyistActivationLimit, settings.nightwalkerUseLimit]
   if (limits.some((limit) => !Number.isInteger(limit) || limit < 1 || limit > 12)) errors.push('主动身份技能次数应为 1–12 次')
+  if (!Number.isInteger(settings.thiefMaxSteals) || (settings.thiefMaxSteals ?? 0) < 0 || (settings.thiefMaxSteals ?? 0) > 12) errors.push('小偷偷卡上限应为 0–12 张')
   return errors
 }
 
