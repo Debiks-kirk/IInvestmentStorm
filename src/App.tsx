@@ -1465,8 +1465,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           auctionNotices.push({ id: `round-auction-win-${lot.id}-${winner.id}`, playerId: winner.id, title: '道具竞购结果', detail: `恭喜你，竞拍到了道具「${getCardDefinition(lot.cardId).name}」。` })
         }
       } else {
-        auctionDeck = shuffle([...auctionDeck, lot.cardId])
-        if (lot.merchantId) auctionNotices.push({ id: `round-auction-empty-${lot.id}-${lot.merchantId}`, playerId: lot.merchantId, title: '道具竞购流拍', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」无人唯一得标，已回到循环池。` })
+        const merchant = lot.merchantId ? auctionPlayers.find((player) => player.id === lot.merchantId) : undefined
+        if (merchant) {
+          merchant.cardInventory.push(lot.cardId)
+          auctionNotices.push({ id: `round-auction-empty-${lot.id}-${merchant.id}`, playerId: merchant.id, title: '道具竞购流拍', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」无人唯一得标，已归入你的道具库存。` })
+        } else auctionDeck = shuffle([...auctionDeck, lot.cardId])
       }
       for (const player of auctionPlayers) {
         if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) auctionNotices.push({ id: `round-auction-loss-${lot.id}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(lot.cardId).name}」。` })
@@ -1594,18 +1597,20 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
             : `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(auction.cardId).name}」。`,
       }))]
     } else {
-      deck = shuffle([...deck, auction.cardId])
+      const merchant = auction.source === 'merchant' && auction.merchantId ? players.find((player) => player.id === auction.merchantId) : null
+      if (merchant) merchant.cardInventory.push(auction.cardId)
+      else deck = shuffle([...deck, auction.cardId])
       notices = [...notices, ...players.map((player) => ({
         id: `card-auction-empty-${auction.roundIndex}-${auction.source}-${player.id}`,
         playerId: player.id,
         title: '道具竞购结果',
         detail: auction.source === 'merchant' && player.id === auction.merchantId
-          ? `本次道具「${getCardDefinition(auction.cardId).name}」没有成交，已回到循环卡池。`
+          ? `本次道具「${getCardDefinition(auction.cardId).name}」没有成交，已归入你的道具库存。`
           : `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(auction.cardId).name}」。`,
       }))]
       if (auction.merchantId) {
         const merchant = players.find((player) => player.id === auction.merchantId)
-        notices.push({ id: `merchant-auction-empty-${auction.roundIndex}-${auction.merchantId}`, playerId: auction.merchantId, title: '道具竞购无人得标', detail: `没有唯一的正向报价，道具已回到循环卡池。本局竞购 ${merchant?.identity?.merchantAuctionCount ?? 0}/${session.settings.identitySettings.merchantAuctionLimit} 次。` })
+        notices.push({ id: `merchant-auction-empty-${auction.roundIndex}-${auction.merchantId}`, playerId: auction.merchantId, title: '道具竞购无人得标', detail: `没有唯一的正向报价，道具已归入你的道具库存。本局竞购 ${merchant?.identity?.merchantAuctionCount ?? 0}/${session.settings.identitySettings.merchantAuctionLimit} 次。` })
       }
     }
     const nextAuction = session.auctionQueue[0]
