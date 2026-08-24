@@ -440,6 +440,54 @@ describe('道具发放', () => {
   })
 })
 
+describe('观望费', () => {
+  function settleWithPassivity(basePlayers: Player[], turns: RoundTurn[], roundStartBalances: number[]) {
+    return settleRound({
+      playersAfterBids: basePlayers,
+      turns,
+      item,
+      roundIndex: 0,
+      rewardMultipliers: [2, 1],
+      correctPredictionMultiplier: 1,
+      wrongPredictionMultiplier: 0.5,
+      fairnessOrderIds: basePlayers.map((player) => player.id),
+      roundStartBalanceUnits: Object.fromEntries(basePlayers.map((player, index) => [player.id, coinsToUnits(roundStartBalances[index])])),
+    })
+  }
+
+  it('对未获奖且非开局最低的并列最低投入者累计收费，公开结果只保留人数', () => {
+    const result = settleWithPassivity(players([20, 20, 20, 20]), [turn('p1', 10), turn('p2', 8), turn('p3', 2), turn('p4', 2)], [20, 25, 30, 30]).result
+    expect(result.passivityFeePlayerCount).toBe(2)
+    expect(result.passivityFeePenalties.map((entry) => [entry.playerId, entry.occurrence, entry.feeUnits, entry.paidFeeUnits])).toEqual([
+      ['p3', 1, coinsToUnits(1), coinsToUnits(1)],
+      ['p4', 1, coinsToUnits(1), coinsToUnits(1)],
+    ])
+    expect(result.cardEffects.some((effect) => effect.description === '本轮有 2 人需要支付观望费。')).toBe(true)
+  })
+
+  it('获奖者与开局余额最低者免于观望费', () => {
+    const result = settleWithPassivity(players([20, 20, 20, 20]), [turn('p1', 10), turn('p2', 8), turn('p3', 2), turn('p4', 0)], [30, 30, 30, 5]).result
+    expect(result.passivityFeePenalties).toEqual([])
+  })
+
+  it('第三次失去一张卡，第四次及之后清空全部卡', () => {
+    const third = players([20, 20, 20, 20])
+    third[2].passivityFeeCount = 2
+    third[2].cardInventory = ['red', 'black']
+    const thirdResult = settleWithPassivity(third, [turn('p1', 10), turn('p2', 8), turn('p3', 2), turn('p4', 2)], [20, 25, 30, 30]).result
+    const thirdPenalty = thirdResult.passivityFeePenalties.find((entry) => entry.playerId === 'p3')!
+    expect(thirdPenalty).toMatchObject({ occurrence: 3, feeUnits: coinsToUnits(5), removedCardIds: ['red'] })
+
+    const fourth = players([20, 20, 20, 20])
+    fourth[2].passivityFeeCount = 3
+    fourth[2].cardInventory = ['red', 'black']
+    const fourthSettled = settleWithPassivity(fourth, [turn('p1', 10), turn('p2', 8), turn('p3', 2), turn('p4', 2)], [20, 25, 30, 30])
+    const fourthPenalty = fourthSettled.result.passivityFeePenalties.find((entry) => entry.playerId === 'p3')!
+    expect(fourthPenalty).toMatchObject({ occurrence: 4, feeUnits: coinsToUnits(5), removedCardIds: ['red', 'black'] })
+    expect(fourthSettled.players.find((player) => player.id === 'p3')?.cardInventory).toEqual([])
+  })
+})
+
 describe('固定资产与默认配置', () => {
   it('所有拍品都恰好归入四类资产', () => {
     expect(ITEM_POOL).toHaveLength(29)

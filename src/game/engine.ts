@@ -19,6 +19,7 @@ import type {
   LobbyistContract,
   NightwalkerOutcome,
   InvestmentRecord,
+  PassivityFeePenalty,
 } from './types'
 
 export const COIN_UNIT = 2
@@ -73,6 +74,8 @@ interface SettlementInput {
   totalRounds?: number
   identitySettings?: IdentitySettings
   identityContracts?: LobbyistContract[]
+  /** Frozen before anyone acts, so the low-balance exemption is seat-order safe. */
+  roundStartBalanceUnits?: Record<string, number>
   roll?: () => number
 }
 
@@ -708,6 +711,43 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     }
   }
 
+  const passivityFeePenalties: PassivityFeePenalty[] = []
+  // The exemption uses a frozen round-start snapshot, never a live balance.
+  // Keep direct engine callers without a snapshot backward-compatible.
+  if (input.roundStartBalanceUnits) {
+    const minimumStartBalance = Math.min(...players.map((player) => input.roundStartBalanceUnits?.[player.id] ?? player.balanceUnits))
+    const rewardedPlayerIds = new Set(rankings.map((ranking) => ranking.playerId))
+    const commitmentByPlayerId = new Map(turns.map((turn) => [
+      turn.playerId,
+      turn.bidUnits + (turn.identityAction?.type === 'invest' ? turn.identityAction.investmentUnits : 0),
+    ]))
+    const minimumCommitment = Math.min(...players.map((player) => commitmentByPlayerId.get(player.id) ?? 0))
+    for (const player of players) {
+      const commitment = commitmentByPlayerId.get(player.id) ?? 0
+      const startedAtMinimum = (input.roundStartBalanceUnits[player.id] ?? player.balanceUnits) === minimumStartBalance
+      if (commitment !== minimumCommitment || rewardedPlayerIds.has(player.id) || startedAtMinimum) continue
+
+      const occurrence = (player.passivityFeeCount ?? 0) + 1
+      const feeUnits = coinsToUnits(occurrence === 1 ? 1 : occurrence === 2 ? 3 : 5)
+      const paidFeeUnits = Math.min(player.balanceUnits, feeUnits)
+      player.balanceUnits -= paidFeeUnits
+      player.passivityFeeCount = occurrence
+      const delta = deltaByPlayer.get(player.id)
+      if (delta) delta.identityUnits -= paidFeeUnits
+
+      let removedCardIds: CardId[] = []
+      if (occurrence === 3 && player.cardInventory.length > 0) {
+        const fairnessIndex = Math.max(0, fairnessOrderIds.indexOf(player.id))
+        const cardIndex = (roundIndex + fairnessIndex) % player.cardInventory.length
+        removedCardIds = player.cardInventory.splice(cardIndex, 1)
+      } else if (occurrence >= 4 && player.cardInventory.length > 0) {
+        removedCardIds = [...player.cardInventory]
+        player.cardInventory = []
+      }
+      passivityFeePenalties.push({ playerId: player.id, occurrence, investmentUnits: commitment, feeUnits, paidFeeUnits, removedCardIds })
+    }
+    if (passivityFeePenalties.length > 0) cardEffects.push(identityEffect('◌', `本轮有 ${passivityFeePenalties.length} 人需要支付观望费。`))
+  }
   const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
   if (investments.length > 0) cardEffects.push(identityEffect('◈', '有人获得了秘密投资，排名奖励已按实际出资比例分配。'))
   const balanceLeaderIds = players.filter((player) => player.balanceUnits === highestBalance).map((player) => player.id)
@@ -739,6 +779,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     nightwalkerOutcomes,
     investments: investmentRecords,
     assetAuctionResults: [],
+    passivityFeePlayerCount: passivityFeePenalties.length,
+    passivityFeePenalties,
     totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
   return { players, result, identityContracts, identityEvents }

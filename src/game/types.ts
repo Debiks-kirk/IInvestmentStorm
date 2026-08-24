@@ -297,6 +297,8 @@ export interface Player {
   balanceUnits: number
   items: WonItem[]
   cardInventory: CardId[]
+  /** Cumulative number of times this player has triggered the passive-play fee. */
+  passivityFeeCount?: number
   identity?: PlayerIdentity
   controller?: PlayerController
   botMemory?: BotMemory
@@ -372,6 +374,16 @@ export interface InvestmentRecord {
   receivedItem: boolean
 }
 
+/** Kept private until the affected player receives their next-round notice. */
+export interface PassivityFeePenalty {
+  playerId: string
+  occurrence: number
+  investmentUnits: number
+  feeUnits: number
+  paidFeeUnits: number
+  removedCardIds: CardId[]
+}
+
 export interface RoundResult {
   roundIndex: number
   item: Item
@@ -397,12 +409,15 @@ export interface RoundResult {
   nightwalkerOutcomes: NightwalkerOutcome[]
   investments: InvestmentRecord[]
   assetAuctionResults: AssetAuctionResult[]
+  /** The public result exposes only this count, never the affected identities. */
+  passivityFeePlayerCount: number
+  passivityFeePenalties: PassivityFeePenalty[]
   /** Cash plus fixed assets after this round, used for comparable end-game trajectories. */
   totalAssetUnitsAfter: Record<string, number>
 }
 
 export interface GameSession {
-  version: 23
+  version: 24
   id: string
   phase: GamePhase
   settings: GameSettings
