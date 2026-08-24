@@ -279,8 +279,13 @@ async function runCardFlow(page) {
   }
   const confirmUse = page.getByRole('button', { name: '确认使用' })
   const confirmReroll = page.getByRole('button', { name: '确认并抽取 6 张' })
+  const confirmFateCoin = page.getByRole('button', { name: '确认并掷硬币' })
   if (await confirmUse.count() > 0) await confirmUse.click()
   if (await confirmReroll.count() > 0) await confirmReroll.click()
+  if (await confirmFateCoin.count() > 0) {
+    await confirmFateCoin.click()
+    await page.getByRole('button', { name: '知道了' }).click()
+  }
   const rerollOptions = page.locator('.prize-reroll-option')
   if (await rerollOptions.count() > 0) {
     if (await rerollOptions.count() !== 6) throw new Error('改拍令确认后应锁定展示 6 张候选拍品。')

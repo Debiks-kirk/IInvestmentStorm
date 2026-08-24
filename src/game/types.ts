@@ -402,7 +402,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 21
+  version: 22
   id: string
   phase: GamePhase
   settings: GameSettings

@@ -10,7 +10,7 @@ import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSes
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetModeLabel } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
-import type { AssetCategory, AssetAuctionLot, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
@@ -1484,17 +1484,19 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       identityContracts.push({ id: `contract-${session.roundIndex}-${turn.playerId}-${Date.now()}`, issuerId: turn.playerId, targetPlayerId: action.targetPlayerId, taskType: resolvedTask.taskType, comparisonPlayerId: resolvedTask.comparisonPlayerId, specified: Boolean(action.specified), issuedRoundIndex: session.roundIndex, executeRoundIndex: session.roundIndex + 1, status: 'pending', paymentUnits: 0 })
       resolvedTurn = { ...resolvedTurn, identityAction: { type: 'lobbyistContract', targetPlayerId: action.targetPlayerId, specified: Boolean(action.specified), taskType: resolvedTask.taskType, ...(resolvedTask.comparisonPlayerId ? { comparisonPlayerId: resolvedTask.comparisonPlayerId } : {}) } }
     }
+    let pendingAssetAuctions = [...session.pendingAssetAuctions]
+    if (turn.assetAuctionOffer) {
+      const offer = turn.assetAuctionOffer
+      const seller = players.find((entry) => entry.id === turn.playerId)
+      const itemIndex = seller?.items.findIndex((entry) => entry.item.id === offer.itemId && entry.roundIndex === offer.itemRoundIndex) ?? -1
+      if (!seller || itemIndex < 0) return false
+      const [heldItem] = seller.items.splice(itemIndex, 1)
+      pendingAssetAuctions.push({ id: `asset-${session.roundIndex + 1}-${turn.playerId}-${heldItem.item.id}-${heldItem.roundIndex}`, sellerId: turn.playerId, item: heldItem.item, itemRoundIndex: heldItem.roundIndex, minimumBidUnits: offer.minimumBidUnits, roundIndex: session.roundIndex + 1 })
+    }
     const turns = [...session.turns, resolvedTurn]
     const isLast = turns.length >= session.players.length
-    const newlyScheduledAssetAuctions: AssetAuctionLot[] = isLast ? turns.flatMap((submitted) => {
-      const offer = submitted.assetAuctionOffer
-      if (!offer) return []
-      const seller = players.find((entry) => entry.id === submitted.playerId)
-      const won = seller?.items.find((entry) => entry.item.id === offer.itemId && entry.roundIndex === offer.itemRoundIndex)
-      return won ? [{ id: `asset-${session.roundIndex + 1}-${submitted.playerId}-${won.item.id}-${won.roundIndex}`, sellerId: submitted.playerId, item: won.item, itemRoundIndex: won.roundIndex, minimumBidUnits: offer.minimumBidUnits, roundIndex: session.roundIndex + 1 }] : []
-    }) : []
     const nextTurnIndex = session.players.length > 0 ? (session.currentTurnIndex + 1) % session.players.length : 0
-    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, pendingAssetAuctions: isLast ? [...session.pendingAssetAuctions, ...newlyScheduledAssetAuctions] : session.pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
+    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
   }
   const reveal = () => {
@@ -1545,14 +1547,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const winnerBid = bids.filter((bid) => counts.get(bid.bidUnits) === 1).sort((left, right) => right.bidUnits - left.bidUnits)[0]
       const seller = auctionPlayers.find((player) => player.id === lot.sellerId)
       const winner = winnerBid ? auctionPlayers.find((player) => player.id === winnerBid.playerId) : undefined
-      const itemIndex = seller?.items.findIndex((won) => won.item.id === lot.item.id && won.roundIndex === lot.itemRoundIndex) ?? -1
-      if (seller && winner && winnerBid && itemIndex >= 0 && winner.balanceUnits >= winnerBid.bidUnits) {
+      if (seller && winner && winnerBid && winner.balanceUnits >= winnerBid.bidUnits) {
         winner.balanceUnits -= winnerBid.bidUnits
         seller.balanceUnits += winnerBid.bidUnits
-        const [won] = seller.items.splice(itemIndex, 1)
-        winner.items.push(won)
+        winner.items.push({ item: lot.item, roundIndex: lot.itemRoundIndex })
         assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: winner.id })
-      } else assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: null })
+      } else {
+        if (seller) seller.items.push({ item: lot.item, roundIndex: lot.itemRoundIndex })
+        assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: null })
+      }
     }
     const settled = settleRound({
       playersAfterBids: auctionPlayers,
