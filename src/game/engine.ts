@@ -52,6 +52,7 @@ export function validateSettings(settings: GameSettings): string[] {
   if (settings.rewardMultipliers.some((value) => value < 0.5 || value > 5 || value * 2 % 1 !== 0)) errors.push('奖励倍率应为 0.5–5，且按 0.5 递增')
   if (settings.rewardMultipliers.some((value, index, values) => index > 0 && value > values[index - 1])) errors.push('后一个名次的奖励不能高于前一个名次')
   if (settings.cardGrantProbability < 0 || settings.cardGrantProbability > 100) errors.push('道具发放概率应为 0–100%')
+  if (!Number.isInteger(settings.systemAuctionCardsPerRound) || settings.systemAuctionCardsPerRound < 0 || settings.systemAuctionCardsPerRound > 6) errors.push('每回合系统竞购卡应为 0–6 张')
   if (!Number.isInteger(settings.turnTimeLimitSeconds) || settings.turnTimeLimitSeconds < 5 || settings.turnTimeLimitSeconds > 120) errors.push('单次操作时限应为 5–120 秒')
   return errors
 }

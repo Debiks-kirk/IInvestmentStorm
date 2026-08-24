@@ -108,9 +108,9 @@ export interface GameSettings {
   cardGrantProbability: number
   disabledCardIds: CardId[]
   /** 首轮在拍品抽取前由系统发起一张公开道具的秘密竞购。 */
-  firstRoundSystemAuction: boolean
+  /** System card-auction lots added to every non-final round; zero disables them. */
+  systemAuctionCardsPerRound: number
   /** 在后半中点的拍品抽取前追加一次系统道具竞购。 */
-  midRoundSystemAuction: boolean
   /** 真人竞拍与竞购的单次私密操作时限（秒）。 */
   turnTimeLimitSeconds: number
   /** 默认关闭；开启后才对真人竞拍与竞购启用操作时限。 */
@@ -402,7 +402,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 22
+  version: 23
   id: string
   phase: GamePhase
   settings: GameSettings

@@ -100,19 +100,19 @@ describe('对局存档迁移', () => {
     expect(enabled.pendingIdentityNotices.filter((notice) => notice.title === '本轮道具竞购')).toHaveLength(3)
     expect(enabled.cardDeck).toHaveLength(CARD_DEFINITIONS.reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 4), 0) - 1)
     const settings = createDefaultSettings(3)
-    settings.firstRoundSystemAuction = false
+    settings.systemAuctionCardsPerRound = 0
     const disabled = createSession(['甲', '乙', '丙'], settings)
-    expect(disabled.roundAuctions).toHaveLength(1)
+    expect(disabled.roundAuctions).toHaveLength(0)
     expect(disabled.phase).toBe('identityHandoff')
   })
 
   it('旧进行中存档不会被补插首轮系统竞购', () => {
     const legacy = JSON.parse(JSON.stringify(createSession(['甲', '乙', '丙'], createDefaultSettings(3))))
-    delete legacy.settings.firstRoundSystemAuction
+    delete legacy.settings.systemAuctionCardsPerRound
     legacy.merchantAuction = null
     legacy.phase = 'roundIntro'
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()?.settings.firstRoundSystemAuction).toBe(false)
+    expect(loadSession()?.settings.systemAuctionCardsPerRound).toBe(1)
     expect(loadSession()?.merchantAuction).toBeNull()
   })
 
@@ -123,7 +123,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 22, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, midRoundSystemAuction: true } })
+    expect(loadSession()).toMatchObject({ version: 23, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -140,7 +140,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(22)
+    expect(first?.version).toBe(23)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -158,7 +158,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(22)
+    expect(migrated?.version).toBe(23)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

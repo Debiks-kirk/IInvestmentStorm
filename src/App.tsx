@@ -329,9 +329,10 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                 <label className="switch-row"><span><strong>公开个人下注</strong><small>只在每轮结算后显示</small></span><input type="checkbox" checked={settings.revealBids} onChange={(event) => setSettings({ ...settings, revealBids: event.target.checked })} /></label>
                 <label className="switch-row"><span><strong>公布余额领跑者</strong><small>每轮只公布第一名姓名，不显示余额</small></span><input type="checkbox" checked={settings.revealBalanceLeader} onChange={(event) => setSettings({ ...settings, revealBalanceLeader: event.target.checked })} /></label>
                 <div className="setting-row"><label htmlFor="card-probability">道具发放概率</label><div><input id="card-probability" type="number" min="0" max="100" value={settings.cardGrantProbability} onChange={(event) => setSettings({ ...settings, cardGrantProbability: Number(event.target.value) })} /><span>%</span></div></div>
+                <div className="setting-row"><label htmlFor="system-auction-count">每回合系统竞购卡</label><div><input id="system-auction-count" type="number" min="0" max="6" step="1" value={settings.systemAuctionCardsPerRound} onChange={(event) => setSettings({ ...settings, systemAuctionCardsPerRound: Number(event.target.value) })} /><span>张</span></div></div>
                 <label className="switch-row"><span><strong>启用操作倒计时</strong><small>默认关闭；开启后，真人竞拍与竞购超时会按当前选择自动确认</small></span><input type="checkbox" checked={settings.turnTimerEnabled} onChange={(event) => setSettings({ ...settings, turnTimerEnabled: event.target.checked })} /></label>
                 {settings.turnTimerEnabled && <div className="setting-row"><label htmlFor="turn-time-limit">单次操作时限</label><div><input id="turn-time-limit" type="number" min="5" max="120" step="5" value={settings.turnTimeLimitSeconds} onChange={(event) => setSettings({ ...settings, turnTimeLimitSeconds: Number(event.target.value) })} /><span>秒</span></div></div>}
-                <p className="settings-note">每轮系统都会在玩家下注页内放入一张私密竞购卡；商人安排的卡会一同出现。</p>
+                <p className="settings-note">系统竞购卡会与商人安排的卡一同出现在下注页；设为 0 可关闭系统竞购，最后一轮始终不举行。</p>
                 <div className="card-setting-group"><strong>禁用道具卡</strong><small>未勾选的卡会加入本局循环卡池；使用后回池，未使用会留在手中</small><div>{CARD_DEFINITIONS.map((card) => <label key={card.id}><input type="checkbox" checked={!settings.disabledCardIds.includes(card.id)} onChange={(event) => setSettings({ ...settings, disabledCardIds: event.target.checked ? settings.disabledCardIds.filter((id) => id !== card.id) : [...settings.disabledCardIds, card.id] })} /><span>{card.symbol} {card.name} <CardRarityTag cardId={card.id} /></span></label>)}</div></div>
                 <div className="identity-setting-group">
                   <label className="switch-row"><span><strong>启用身份系统</strong><small>开局前私密选身份；身份在终局才公开</small></span><input type="checkbox" checked={settings.identitySettings.enabled} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, enabled: event.target.checked } })} /></label>
@@ -1628,9 +1629,17 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const isFinalRound = roundIndex >= session.settings.rounds - 1
     // The final round never has a card auction. Return any already scheduled merchant lots intact.
     if (isFinalRound) deck = [...deck, ...scheduled.map((auction) => auction.cardId)]
-    const systemDraw = isFinalRound ? { cardId: null, cardDeck: deck } : drawCard(deck, session.settings.disabledCardIds)
+    const systemLots: GameSession['roundAuctions'] = []
+    if (!isFinalRound) {
+      for (let index = 0; index < session.settings.systemAuctionCardsPerRound; index += 1) {
+        const draw = drawCard(deck, session.settings.disabledCardIds)
+        if (!draw.cardId) break
+        deck = draw.cardDeck
+        systemLots.push({ id: `system-${roundIndex}-${draw.cardId}-${index}`, source: 'system', merchantId: null, cardId: draw.cardId, roundIndex })
+      }
+    }
     const roundAuctions = shuffle([
-      ...(systemDraw.cardId ? [{ id: `system-${roundIndex}-${systemDraw.cardId}-${Date.now()}`, source: 'system' as const, merchantId: null, cardId: systemDraw.cardId, roundIndex }] : []),
+      ...systemLots,
       ...(isFinalRound ? [] : scheduled.map((auction, index) => ({ id: `merchant-${roundIndex}-${auction.merchantId}-${index}-${auction.cardId}`, source: 'merchant' as const, merchantId: auction.merchantId, cardId: auction.cardId, roundIndex }))),
     ])
     const cardAuctionNotices = roundAuctions.length === 0 ? [] : routed.players.map((player) => ({
@@ -1650,7 +1659,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       title: '本轮拍品竞购',
       detail: roundAssetAuctions.map((lot) => `${categoryConfig(lot.item.category).name}藏品「${lot.item.emoji} ${lot.item.name}」正在竞购：固定资产加成 +${itemFixedAssetCoins(lot.item.value)}，起拍价 ${formatCoins(lot.minimumBidUnits)} 金币。`).join('\n'),
     }))
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices.filter((notice) => !rewardNoticeTitles.has(notice.title)), ...identityRewardNotices, ...cardAuctionNotices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: [], operationDeadlineAt: null })
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: deck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices.filter((notice) => !rewardNoticeTitles.has(notice.title)), ...identityRewardNotices, ...cardAuctionNotices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: [], operationDeadlineAt: null })
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult', finalReceiptIndex: null })

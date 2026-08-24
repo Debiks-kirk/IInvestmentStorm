@@ -25,6 +25,22 @@ describe('实体道具库存', () => {
   })
 })
 
+describe('系统道具竞购数量', () => {
+  it('会按每回合配置抽取对应数量，并允许设为零关闭', () => {
+    const settings = createDefaultSettings(3)
+    settings.rounds = 3
+    settings.systemAuctionCardsPerRound = 3
+    const crowded = createSession(['甲', '乙', '丙'], settings)
+    expect(crowded.roundAuctions).toHaveLength(3)
+    expect(crowded.cardDeck).toHaveLength(45 - 3)
+
+    settings.systemAuctionCardsPerRound = 0
+    const disabled = createSession(['甲', '乙', '丙'], settings)
+    expect(disabled.roundAuctions).toEqual([])
+    expect(disabled.cardDeck).toHaveLength(45)
+  })
+})
+
 describe('再来一局', () => {
   const seats = [
     { name: '阿岚', controller: { kind: 'human' as const } },
@@ -81,7 +97,7 @@ describe('新手引导局', () => {
     const session = createTutorialSession()
     expect(session.tutorial).toEqual({ kind: 'firstGame' })
     expect(session.phase).toBe('roundIntro')
-    expect(session.settings).toMatchObject({ playerCount: 3, rounds: 3, cardGrantProbability: 0, firstRoundSystemAuction: false })
+    expect(session.settings).toMatchObject({ playerCount: 3, rounds: 3, cardGrantProbability: 0, systemAuctionCardsPerRound: 0 })
     expect(session.itemDeck.map((item) => item.id)).toEqual(['basketball', 'camera', 'apartment'])
     expect(session.players[0]).toMatchObject({ name: '新手', cardInventory: ['doubleBid'], identity: { id: 'reverser' } })
   })

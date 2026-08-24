@@ -49,8 +49,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     revealBalanceLeader: false,
     cardGrantProbability: 100,
     disabledCardIds: [],
-    firstRoundSystemAuction: true,
-    midRoundSystemAuction: true,
+    systemAuctionCardsPerRound: 1,
     turnTimeLimitSeconds: 20,
     turnTimerEnabled: false,
     identitySettings,
@@ -81,23 +80,30 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
       ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory(`${gameId}:${id}`) } : {}),
     }
   })
-  const initialCardDeck = createCardDeck(settings.disabledCardIds)
-  const firstDraw = settings.rounds > 1 ? drawCard(initialCardDeck, settings.disabledCardIds) : { cardId: null, cardDeck: initialCardDeck }
-  const initialRoundAuctions = settings.rounds > 1 && firstDraw.cardId
-    ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system' as const, merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }]
-    : []
+  let cardDeck = createCardDeck(settings.disabledCardIds)
+  const initialRoundAuctions: GameSession['roundAuctions'] = []
+  if (settings.rounds > 1) {
+    for (let index = 0; index < settings.systemAuctionCardsPerRound; index += 1) {
+      const draw = drawCard(cardDeck, settings.disabledCardIds)
+      if (!draw.cardId) break
+      cardDeck = draw.cardDeck
+      initialRoundAuctions.push({ id: `system-0-${draw.cardId}-${index}`, source: 'system', merchantId: null, cardId: draw.cardId, roundIndex: 0 })
+    }
+  }
   const initialAuctionNotices = initialRoundAuctions.length === 0 ? [] : players.map((player) => {
-    const card = getCardDefinition(initialRoundAuctions[0].cardId)
     return {
       id: `card-auction-open-0-${player.id}`,
       playerId: player.id,
       title: '本轮道具竞购',
-      detail: `「${card.symbol} ${card.name}」正在竞购：${card.description}`,
+      detail: initialRoundAuctions.map((lot) => {
+        const card = getCardDefinition(lot.cardId)
+        return `「${card.symbol} ${card.name}」正在竞购：${card.description}`
+      }).join('\n'),
     }
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 22,
+    version: 23,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -107,7 +113,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     roundStartBalanceUnits: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     pendingPrizeReroll: null,
     pendingFateCoinUse: null,
-    cardDeck: firstDraw.cardDeck,
+    cardDeck,
     pendingCardGrants: [],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),
     identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices([], settings.identitySettings) } : null,
@@ -146,7 +152,7 @@ export function createTutorialSession(): GameSession {
   settings.initialCoins = 30
   settings.rewardMultipliers = [2, 1]
   settings.cardGrantProbability = 0
-  settings.firstRoundSystemAuction = false
+  settings.systemAuctionCardsPerRound = 0
   settings.revealBalanceLeader = false
   settings.identitySettings.enabled = true
   settings.identitySettings.reverserActivationCoins = 2
