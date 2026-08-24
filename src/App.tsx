@@ -854,10 +854,10 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           const items = player.items.filter(({ item: wonItem }) => wonItem.category === asset.category)
           return <article key={asset.category} className="private-asset-row"><span>{config.symbol}</span><div><strong>{config.name} · {asset.itemCount} 件</strong><small>{items.map(({ item: wonItem }) => `${wonItem.emoji}${wonItem.name}`).join(' · ')}</small></div><div className="private-asset-value">{asset.units > 0 ? <><CoinValue units={asset.units} signed /><small>当前终局加成</small></> : <><strong>再收 {2 - asset.itemCount} 件</strong><small>即可触发加成</small></>}</div></article>
         })}</div>}
-        {player.items.length > 0 && <div className="asset-auction-list"><strong>我的藏品</strong><small>可将一件真实藏品安排到下一轮竞购；最后一轮不能发起。</small>{player.items.map((won) => {
+        {player.items.length > 0 && <div className="asset-auction-list"><small>从已有藏品中选择一件，安排到下一轮竞购；最后一轮不能发起。</small>{player.items.map((won) => {
           const selected = assetAuctionOffer?.itemId === won.item.id && assetAuctionOffer.itemRoundIndex === won.roundIndex
           const disabled = session.roundIndex >= session.settings.rounds - 1 || Boolean(assetAuctionOffer && !selected)
-          return <article key={`${won.item.id}-${won.roundIndex}`}><span>{won.item.emoji}</span><div><strong>{won.item.name}</strong><small>{categoryConfig(won.item.category).name}</small></div>{selected ? <div className="asset-auction-list__offer"><label>起拍价 <input type="number" min="0.5" step="0.5" value={unitsToCoins(assetAuctionOffer.minimumBidUnits)} onChange={(event) => setAssetAuctionOffer({ ...assetAuctionOffer, minimumBidUnits: Math.max(1, Math.round(Number(event.target.value || 0) * 2)) })} /></label><button onClick={() => setAssetAuctionOffer(undefined)}>取消拍卖</button></div> : <button disabled={disabled} onClick={() => setAssetAuctionOffer({ itemId: won.item.id, itemRoundIndex: won.roundIndex, minimumBidUnits: 1 })}>{session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可拍卖' : '发起竞购'}</button>}</article>
+          return <article key={`${won.item.id}-${won.roundIndex}`}><span>{won.item.emoji}</span><div><strong>{won.item.name}</strong><small>{categoryConfig(won.item.category).name}</small></div>{selected ? <div className="asset-auction-list__offer"><b>起拍价 {formatCoins(assetAuctionOffer.minimumBidUnits)} 金币</b><button aria-label="起拍价减一金币" disabled={assetAuctionOffer.minimumBidUnits <= 2} onClick={() => setAssetAuctionOffer({ ...assetAuctionOffer, minimumBidUnits: Math.max(2, assetAuctionOffer.minimumBidUnits - 2) })}>− 1</button><button aria-label="起拍价加一金币" onClick={() => setAssetAuctionOffer({ ...assetAuctionOffer, minimumBidUnits: assetAuctionOffer.minimumBidUnits + 2 })}>+ 1</button><button className="asset-auction-list__cancel" onClick={() => setAssetAuctionOffer(undefined)}>取消</button></div> : <button className="asset-auction-list__start" disabled={disabled} onClick={() => setAssetAuctionOffer({ itemId: won.item.id, itemRoundIndex: won.roundIndex, minimumBidUnits: 2 })}>{session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可拍卖' : '发起竞购'}</button>}</article>
         })}</div>}
       </section>
       <section className="identity-skills panel">
@@ -1385,7 +1385,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (turn.assetAuctionOffer) {
       const offer = turn.assetAuctionOffer
       const ownsItem = currentPlayer.items.some((won) => won.item.id === offer.itemId && won.roundIndex === offer.itemRoundIndex)
-      if (session.roundIndex >= session.settings.rounds - 1 || !ownsItem || !Number.isInteger(offer.minimumBidUnits) || offer.minimumBidUnits < 1) return false
+      if (session.roundIndex >= session.settings.rounds - 1 || !ownsItem || !Number.isInteger(offer.minimumBidUnits) || offer.minimumBidUnits < 2) return false
     }
     if (turn.identityAction?.type === 'prophetDivination') {
       const action = turn.identityAction
@@ -1515,7 +1515,6 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     let auctionDeck = [...session.cardDeck]
     const auctionNotices = [...session.pendingIdentityNotices]
     const auctionEvents = [...session.identityEvents]
-    const auctionFeedback = new Map(auctionPlayers.map((player) => [player.id, [] as string[]]))
     for (const lot of session.roundAuctions ?? []) {
       const bids = session.turns.map((turn) => ({ playerId: turn.playerId, bidUnits: turn.auctionBids?.find((bid) => bid.lotId === lot.id)?.bidUnits ?? 0 }))
         .filter((bid) => lot.merchantId !== bid.playerId && bid.bidUnits > 0)
@@ -1533,21 +1532,18 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
             auctionEvents.push({ playerId: merchant.id, identityId: 'merchant', roundIndex: session.roundIndex, title: '道具竞购成交', detail: `你的道具以 ${formatCoins(winnerBid.bidUnits)} 金币成交。`, deltaUnits: winnerBid.bidUnits })
           }
           auctionNotices.push({ id: `round-auction-win-${lot.id}-${winner.id}`, playerId: winner.id, title: '道具竞购结果', detail: `恭喜你，竞拍到了道具「${getCardDefinition(lot.cardId).name}」。` })
-          auctionFeedback.get(winner.id)?.push(`恭喜你，竞得「${getCardDefinition(lot.cardId).name}」，支付 ${formatCoins(winnerBid.bidUnits)} 金币。`)
-          if (merchant) auctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」已成交。`)
+          if (merchant) auctionNotices.push({ id: `round-auction-merchant-sale-${lot.id}-${merchant.id}`, playerId: merchant.id, title: '道具竞购结果', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」已成交。` })
         }
       } else {
         const merchant = lot.merchantId ? auctionPlayers.find((player) => player.id === lot.merchantId) : undefined
         if (merchant) {
           merchant.cardInventory.push(lot.cardId)
           auctionNotices.push({ id: `round-auction-empty-${lot.id}-${merchant.id}`, playerId: merchant.id, title: '道具竞购流拍', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」无人唯一得标，已归入你的道具库存。` })
-          auctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」流拍，已归入你的道具库存。`)
         } else auctionDeck = shuffle([...auctionDeck, lot.cardId])
       }
       for (const player of auctionPlayers) {
         if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) {
           auctionNotices.push({ id: `round-auction-loss-${lot.id}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(lot.cardId).name}」。` })
-          auctionFeedback.get(player.id)?.push(`未竞得「${getCardDefinition(lot.cardId).name}」。`)
         }
       }
     }
@@ -1584,11 +1580,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     })
     settled.result.assetAuctionResults = assetAuctionResults
     const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
-    const auctionSummaryNotices = auctionPlayers.flatMap((player) => {
-      const lines = auctionFeedback.get(player.id) ?? []
-      return lines.length ? [{ id: `round-auction-summary-${session.roundIndex}-${player.id}`, playerId: player.id, title: '本轮道具竞购', detail: lines.join('\n') }] : []
-    })
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices.filter((notice) => !notice.id.startsWith('round-auction-')), ...auctionSummaryNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
     const eligiblePlayers = basePlayers.map((entry) => entry.identity?.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex
