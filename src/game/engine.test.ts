@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateFixedAssets, fixedAssetCoins } from './assets'
+import { calculateFixedAssets, fixedAssetCoins, itemFixedAssetCoins } from './assets'
 import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './engine'
 import { CARD_DEFINITIONS, cardTargetScope, createCardDeck } from './cards'
 import { ITEM_POOL } from './items'
@@ -441,6 +441,10 @@ describe('固定资产与默认配置', () => {
     expect(fixedAssetCoins('leisure', 4)).toBe(30)
     expect(fixedAssetCoins('leisure', 5)).toBe(40)
     expect(fixedAssetCoins('property', 5)).toBe(50)
+    expect(itemFixedAssetCoins(3)).toBe(1)
+    expect(itemFixedAssetCoins(5)).toBe(1)
+    expect(itemFixedAssetCoins(6)).toBe(2)
+    expect(itemFixedAssetCoins(15)).toBe(3)
   })
 
   it('固定资产只在终局并入总资产并改变终局名次', () => {
@@ -448,8 +452,8 @@ describe('固定资产与默认配置', () => {
     base[0].items = ITEM_POOL.filter((entry) => entry.category === 'leisure').slice(0, 3).map((item, roundIndex) => ({ item, roundIndex }))
     const standings = rankFinalPlayers(base)
     expect(base[0].balanceUnits).toBe(coinsToUnits(22))
-    expect(standings[0]).toMatchObject({ player: { id: 'p1' }, cashUnits: coinsToUnits(22), fixedAssetUnits: coinsToUnits(20), totalAssetUnits: coinsToUnits(42), place: 1 })
-    expect(calculateFixedAssets(base[0].items).find((entry) => entry.category === 'leisure')).toMatchObject({ itemCount: 3, units: coinsToUnits(20) })
+    expect(standings[0]).toMatchObject({ player: { id: 'p1' }, cashUnits: coinsToUnits(22), fixedAssetUnits: coinsToUnits(23), totalAssetUnits: coinsToUnits(45), place: 1 })
+    expect(calculateFixedAssets(base[0].items).find((entry) => entry.category === 'leisure')).toMatchObject({ itemCount: 3, units: coinsToUnits(23) })
   })
 
   it('新默认设置与六个系统配置使用确认后的规则', () => {

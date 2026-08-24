@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig } from './game/assets'
+import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig, itemFixedAssetCoins } from './game/assets'
 import { CARD_DEFINITIONS, CARD_RARITY_LABELS, cardTargetScope, drawCard, getCardDefinition } from './game/cards'
 import { createAssetTrajectories, createGameHighlights, createRoundBulletin } from './game/highlights'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
@@ -401,6 +401,8 @@ function RoundIntro({ session, onContinue, auto = false }: { session: GameSessio
   const item = session.itemDeck[session.roundIndex]
   const starter = session.players[roundStartPlayerIndex(session.roundIndex, session.players.length)]
   const categoryHolders = session.players.map((player) => ({ player, count: player.items.filter(({ item: wonItem }) => wonItem.category === item.category).length })).filter((entry) => entry.count > 0)
+  const category = categoryConfig(item.category)
+  const itemBonusCoins = itemFixedAssetCoins(item.value)
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current) }, [])
   const spin = () => {
     setSpinning(true)
@@ -435,7 +437,7 @@ function RoundIntro({ session, onContinue, auto = false }: { session: GameSessio
           </div>
           <p>{spinning ? '摇奖进行中，请稍候……' : '启动后，本轮物品将从牌堆中抽出。'}</p>
         </div>
-      ) : <div className="round-prize-stack"><PrizeCard item={item} /><div className="category-holders panel"><small>已有这类拍品</small>{categoryHolders.length === 0 ? <strong>目前无人持有</strong> : <div>{categoryHolders.map(({ player, count }) => <span key={player.id}>{player.name} × {count}</span>)}</div>}</div></div>}
+      ) : <div className="round-prize-stack"><PrizeCard item={item} /><div className="category-holders panel"><div className="category-bonus-head"><small>{category.name} · 本件固定资产</small><strong>+{itemBonusCoins}</strong></div><div className="category-bonus-track" aria-label={`${category.name} 固定资产加成`}><span className="is-item">1 件 <b>+{itemBonusCoins}</b></span><span>2 件 <b>+{category.tiers[0]}</b></span><span>3 件 <b>+{category.tiers[1]}</b></span><span>4+ <b>+{category.additionalUnit}/件</b></span></div><small className="category-holders__label">已有这类拍品</small>{categoryHolders.length === 0 ? <strong>目前无人持有</strong> : <div>{categoryHolders.map(({ player, count }) => <span key={player.id}>{player.name} × {count}</span>)}</div>}</div></div>}
       <div className="center-actions">
         {!spinning && !revealed && <button className="button button--primary button--large" onClick={spin}>启动抽奖机</button>}
         {spinning && <p className="muted pulse">正在抽取本轮拍品……</p>}
