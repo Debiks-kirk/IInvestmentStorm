@@ -433,8 +433,8 @@ function planCandidates(observation: BotObservation): TurnPlan[] {
     const multiplier = observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1
     plans.push(...plans.filter((plan) => !plan.cardUses.some((use) => use.cardId === 'reverseRank')).map((plan) => ({ ...plan, id: `${plan.id}:reverser`, identityAction: { type: 'reverserInvert' as const }, reversalCount: plan.reversalCount + 1, specialReason: `发动逆转排名，支付 ${observation.reverserActivationUnits * multiplier / 2} 金币后将获奖区倒序。` })))
   }
-  if (observation.self.identity?.id === 'assassin' && (observation.self.identity.activeSkillUses ?? 0) < observation.kidnapActivationLimit && observation.self.balanceUnits >= observation.kidnapActivationUnits) {
-    for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:kidnap:${opponent.id}`, identityAction: { type: 'kidnap' as const, targetPlayerId: opponent.id }, specialReason: `盯上 ${opponent.name}；若他拿下拍品，就报销费用并抢走藏品。` })))
+  if (observation.self.identity?.id === 'assassin' && (observation.self.identity.activeSkillUses ?? 0) < observation.kidnapActivationLimit && observation.self.balanceUnits >= kidnapActionCost(observation)) {
+    for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:kidnap:${opponent.id}`, identityAction: { type: 'kidnap' as const, targetPlayerId: opponent.id }, specialReason: `盯上 ${opponent.name}；若他拿下拍品，就抢走藏品，并赢得下回合的免费行动与道具奖励。` })))
   }
   if (observation.self.identity?.id === 'thief' && (observation.self.identity.activeSkillUses ?? 0) < observation.thiefActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:thief`, identityAction: { type: 'thiefSteal' as const }, specialReason: '发动偷卡，争取从其他玩家的未使用库存中夺取机会。' })))
@@ -472,6 +472,10 @@ function kidnapSuccessChance(observation: BotObservation, targetPlayerId: string
   return estimatePlaceAndChance(observation, targetBid, targetPlayerId).firstChance
 }
 
+function kidnapActionCost(observation: BotObservation): number {
+  return observation.self.identity?.kidnapFreeRoundIndex === observation.roundIndex ? 0 : observation.kidnapActivationUnits
+}
+
 function behavioralTemperatureUnits(observation: BotObservation, profile: BotProfile, difficulty: BotDifficulty, mode: StrategyMode, memory: BotMemory): number {
   const difficultyFactor = difficulty === 'easy' ? 1.32 : difficulty === 'expert' ? .62 : .95
   const profileVolatility = .45 + profile.risk * .42 + profile.cards * .13
@@ -506,7 +510,7 @@ function applyBidJitter(best: ScoredPlan, observation: BotObservation, profile: 
   if (best.rankingBidFromTargetId) return best
   const identityCost = best.identityAction?.type === 'reverserInvert'
     ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
-    : best.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits
+    : best.identityAction?.type === 'kidnap' ? kidnapActionCost(observation)
       : best.identityAction?.type === 'thiefSteal' ? observation.thiefActivationUnits
         : best.identityAction?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits
           : best.identityAction?.type === 'invest' ? best.identityAction.investmentUnits : 0
@@ -575,7 +579,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const scored: ScoredPlan[] = []
   const identityCost = (action: IdentityAction | undefined): number => action?.type === 'reverserInvert'
     ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
-    : action?.type === 'kidnap' ? observation.kidnapActivationUnits
+    : action?.type === 'kidnap' ? kidnapActionCost(observation)
       : action?.type === 'thiefSteal' ? observation.thiefActivationUnits
         : action?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits
           : action?.type === 'invest' ? action.investmentUnits : 0
@@ -620,7 +624,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const kidnapChance = kidnappedTarget ? kidnapSuccessChance(observation, kidnappedTarget) : 0
       const kidnapAssetValue = kidnappedTarget ? marginalAssetUnits(observation) + coinsToUnits((observation.item?.value ?? 0) * .28) : 0
       const kidnapValue = kidnapChance * kidnapAssetValue
-      const kidnapRisk = (plan.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits : 0) * (1 - kidnapChance)
+      const kidnapRisk = (plan.identityAction?.type === 'kidnap' ? kidnapActionCost(observation) : 0) * (1 - kidnapChance)
       const cashRisk = bidUnits * (mode === 'conserve' ? 1.28 : mode === 'finalSprint' ? .78 : 1) * riskFactor + actionCost + kidnapRisk
       const remainingCash = observation.self.balanceUnits - bidUnits - actionCost
       const bankruptcyFloor = coinsToUnits(1.5 + Math.max(0, behavior.bankrollBias) * .8)

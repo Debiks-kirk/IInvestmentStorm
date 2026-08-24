@@ -428,7 +428,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const reverser = playerById.get(reverserTurn.playerId)
     if (reverser?.identity) {
       reverser.identity = { ...reverser.identity, reverserFreeRoundIndex: roundIndex + 1 }
-      identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '逆转者连胜奖励', detail: '本轮发动逆转后拿下第一名：下一回合可免费发动一次逆转，并会获得一张道具卡。', deltaUnits: 0 })
+      identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '逆转者连胜奖励', detail: '本轮发动逆转后拿下第一名：已赢得下回合的免费逆转资格与道具奖励。', deltaUnits: 0 })
     }
   }
   let itemWinnerId = winnerId
@@ -444,19 +444,19 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   if (kidnapTurn?.identityAction?.type === 'kidnap') {
     const kidnapper = playerById.get(kidnapTurn.playerId)
     const kidnapDelta = deltaByPlayer.get(kidnapTurn.playerId)
-    const paid = Math.min(kidnapper?.balanceUnits ?? 0, coinsToUnits(identitySettings.kidnapActivationCoins))
+    const freeActivation = kidnapper?.identity?.kidnapFreeRoundIndex === roundIndex
+    const paid = freeActivation ? 0 : Math.min(kidnapper?.balanceUnits ?? 0, coinsToUnits(identitySettings.kidnapActivationCoins))
     if (kidnapper && kidnapDelta) {
       kidnapper.balanceUnits -= paid
       kidnapDelta.identityUnits -= paid
+      kidnapper.identity = { ...kidnapper.identity!, kidnapFreeRoundIndex: null }
       if (!legendaryLoot && itemWinnerId === kidnapTurn.identityAction.targetPlayerId) {
-        kidnapper.balanceUnits += paid
-        kidnapDelta.identityUnits += paid
         itemWinnerId = kidnapper.id
-        kidnapper.identity = { ...kidnapper.identity!, pendingKidnapReward: true }
+        kidnapper.identity = { ...kidnapper.identity!, pendingKidnapReward: true, kidnapFreeRoundIndex: roundIndex + 1 }
         cardEffects.push(identityEffect('⛓', '有人抢劫了本回合的藏品。'))
-        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫成功', detail: `抢走了 ${item.emoji}${item.name}，并报销本回合花费的 ${formatCoins(paid)} 金币。下一回合可从 3 张道具中选择 1 张。`, deltaUnits: 0 })
+        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫成功', detail: `抢走了 ${item.emoji}${item.name}。已赢得下回合的免费发动资格与道具奖励。`, deltaUnits: paid === 0 ? 0 : -paid })
       } else {
-        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫失败', detail: `上回合花费了 ${formatCoins(paid)} 金币，但目标没有拿下本轮拍品。`, deltaUnits: -paid })
+        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫失败', detail: freeActivation ? '使用了上一回合赢得的免费发动，但目标没有拿下本轮拍品。' : `上回合花费了 ${formatCoins(paid)} 金币，但目标没有拿下本轮拍品。`, deltaUnits: paid === 0 ? 0 : -paid })
       }
     }
   }

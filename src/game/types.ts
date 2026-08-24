@@ -214,7 +214,9 @@ export interface PlayerIdentity {
   activeSkillUses?: number
   /** Earned by winning with an inversion; usable only on the stated next round. */
   reverserFreeRoundIndex?: number | null
-  /** A successful kidnap unlocks a locked three-card reward offer next round. */
+  /** Earned by a successful kidnap; usable only on the stated next round. */
+  kidnapFreeRoundIndex?: number | null
+  /** A successful kidnap awards one private card at the start of the next round. */
   pendingKidnapReward?: boolean
 }
 

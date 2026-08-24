@@ -270,16 +270,26 @@ describe('身份结算', () => {
     expect(settled.identityContracts.map((contract) => contract.status)).toEqual(['success', 'failed'])
   })
 
-  it('绑匪盯上的玩家拿下拍品时，报销费用并把拍品转给绑匪', () => {
+  it('绑匪盯上的玩家拿下拍品时，付费抢走拍品并赢得下回合奖励', () => {
     const players = [player('assassin'), player('target'), player('third')]
     players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 4), identityAction: { type: 'kidnap', targetPlayerId: 'target' } }, turn('target', 8), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
     expect(settled.result.winnerId).toBe('target')
     expect(settled.result.itemWinnerId).toBe('assassin')
     expect(settled.players.find((entry) => entry.id === 'assassin')?.items).toEqual([{ item, roundIndex: 0 }])
+    expect(settled.players.find((entry) => entry.id === 'assassin')?.identity).toMatchObject({ pendingKidnapReward: true, kidnapFreeRoundIndex: 1 })
     expect(settled.players.find((entry) => entry.id === 'target')?.items).toEqual([])
-    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫成功', deltaUnits: 0 })]))
+    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫成功', deltaUnits: -coinsToUnits(3) })]))
     expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ symbol: '⛓', description: '有人抢劫了本回合的藏品。' })]))
+  })
+
+  it('绑匪的连胜免费发动不扣费，并把免费资格续到下一回合', () => {
+    const players = [player('assassin'), player('target'), player('third')]
+    players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, kidnapFreeRoundIndex: 1 }
+    const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 4), identityAction: { type: 'kidnap', targetPlayerId: 'target' } }, turn('target', 8), turn('third', 2)], item, roundIndex: 1, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+    expect(settled.result.itemWinnerId).toBe('assassin')
+    expect(settled.players.find((entry) => entry.id === 'assassin')?.identity).toMatchObject({ pendingKidnapReward: true, kidnapFreeRoundIndex: 2 })
+    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫成功', deltaUnits: 0 })]))
   })
 
   it('传奇夺宝令优先于绑匪抢劫最终藏品', () => {

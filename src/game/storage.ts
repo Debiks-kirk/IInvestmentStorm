@@ -79,6 +79,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         lobbyistLastIssuedRound: identity.lobbyistLastIssuedRound ?? null,
         nightwalkerUses: identity.nightwalkerUses ?? 0,
         activeSkillUses: identity.activeSkillUses ?? 0,
+        reverserFreeRoundIndex: identity.reverserFreeRoundIndex ?? null,
+        kidnapFreeRoundIndex: identity.kidnapFreeRoundIndex ?? null,
       } : undefined,
       controller: legacy.controller?.kind === 'bot' ? legacy.controller : { kind: 'human' },
       ...(legacy.controller?.kind === 'bot' ? { botMemory: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`), ...(legacy.botMemory ?? {}), behavior: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`).behavior, ...(legacy.botMemory?.behavior ?? {}) }, grudgeByPlayerId: { ...(legacy.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(legacy.botMemory?.decisionLog ?? [])], recentBidUnits: [...(legacy.botMemory?.recentBidUnits ?? [])] } } : {}),
