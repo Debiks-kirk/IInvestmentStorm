@@ -385,12 +385,14 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const reverser = playerById.get(reverserTurn.playerId)
     const reverserDelta = deltaByPlayer.get(reverserTurn.playerId)
     const multiplier = roundIndex >= (input.totalRounds ?? Number.MAX_SAFE_INTEGER) - 2 ? 2 : 1
-    const due = coinsToUnits(identitySettings.reverserActivationCoins * multiplier)
+    const freeActivation = reverser?.identity?.reverserFreeRoundIndex === roundIndex
+    const due = freeActivation ? 0 : coinsToUnits(identitySettings.reverserActivationCoins * multiplier)
     const paid = Math.min(reverser?.balanceUnits ?? 0, due)
     if (reverser && reverserDelta) {
       reverser.balanceUnits -= paid
       reverserDelta.identityUnits -= paid
-      identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '发动逆转排名', detail: `支付 ${formatCoins(paid)} 金币，获奖区名次已倒转。`, deltaUnits: -paid })
+      reverser.identity = { ...reverser.identity!, reverserFreeRoundIndex: null }
+      identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '发动逆转排名', detail: freeActivation ? '使用上一轮赢得的免费发动，获奖区名次已倒转。' : `支付 ${formatCoins(paid)} 金币，获奖区名次已倒转。`, deltaUnits: -paid })
     }
   }
   if (rankingReversalCount > 0) cardEffects.push(cardEffect('reverseRank', rankingReversalDescription(rankingReversalCount)))
@@ -398,6 +400,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const rankedTurns = rankingReversalCount % 2 === 1 ? [...winningTurns].reverse() : winningTurns
   const rankings: RankingEntry[] = rankedTurns.map((turn, index) => ({ playerId: turn.playerId, place: index + 1, bidUnits: turn.rankingBidUnits, actualBidUnits: turn.bidUnits, rewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]), publicRewardUnits: floorToHalfUnits(effectiveValueUnits * rewardMultipliers[index]) }))
   const winnerId = rankedTurns[0]?.playerId ?? null
+  if (reverserTurn && winnerId === reverserTurn.playerId) {
+    const reverser = playerById.get(reverserTurn.playerId)
+    if (reverser?.identity) {
+      reverser.identity = { ...reverser.identity, reverserFreeRoundIndex: roundIndex + 1 }
+      identityEvents.push({ playerId: reverser.id, identityId: 'reverser', roundIndex, title: '逆转者连胜奖励', detail: '本轮发动逆转后拿下第一名：下一回合可免费发动一次逆转，并会获得一张道具卡。', deltaUnits: 0 })
+    }
+  }
   let itemWinnerId = winnerId
   // 传奇夺宝令只动最终藏品：排名奖励、预测和赢家付款仍使用正常第一名。
   // 它在绑匪之前落定，因此绑匪不能覆盖这次夺宝。
@@ -419,8 +428,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         kidnapper.balanceUnits += paid
         kidnapDelta.identityUnits += paid
         itemWinnerId = kidnapper.id
+        kidnapper.identity = { ...kidnapper.identity!, pendingKidnapReward: true }
         cardEffects.push(identityEffect('⛓', '有人抢劫了本回合的藏品。'))
-        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫成功', detail: `抢走了 ${item.emoji}${item.name}，并报销上回合花费的 ${formatCoins(paid)} 金币。`, deltaUnits: 0 })
+        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫成功', detail: `抢走了 ${item.emoji}${item.name}，并报销本回合花费的 ${formatCoins(paid)} 金币。下一回合可从 3 张道具中选择 1 张。`, deltaUnits: 0 })
       } else {
         identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫失败', detail: `上回合花费了 ${formatCoins(paid)} 金币，但目标没有拿下本轮拍品。`, deltaUnits: -paid })
       }

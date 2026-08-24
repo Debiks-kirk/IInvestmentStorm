@@ -139,6 +139,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     prophetIdentityCandidates: { ...(session.prophetIdentityCandidates ?? {}) },
     prophetIdentityProgress: Object.fromEntries(players.filter((player) => player.identity?.id === 'prophet').map((prophet) => [prophet.id, Object.fromEntries(players.filter((target) => target.id !== prophet.id).map((target) => [target.id, getProphetIdentityProgress((session.prophetDivinations ?? []) as ProphetDivination[], prophet.id, target.id, session.prophetIdentityProgress?.[prophet.id]?.[target.id])]))])),
     pendingProphetCardOffers: [...(session.pendingProphetCardOffers ?? [])],
+    pendingKidnapCardOffers: [...(session.pendingKidnapCardOffers ?? [])],
     finalReceiptIndex: session.finalReceiptIndex ?? null,
     operationDeadlineAt: settings.turnTimerEnabled && typeof session.operationDeadlineAt === 'number' ? session.operationDeadlineAt : null,
     cardRulesStartRound: session.cardRulesStartRound ?? Math.max((session.roundIndex ?? 0) + 1, 1),

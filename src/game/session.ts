@@ -25,9 +25,9 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
   const sizeTuning = playerCount === 3
     ? { rounds: 5, wrongPredictionMultiplier: 1.5, merchantAuctionLimit: 1, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .33, gamblerPenaltyMultiplier: .5 }
     : playerCount === 6
-      ? { rounds: 8, wrongPredictionMultiplier: 1, merchantAuctionLimit: 3, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .67, gamblerPenaltyMultiplier: .33, kidnapActivationCoins: 3 }
+      ? { rounds: 8, wrongPredictionMultiplier: 1, merchantAuctionLimit: 3, nightwalkerUseLimit: 2, gamblerCorrectBonusMultiplier: .67, gamblerPenaltyMultiplier: .33 }
       : playerCount === 10
-        ? { rounds: 10, wrongPredictionMultiplier: .5, merchantAuctionLimit: 3, nightwalkerUseLimit: 3, gamblerCorrectBonusMultiplier: 1, gamblerPenaltyMultiplier: .2, kidnapActivationCoins: 2 }
+        ? { rounds: 10, wrongPredictionMultiplier: .5, merchantAuctionLimit: 3, nightwalkerUseLimit: 3, gamblerCorrectBonusMultiplier: 1, gamblerPenaltyMultiplier: .2 }
         : null
   const identitySettings = {
     ...defaultIdentitySettings(true),
@@ -36,7 +36,6 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
       nightwalkerUseLimit: sizeTuning.nightwalkerUseLimit,
       gamblerCorrectBonusMultiplier: sizeTuning.gamblerCorrectBonusMultiplier,
       ...(sizeTuning.gamblerPenaltyMultiplier === undefined ? {} : { gamblerWrongPenaltyMultiplier: sizeTuning.gamblerPenaltyMultiplier, gamblerSkipPenaltyMultiplier: sizeTuning.gamblerPenaltyMultiplier }),
-      ...(sizeTuning.kidnapActivationCoins === undefined ? {} : { kidnapActivationCoins: sizeTuning.kidnapActivationCoins }),
     } : {}),
   }
   return {
@@ -112,6 +111,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     prophetIdentityCandidates: {},
     prophetIdentityProgress: {},
     pendingProphetCardOffers: [],
+    pendingKidnapCardOffers: [],
     finalReceiptIndex: null,
     operationDeadlineAt: null,
     cardRulesStartRound: 1,

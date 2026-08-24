@@ -201,7 +201,8 @@ describe('身份结算', () => {
     expect(settled.result.winnerId).toBe('reverse')
     expect(settled.result.rankings.map((entry) => entry.playerId)).toEqual(['reverse', 'first'])
     expect(settled.players.find((entry) => entry.id === 'reverse')?.items).toHaveLength(1)
-    expect(settled.result.identityEvents.find((event) => event.identityId === 'reverser')?.deltaUnits).toBe(-coinsToUnits(10))
+    expect(settled.result.identityEvents.find((event) => event.identityId === 'reverser' && event.deltaUnits < 0)?.deltaUnits).toBe(-coinsToUnits(6))
+    expect(settled.players.find((entry) => entry.id === 'reverse')?.identity?.reverserFreeRoundIndex).toBe(3)
   })
 
   it('逆行者与逆转排名卡同回合发动两次逆转，获奖区回到正常排名', () => {
@@ -274,7 +275,7 @@ describe('身份结算', () => {
     const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 9), identityAction: { type: 'kidnap', targetPlayerId: 'target' } }, turn('target', 5), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
     expect(settled.result.winnerId).toBe('assassin')
     expect(settled.result.itemWinnerId).toBe('assassin')
-    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫失败', deltaUnits: -coinsToUnits(5) })]))
+    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', deltaUnits: -coinsToUnits(3) })]))
     expect(settled.result.cardEffects.some((effect) => effect.symbol === '⛓')).toBe(false)
   })
 

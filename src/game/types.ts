@@ -196,6 +196,10 @@ export interface PlayerIdentity {
   /** Nightwalker can set two secret bids twice per game. */
   nightwalkerUses?: number
   activeSkillUses?: number
+  /** Earned by winning with an inversion; usable only on the stated next round. */
+  reverserFreeRoundIndex?: number | null
+  /** A successful kidnap unlocks a locked three-card reward offer next round. */
+  pendingKidnapReward?: boolean
 }
 
 export interface IdentityDraftState {
@@ -407,6 +411,8 @@ export interface GameSession {
   prophetIdentityProgress: Record<string, Record<string, ProphetIdentityProgress>>
   /** One-time six-card / choose-two reward, locked before the owner can choose. */
   pendingProphetCardOffers: Array<{ playerId: string; offeredCardIds: CardId[]; chosenCardIds: CardId[] }>
+  /** Kidnap success reward. Candidates are removed from the deck before this is shown. */
+  pendingKidnapCardOffers: Array<{ playerId: string; offeredCardIds: CardId[] }>
   /** Final round receipts are shown seat by seat before the public leaderboard. */
   finalReceiptIndex: number | null
   /** 已进入私密竞拍/竞购后的绝对截止时间；刷新降级为传递页时保留。 */
