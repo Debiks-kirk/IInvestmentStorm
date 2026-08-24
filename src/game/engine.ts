@@ -751,7 +751,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       }
       passivityFeePenalties.push({ playerId: player.id, occurrence, investmentUnits: commitment, feeUnits, paidFeeUnits, removedCardIds })
     }
-    if (passivityFeePenalties.length > 0) cardEffects.push(identityEffect('◌', `本轮有 ${passivityFeePenalties.length} 人需要支付观望费。`))
+    if (passivityFeePenalties.length > 0) cardEffects.push(identityEffect('◌', `本轮有 ${passivityFeePenalties.length} 人受到了观望惩罚。`))
   }
   const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
   if (investments.length > 0) cardEffects.push(identityEffect('◈', '有人获得了秘密投资，排名奖励已按实际出资比例分配。'))

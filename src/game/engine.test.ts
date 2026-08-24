@@ -440,7 +440,7 @@ describe('道具发放', () => {
   })
 })
 
-describe('观望费', () => {
+describe('观望惩罚', () => {
   function settleWithPassivity(basePlayers: Player[], turns: RoundTurn[], roundStartBalances: number[]) {
     return settleRound({
       playersAfterBids: basePlayers,
@@ -462,10 +462,10 @@ describe('观望费', () => {
       ['p3', 1, coinsToUnits(1), coinsToUnits(1)],
       ['p4', 1, coinsToUnits(1), coinsToUnits(1)],
     ])
-    expect(result.cardEffects.some((effect) => effect.description === '本轮有 2 人需要支付观望费。')).toBe(true)
+    expect(result.cardEffects.some((effect) => effect.description === '本轮有 2 人受到了观望惩罚。')).toBe(true)
   })
 
-  it('获奖者与开局余额最低者免于观望费', () => {
+  it('获奖者与开局余额最低者免于观望惩罚', () => {
     const result = settleWithPassivity(players([20, 20, 20, 20]), [turn('p1', 10), turn('p2', 8), turn('p3', 2), turn('p4', 0)], [30, 30, 30, 5]).result
     expect(result.passivityFeePenalties).toEqual([])
   })

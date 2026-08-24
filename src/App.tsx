@@ -41,7 +41,7 @@ function passivityFeeNotice(penalty: RoundResult['passivityFeePenalties'][number
   return {
     id: `passivity-fee-${roundIndex}-${penalty.playerId}-${index}`,
     playerId: penalty.playerId,
-    title: '观望费提醒',
+    title: '观望惩罚提醒',
     detail: `本轮你的实际投入为全场最低，且未进入获奖区；本轮开始时你的余额也并非最低。\n第 ${penalty.occurrence} 次触发：${paid}${cardLoss}。\n${nextPenalty}`,
   }
 }
@@ -791,7 +791,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const fixedAssets = calculateFixedAssets(player.items, identity?.id === 'collector' ? identity.collectorCategory : undefined).filter((asset) => asset.itemCount > 0)
   const activeLobbyTasks = session.identityContracts.filter((contract) => contract.targetPlayerId === player.id && contract.status === 'pending' && contract.executeRoundIndex === session.roundIndex)
   const playerNotices = session.pendingIdentityNotices.filter((notice) => notice.playerId === player.id).sort((left, right) => {
-    const priority = (notice: typeof left) => notice.title.includes('任务') ? 0 : notice.title === '观望费提醒' ? 1 : notice.title.includes('道具') ? 2 : 3
+    const priority = (notice: typeof left) => notice.title.includes('任务') ? 0 : notice.title === '观望惩罚提醒' ? 1 : notice.title.includes('道具') ? 2 : 3
     return priority(left) - priority(right)
   })
   const activeNotice = playerNotices[0]
