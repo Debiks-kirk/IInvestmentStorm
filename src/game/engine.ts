@@ -144,6 +144,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     playerId: player.id,
     rewardUnits: 0,
     predictionUnits: 0,
+    publicPredictionUnits: 0,
     cardUnits: 0,
     identityUnits: 0,
     publicDeltaUnits: 0,
@@ -461,12 +462,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       if (gambler) {
         const publicDue = floorToHalfUnits(effectiveValueUnits * wrongPredictionMultiplier)
         const publicPaid = Math.min(availableBeforePrediction, publicDue)
-        delta.identityUnits -= paid
-        delta.predictionUnits -= publicPaid
+        delta.predictionUnits -= paid
+        delta.publicPredictionUnits -= publicPaid
         identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜错 −${formatCoins(publicPaid)}”；实际作为赌徒只支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
         predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -publicPaid })
       } else {
         delta.predictionUnits -= paid
+        delta.publicPredictionUnits -= paid
         predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -paid })
       }
     }
@@ -482,6 +484,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       const payments = distributeUnits({ totalUnits: winnerPaymentUnits, playerIds: correctTurns.map((turn) => turn.playerId), fairnessOrderIds, roundIndex })
       winner.balanceUnits -= winnerPaymentUnits
       winnerDelta.predictionUnits -= winnerPaymentUnits
+      winnerDelta.publicPredictionUnits -= winnerPaymentUnits
       for (const turn of correctTurns) {
         const payment = payments.get(turn.playerId) ?? 0
         const player = playerById.get(turn.playerId)
@@ -489,6 +492,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         if (player && delta) {
           player.balanceUnits += payment
           delta.predictionUnits += payment
+          delta.publicPredictionUnits += payment
         }
         predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'correct', deltaUnits: payment })
       }
@@ -636,7 +640,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const balanceLeaderIds = players.filter((player) => player.balanceUnits === highestBalance).map((player) => player.id)
   const deltas = players.map((player) => {
     const delta = deltaByPlayer.get(player.id) as PlayerRoundDelta
-    return { ...delta, publicDeltaUnits: delta.rewardUnits + delta.predictionUnits }
+    return { ...delta, publicDeltaUnits: delta.rewardUnits + delta.publicPredictionUnits }
   })
   const result: RoundResult = {
     roundIndex,

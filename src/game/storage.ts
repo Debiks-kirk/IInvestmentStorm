@@ -91,6 +91,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     redistributionTransferUnits: result.redistributionTransferUnits ?? null,
     autoConsumedCardIds: result.autoConsumedCardIds ?? [],
     identityEvents: result.identityEvents ?? [],
+    deltas: result.deltas.map((delta) => ({ ...delta, publicPredictionUnits: delta.publicPredictionUnits ?? delta.predictionUnits })),
     totalAssetUnitsAfter: result.totalAssetUnitsAfter ?? result.balancesAfter ?? {},
     rankingReversalCount: result.rankingReversalCount ?? 0,
     itemWinnerId: result.itemWinnerId ?? result.winnerId ?? null,

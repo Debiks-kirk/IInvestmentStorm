@@ -310,7 +310,10 @@ export interface PredictionOutcome {
 export interface PlayerRoundDelta {
   playerId: string
   rewardUnits: number
+  /** Actual balance change caused by prediction settlement. */
   predictionUnits: number
+  /** Masked prediction change exposed in all non-final public summaries. */
+  publicPredictionUnits: number
   cardUnits: number
   identityUnits: number
   publicDeltaUnits: number
