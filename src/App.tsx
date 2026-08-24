@@ -9,7 +9,7 @@ import { createDefaultSettings, createRematchSession, createSession, createTutor
 import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetModeLabel } from './game/prophet'
-import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
+import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
 import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'game'
@@ -867,7 +867,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           const locked = lot.sellerId === player.id
           const bid = locked ? 0 : auctionBidByLotId[lot.id] ?? 0
           const category = categoryConfig(lot.item.category)
-          return <article className={cx('round-auction-card', locked && 'is-own')} key={lot.id}><span>{lot.item.emoji}</span><strong>{lot.item.name}</strong><small>{locked ? '这是你发起的竞购，自己不能报价。' : `${category.name} · 起拍价 ${formatCoins(lot.minimumBidUnits)} 金币`}</small><div><button disabled={locked || bid <= 0} onClick={() => setAuctionBid(lot.id, bid <= lot.minimumBidUnits ? 0 : bid - 1)}>−</button><b><CoinValue units={bid} /></b><button disabled={locked} onClick={() => setAuctionBid(lot.id, bid === 0 ? lot.minimumBidUnits : bid + 1)}>+</button></div></article>
+          return <article className={cx('round-auction-card', 'round-auction-card--asset', locked && 'is-own')} key={lot.id}><span>{lot.item.emoji}</span><strong>{lot.item.name}</strong><small>{locked ? '这是你发起的竞购，自己不能报价。' : `${category.name} · 藏品竞购`}</small>{!locked && <div className="auction-starting-price"><span>起拍价</span><b>{formatCoins(lot.minimumBidUnits)} 金币</b></div>}<div><button disabled={locked || bid <= 0} onClick={() => setAuctionBid(lot.id, bid <= lot.minimumBidUnits ? 0 : bid - 1)}>−</button><b><CoinValue units={bid} /></b><button disabled={locked} onClick={() => setAuctionBid(lot.id, bid === 0 ? lot.minimumBidUnits : bid + 1)}>+</button></div></article>
         })}</div>
       </section>}
       <section className="private-assets panel">
@@ -1833,21 +1833,28 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           startPrizeReroll(currentPlayer.id)
           return
         }
-        let auctionBudget = Math.max(0, currentPlayer.balanceUnits - decision.bidUnits)
+        const plannedIdentityCost = decision.identityAction?.type === 'reverserInvert'
+          ? (currentPlayer.identity?.reverserFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 4 : 2)))
+          : decision.identityAction?.type === 'kidnap'
+            ? (currentPlayer.identity?.kidnapFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.kidnapActivationCoins * 2))
+            : decision.identityAction?.type === 'thiefSteal'
+              ? Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
+              : decision.identityAction?.type === 'invest'
+                ? decision.identityAction.investmentUnits
+                : decision.identityAction?.type === 'lobbyistContract'
+                  ? ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || currentPlayer.identity?.lobbyistNextFree ? 0 : Math.round(session.settings.identitySettings.lobbyistFeeCoins * 2)) + (decision.identityAction.specified ? Math.round(session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins * 2) : 0)
+                  : decision.identityAction?.type === 'nightwalkerDoubleBid'
+                    ? Math.max(0, decision.identityAction.shadowBidUnits - decision.bidUnits)
+                    : 0
+        const fateGain = decision.cardUses.some((use) => use.cardId === 'fateCoin' && use.coinResult === 'heads') ? 20 : 0
+        let auctionBudget = Math.max(0, currentPlayer.balanceUnits + fateGain - decision.bidUnits - plannedIdentityCost)
         const auctionBids = (session.roundAuctions ?? []).map((lot) => {
           if (lot.merchantId === currentPlayer.id) return { lotId: lot.id, bidUnits: 0 }
           const quote = decideBotMerchantBid({ ...currentPlayer, balanceUnits: auctionBudget }, lot.cardId).bidUnits
           const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
           auctionBudget -= bidUnits
           return { lotId: lot.id, bidUnits }
-        }).concat((session.roundAssetAuctions ?? []).map((lot) => {
-          if (lot.sellerId === currentPlayer.id) return { lotId: lot.id, bidUnits: 0 }
-          const categoryInterest = currentPlayer.items.filter((won) => won.item.category === lot.item.category).length
-          const quote = Math.max(lot.minimumBidUnits, Math.round((lot.minimumBidUnits + categoryInterest * 3 + Math.random() * 4) / 1) )
-          const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
-          auctionBudget -= bidUnits
-          return { lotId: lot.id, bidUnits: bidUnits >= lot.minimumBidUnits ? bidUnits : 0 }
-        }))
+        }).concat(decideBotAssetAuctionBids({ player: currentPlayer, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
         const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。

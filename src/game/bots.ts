@@ -2,7 +2,7 @@ import { calculateFixedAssets } from './assets'
 import { cardTargetScope, getCardDefinition } from './cards'
 import { coinsToUnits } from './engine'
 import { getIdentityDefinition } from './identities'
-import type { AssetCategory, BotBehavior, BotDifficulty, BotMemory, BotProfileId, CardId, CardUse, GameSession, IdentityAction, IdentityId, Item, LobbyistTaskType, Player, StrategyMode } from './types'
+import type { AssetAuctionLot, AssetCategory, BotBehavior, BotDifficulty, BotMemory, BotProfileId, CardId, CardUse, GameSession, IdentityAction, IdentityId, Item, LobbyistTaskType, Player, StrategyMode } from './types'
 
 export interface BotProfile {
   id: BotProfileId
@@ -125,7 +125,9 @@ export interface BotObservation {
   thiefActivationUnits: number
   lobbyistFeeUnits: number
   item: GameSession['itemDeck'][number] | null
-  self: Pick<Player, 'id' | 'name' | 'balanceUnits' | 'items' | 'cardInventory' | 'identity'>
+  self: Pick<Player, 'id' | 'name' | 'balanceUnits' | 'items' | 'cardInventory' | 'identity' | 'passivityFeeCount'>
+  /** Only the bot's own frozen opening balance is exposed. */
+  selfRoundStartBalanceUnits: number
   opponents: Array<{ id: string; name: string }>
   previousSubmitterIds: string[]
   publicRounds: PublicRoundObservation[]
@@ -167,7 +169,8 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
       ? 0
       : coinsToUnits(session.settings.identitySettings.lobbyistFeeCoins),
     item: session.itemDeck[session.roundIndex] ?? null,
-    self: { id: player.id, name: player.name, balanceUnits: player.balanceUnits, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined },
+    self: { id: player.id, name: player.name, balanceUnits: player.balanceUnits, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined, passivityFeeCount: player.passivityFeeCount ?? 0 },
+    selfRoundStartBalanceUnits: session.roundStartBalanceUnits?.[player.id] ?? player.balanceUnits,
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
     previousSubmitterIds: prior,
     publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])) })),
@@ -631,6 +634,24 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const bankruptcyPenalty = observation.roundIndex < observation.totalRounds - 2 && remainingCash < bankruptcyFloor
         ? (bankruptcyFloor - Math.max(0, remainingCash)) * (1.15 + (1 - profile.risk) * .8)
         : 0
+      // A bot does not know anyone else's exact opening balance, but it knows
+      // its own snapshot and public cash ranges. Treat a likely minimum
+      // commitment as costly unless it is probably being rewarded or is itself
+      // genuinely short-stacked (the rule's exemption).
+      const estimatedOtherOpeningFloor = Math.min(...observation.balanceEstimates
+        .filter((entry) => entry.playerId !== observation.playerId)
+        .map((entry) => entry.lowUnits))
+      const likelyOpeningLow = observation.selfRoundStartBalanceUnits <= estimatedOtherOpeningFloor + coinsToUnits(.5)
+      const estimatedCommitmentFloor = Math.min(...observation.opponents.map((opponent) => Math.max(0, expectedCurrentBid(observation, opponent.id) * .42)))
+      const likelyMinimumCommitment = bidUnits <= estimatedCommitmentFloor + 1
+      const likelyRewarded = estimate.place <= observation.rewardMultipliers.length && estimate.uniqueChance >= .38
+      const nextPassivityFee = (observation.self.passivityFeeCount ?? 0) === 0 ? coinsToUnits(1)
+        : (observation.self.passivityFeeCount ?? 0) === 1 ? coinsToUnits(3)
+          : coinsToUnits(5)
+      const passivityCardRisk = (observation.self.passivityFeeCount ?? 0) >= 2 && observation.self.cardInventory.length > 0 ? coinsToUnits(1.5 + profile.cards) : 0
+      const passivityPenalty = likelyMinimumCommitment && !likelyRewarded && !likelyOpeningLow
+        ? (nextPassivityFee + passivityCardRisk) * (1.25 + Math.max(0, behavior.reserveBias) * .2)
+        : 0
       const categoryMomentum = categoryItems > 0 ? estimate.uniqueChance * coinsToUnits(Math.min(1.6, categoryItems * (.28 + profile.collect * .18))) * (collectorTarget ? 1.6 : 1) : 0
       const boldness = (mode === 'pressure' || mode === 'comeback' || mode === 'finalSprint') ? estimate.firstChance * coinsToUnits(1.25) : 0
       const blockTarget = preferredOpponent(observation, memory)
@@ -643,7 +664,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         : plan.identityAction?.type === 'merchantAuction' ? coinsToUnits(.8 + behavior.cardBias * .5)
         : plan.identityAction?.type === 'thiefSteal' ? coinsToUnits(.6 + behavior.cardBias * .45)
           : plan.identityAction?.type === 'lobbyistContract' ? coinsToUnits(.7 + behavior.antiLeaderBias * .35) : 0
-      const score = expectedReward - cashRisk - bankruptcyPenalty + categoryMomentum + kidnapValue + boldness + blockValue + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) + identityValue + fingerprintBonus - tiePenalty
+      const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty + categoryMomentum + kidnapValue + boldness + blockValue + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) + identityValue + fingerprintBonus - tiePenalty
       scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
@@ -685,7 +706,8 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const mixedText = !best.specialReason && !identityAction ? ' 在高价值方案中按性格、资金底线与局势做了带权混合，并加入受控的报价波动。' : ''
   const financeText = reserveUnits > 0 ? ` 预留约 ${reserveUnits / 2} 金币周转。` : ''
   const collectionText = collectorTarget ? ' 当前拍品命中收藏类别，已计入即时奖励与套装增量。' : ''
-  return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${collectionText}${financeText}${specialText}${mixedText}${predictionText}`, intel }
+  const passivityText = observation.roundIndex < observation.totalRounds - 1 ? ' 已将观望惩罚风险计入报价。' : ''
+  return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${collectionText}${financeText}${specialText}${mixedText}${passivityText}${predictionText}`, intel }
 }
 
 export function decideBotIdentity({ choices, player, players, cardOfferIds }: { choices: IdentityId[]; player: Player; players: Player[]; cardOfferIds?: CardId[] }): { identityId: IdentityId; targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId; mode: StrategyMode; reason: string } {
@@ -718,6 +740,63 @@ export function decideBotMerchantBid(player: Player, cardId: CardId): { bidUnits
   const window = scored.filter((entry) => entry.score >= scored[0].score - 1.8)
   const selected = choose(window, `${player.id}:${cardId}:${player.botMemory?.decisionLog.length ?? 0}:auction`) ?? scored[0]
   return { bidUnits: selected.bidUnits, mode: 'cards', reason: '按道具协同性、现金保留与报价指纹，在半金币报价中选择了不易撞价的竞购方案。' }
+}
+
+/** Chooses asset-auction quotes as a budgeted collection decision, not a blind
+ * "minimum price plus random" bid. A high reserve price is ignored unless the
+ * item can realistically improve this bot's end-game collection. */
+export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed }: {
+  player: Player
+  lots: AssetAuctionLot[]
+  budgetUnits: number
+  roundIndex: number
+  totalRounds: number
+  sessionSeed: string
+}): Array<{ lotId: string; bidUnits: number }> {
+  const controller = player.controller?.kind === 'bot' ? player.controller : { profileId: 'adaptive' as BotProfileId }
+  const profile = botProfile(controller.profileId)
+  const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
+  const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
+  const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+  const candidates = lots
+    .filter((lot) => lot.sellerId !== player.id)
+    .map((lot) => {
+      const afterAssets = calculateFixedAssets([...player.items, { item: lot.item, roundIndex }], collectorCategory).reduce((total, entry) => total + entry.units, 0)
+      const assetGain = Math.max(0, afterAssets - beforeAssets)
+      const matchingItems = player.items.filter((won) => won.item.category === lot.item.category).length
+      const collectorMatch = collectorCategory === lot.item.category
+      const baseValue = coinsToUnits(.9 + lot.item.value * .36)
+      const collectionWeight = .42 + profile.collect * .24 + Math.max(0, behavior.assetFocusBias) * .16 + (collectorMatch ? .22 : 0)
+      const collectionPremium = assetGain * collectionWeight + coinsToUnits(matchingItems * (.55 + profile.collect * .35) + (collectorMatch ? 1.5 : 0))
+      const endGameWeight = roundIndex >= totalRounds - 2 ? 1.12 : 1
+      const fairValue = Math.round((baseValue + collectionPremium) * endGameWeight)
+      const maxBid = Math.max(0, Math.round(fairValue * (0.86 + profile.risk * .12 + Math.max(0, behavior.riskBias) * .06)))
+      return { lot, assetGain, matchingItems, fairValue, maxBid, urgency: fairValue - lot.minimumBidUnits }
+    })
+    .sort((left, right) => right.urgency - left.urgency || right.assetGain - left.assetGain || left.lot.id.localeCompare(right.lot.id))
+
+  let remaining = Math.max(0, budgetUnits)
+  const bidByLotId = new Map<string, number>()
+  for (const candidate of candidates) {
+    const { lot, maxBid, matchingItems } = candidate
+    // Never chase a reserve price that already exceeds the item's personalised
+    // value. Only a genuine category/collector payoff can cross this line.
+    if (lot.minimumBidUnits > maxBid || remaining < lot.minimumBidUnits) {
+      bidByLotId.set(lot.id, 0)
+      continue
+    }
+    const room = Math.min(remaining, maxBid) - lot.minimumBidUnits
+    const fingerprint = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${lot.id}:asset-auction`)
+    const categoryPush = matchingItems > 0 ? .22 : 0
+    const desired = lot.minimumBidUnits + Math.max(0, Math.round(room * (.18 + categoryPush + fingerprint * .34)))
+    const bidUnits = Math.max(lot.minimumBidUnits, Math.min(remaining, maxBid, desired))
+    // A tiny asymmetry helps Bots avoid mechanically tying exactly at reserve.
+    const offset = (behavior.quoteFingerprint + hash(lot.id)) % 3 === 0 && bidUnits < Math.min(remaining, maxBid) ? 1 : 0
+    const finalBid = Math.min(remaining, maxBid, bidUnits + offset)
+    bidByLotId.set(lot.id, finalBid)
+    remaining -= finalBid
+  }
+  return lots.map((lot) => ({ lotId: lot.id, bidUnits: lot.sellerId === player.id ? 0 : bidByLotId.get(lot.id) ?? 0 }))
 }
 
 export function modeLabel(mode: StrategyMode): string {

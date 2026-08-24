@@ -440,6 +440,33 @@ describe('道具发放', () => {
   })
 })
 
+describe('小偷的兜底盗取', () => {
+  it('偷卡达到上限后，会向并列最富的其他玩家分别转移 10% 金币', () => {
+    const base = players([10, 30, 30, 8])
+    base[0].identity = { id: 'thief', thiefSuccesses: 2, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({
+      playersAfterBids: base,
+      turns: [
+        { ...turn('p1', 0), identityAction: { type: 'thiefSteal' } },
+        turn('p2', 0),
+        turn('p3', 0),
+        turn('p4', 0),
+      ],
+      item,
+      roundIndex: 0,
+      rewardMultipliers: [2, 1],
+      correctPredictionMultiplier: 1,
+      wrongPredictionMultiplier: .5,
+      fairnessOrderIds: base.map((player) => player.id),
+      roll: () => .9,
+    })
+    expect(settled.players.find((player) => player.id === 'p1')?.balanceUnits).toBe(coinsToUnits(14))
+    expect(settled.players.find((player) => player.id === 'p2')?.balanceUnits).toBe(coinsToUnits(27))
+    expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(27))
+    expect(settled.result.identityEvents).toContainEqual(expect.objectContaining({ playerId: 'p1', title: '偷卡落空，转移金币' }))
+  })
+})
+
 describe('观望惩罚', () => {
   function settleWithPassivity(basePlayers: Player[], turns: RoundTurn[], roundStartBalances: number[]) {
     return settleRound({

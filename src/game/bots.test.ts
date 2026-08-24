@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBotObservation, decideBotMerchantBid, decideBotTurn, emptyBotMemory, estimateBalances } from './bots'
+import { buildBotObservation, decideBotAssetAuctionBids, decideBotMerchantBid, decideBotTurn, emptyBotMemory, estimateBalances } from './bots'
 import { createDefaultSettings, createSession } from './session'
 import { createGamePreset } from './presets'
 import type { SeatConfig } from './types'
@@ -99,6 +99,21 @@ describe('Bot 信息边界与决策', () => {
       bids.add(decideBotMerchantBid(player, 'reverseRank').bidUnits)
     }
     expect(bids.size).toBeGreaterThan(5)
+  })
+
+  it('拍品竞购会拒绝远高于自身价值的起拍价，并为同类套装保留更高的出价空间', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const player = { ...session.players[0], botMemory: emptyBotMemory('asset-auction') }
+    const luxury = { ...session.itemDeck[0], id: 'auction-luxury', value: 9, category: 'luxury' as const }
+    const expensive = { id: 'expensive', sellerId: session.players[1].id, item: luxury, itemRoundIndex: 0, minimumBidUnits: 60, roundIndex: 1 }
+    const affordable = { ...expensive, id: 'affordable', minimumBidUnits: 4 }
+    const first = decideBotAssetAuctionBids({ player, lots: [expensive, affordable], budgetUnits: 50, roundIndex: 1, totalRounds: 5, sessionSeed: 'asset-auction' })
+    expect(first.find((bid) => bid.lotId === 'expensive')?.bidUnits).toBe(0)
+    expect(first.find((bid) => bid.lotId === 'affordable')?.bidUnits).toBeGreaterThanOrEqual(4)
+
+    const collecting = { ...player, items: [{ item: { ...luxury, id: 'held-luxury' }, roundIndex: 0 }], identity: { id: 'collector' as const, collectorCategory: 'luxury' as const, thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null } }
+    const collectorBid = decideBotAssetAuctionBids({ player: collecting, lots: [affordable], budgetUnits: 50, roundIndex: 1, totalRounds: 5, sessionSeed: 'asset-auction' })[0].bidUnits
+    expect(collectorBid).toBeGreaterThanOrEqual(first.find((bid) => bid.lotId === 'affordable')!.bidUnits)
   })
 
   it('会从公开总下注、门槛与收益变化推算对手现金区间', () => {

@@ -669,6 +669,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const due = coinsToUnits(identitySettings.thiefActivationCoins)
     const paid = Math.min(thief?.balanceUnits ?? 0, due)
     if (thief && delta) {
+      // Use the table state before paying the activation cost. Otherwise the
+      // thief's own fee can manufacture a fake "everyone is tied" result.
+      const balancesBeforeTheft = players.map((player) => player.balanceUnits)
       thief.balanceUnits -= paid
       delta.identityUnits -= paid
       const candidates = players.flatMap((owner) => owner.id === thief.id ? [] : owner.cardInventory.map((cardId, cardIndex) => ({ owner, cardId, cardIndex })))
@@ -687,30 +690,35 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         const fallbackReason = !canStealCard
           ? `已偷满 ${cardStealLimit} 张道具卡，改为寻找金币或拍品。`
           : '没有可偷到的道具卡，改为寻找金币或拍品。'
-        const balances = players.map((player) => player.balanceUnits)
-        const richestBalance = Math.max(...balances)
-        const poorestBalance = Math.min(...balances)
-        const turnOrder = new Map(turns.map((turn, index) => [turn.playerId, index]))
-        const richest = richestBalance === poorestBalance ? undefined : players
-          .filter((player) => player.id !== thief.id && player.balanceUnits === richestBalance)
-          .sort((left, right) => (turnOrder.get(right.id) ?? -1) - (turnOrder.get(left.id) ?? -1))[0]
-        if (!richest) {
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}但全员余额相同。`, deltaUnits: -paid })
-        } else if (richest.items.length > 0 && roll() < .05) {
-          const itemIndex = Math.min(richest.items.length - 1, Math.floor(roll() * richest.items.length))
-          const [stolenItem] = richest.items.splice(itemIndex, 1)
+        const balanceBeforeTheftByPlayerId = new Map(players.map((player, index) => [player.id, balancesBeforeTheft[index]]))
+        const allBalancesEqual = new Set(balancesBeforeTheft).size <= 1
+        const otherPlayers = players.filter((player) => player.id !== thief.id)
+        const richestBalance = Math.max(...balancesBeforeTheft)
+        const richest = otherPlayers.filter((player) => balanceBeforeTheftByPlayerId.get(player.id) === richestBalance)
+        if (allBalancesEqual || richest.length === 0) {
+          const reason = allBalancesEqual ? '但全员余额相同。' : '但你当前就是唯一最富者，没有可偷取的对象。'
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}${reason}`, deltaUnits: -paid })
+        } else if (richest.some((player) => player.items.length > 0) && roll() < .05) {
+          const itemOwners = richest.filter((player) => player.items.length > 0)
+          const itemOwner = itemOwners[Math.min(itemOwners.length - 1, Math.floor(roll() * itemOwners.length))]
+          const itemIndex = Math.min(itemOwner.items.length - 1, Math.floor(roll() * itemOwner.items.length))
+          const [stolenItem] = itemOwner.items.splice(itemIndex, 1)
           if (stolenItem) thief.items.push(stolenItem)
           identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}转而偷走了一件拍品。`, deltaUnits: -paid })
-          identityEvents.push({ playerId: richest.id, identityId: 'thief', roundIndex, title: '拍品被偷走', detail: '你的一件拍品被人偷走了。', deltaUnits: 0 })
+          identityEvents.push({ playerId: itemOwner.id, identityId: 'thief', roundIndex, title: '拍品被偷走', detail: '你的一件拍品被人偷走了。', deltaUnits: 0 })
         } else {
-          const transfer = floorToHalfUnits(richest.balanceUnits * .1)
-          richest.balanceUnits -= transfer
+          const transfers = richest.map((player) => ({ player, units: floorToHalfUnits(player.balanceUnits * .1) }))
+          const transfer = transfers.reduce((total, entry) => total + entry.units, 0)
+          for (const entry of transfers) {
+            entry.player.balanceUnits -= entry.units
+            const richestDelta = deltaByPlayer.get(entry.player.id)
+            if (richestDelta) richestDelta.identityUnits -= entry.units
+            identityEvents.push({ playerId: entry.player.id, identityId: 'thief', roundIndex, title: '金币被偷走', detail: `你被转移了 ${formatCoins(entry.units)} 金币。`, deltaUnits: -entry.units })
+          }
           thief.balanceUnits += transfer
-          if (delta) delta.identityUnits += transfer
-          const richestDelta = deltaByPlayer.get(richest.id)
-          if (richestDelta) richestDelta.identityUnits -= transfer
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}获得了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
-          identityEvents.push({ playerId: richest.id, identityId: 'thief', roundIndex, title: '金币被偷走', detail: `你被转移了 ${formatCoins(transfer)} 金币。`, deltaUnits: -transfer })
+          delta.identityUnits += transfer
+          const crowdLabel = richest.length > 1 ? `向 ${richest.length} 位并列最富者众筹` : '从最富者转移'
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}${crowdLabel}了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
         }
       }
     }
