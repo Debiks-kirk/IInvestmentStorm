@@ -982,7 +982,7 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
       <div className="result-reveal-stepper" aria-label={`揭晓进度：${stageCopy}`}>
         {['并列核验', '获奖名次', '金币结算'].map((label, index) => <span key={label} className={cx(index < stageIndex && 'is-complete', index === stageIndex && 'is-current')}><i>{index < stageIndex ? '✓' : index + 1}</i>{label}</span>)}
       </div>
-      <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>最低获奖排名额</small>{result.minWinningBidUnits === null ? <strong>—</strong> : <CoinValue units={result.minWinningBidUnits} />}</div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
+      <div className="result-metrics"><div><small>本轮总下注</small><CoinValue units={result.totalBidUnits} /></div><div><small>并列出局</small><strong>{result.tiedPlayerIds.length} 人</strong></div></div>
       <article className="result-tie-reveal" aria-live="polite"><span>{result.tiedPlayerIds.length > 0 ? '≠' : '✓'}</span><div><small>{stageCopy}</small><strong>{result.tiedPlayerIds.length > 0 ? `${result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局` : '没有并列下注，所有密封标保留排名资格'}</strong></div></article>
       {showSettlement && <aside className="round-bulletin" aria-live="polite"><span>🎙</span><div><small>局势播报</small><strong>{roundBulletin}</strong></div></aside>}
       {showSettlement && result.cardEffects.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">结算影响</p><h2>本轮道具与排名变化</h2></div><span>已计入本轮结果</span></div><div>{result.cardEffects.map((effect, index) => <p key={`${effect.cardId ?? effect.symbol}-${index}`} data-effect={effect.cardId ?? 'general'} style={{ '--effect-delay': `${index * 110}ms` } as React.CSSProperties}><span>{effect.symbol ?? getCardDefinition(effect.cardId as CardId).symbol}</span>{effect.description}</p>)}</div></article>}
@@ -1526,10 +1526,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const routed = routeCardAwards({ players: strippedPlayers, awards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex })
     const deliveredKeys = new Set(routed.delivered.map((award) => `${award.playerId}-${award.cardId}`))
     const scheduled = [session.merchantAuction, ...session.auctionQueue].filter((auction): auction is NonNullable<GameSession['merchantAuction']> => Boolean(auction && auction.roundIndex === roundIndex))
-    const systemDraw = drawCard(deck, session.settings.disabledCardIds)
+    const isFinalRound = roundIndex >= session.settings.rounds - 1
+    // The final round never has a card auction. Return any already scheduled merchant lots intact.
+    if (isFinalRound) deck = [...deck, ...scheduled.map((auction) => auction.cardId)]
+    const systemDraw = isFinalRound ? { cardId: null, cardDeck: deck } : drawCard(deck, session.settings.disabledCardIds)
     const roundAuctions = shuffle([
       ...(systemDraw.cardId ? [{ id: `system-${roundIndex}-${systemDraw.cardId}-${Date.now()}`, source: 'system' as const, merchantId: null, cardId: systemDraw.cardId, roundIndex }] : []),
-      ...scheduled.map((auction, index) => ({ id: `merchant-${roundIndex}-${auction.merchantId}-${index}-${auction.cardId}`, source: 'merchant' as const, merchantId: auction.merchantId, cardId: auction.cardId, roundIndex })),
+      ...(isFinalRound ? [] : scheduled.map((auction, index) => ({ id: `merchant-${roundIndex}-${auction.merchantId}-${index}-${auction.cardId}`, source: 'merchant' as const, merchantId: auction.merchantId, cardId: auction.cardId, roundIndex }))),
     ])
     patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingKidnapCardOffers: kidnapOffers, operationDeadlineAt: null })
   }

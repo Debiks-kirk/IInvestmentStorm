@@ -82,7 +82,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     }
   })
   const initialCardDeck = createCardDeck(settings.disabledCardIds)
-  const firstDraw = drawCard(initialCardDeck, settings.disabledCardIds)
+  const firstDraw = settings.rounds > 1 ? drawCard(initialCardDeck, settings.disabledCardIds) : { cardId: null, cardDeck: initialCardDeck }
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
     version: 21,
@@ -106,7 +106,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     prophetDivinations: [],
     merchantAuction: null,
     auctionQueue: [],
-    roundAuctions: firstDraw.cardId ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system', merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }] : [],
+    roundAuctions: settings.rounds > 1 && firstDraw.cardId ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system', merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }] : [],
     pendingMerchantOffers: [],
     prophetIdentityCandidates: {},
     prophetIdentityProgress: {},
