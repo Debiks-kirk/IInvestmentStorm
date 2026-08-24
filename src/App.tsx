@@ -637,6 +637,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
     setBidUnits(Math.max(0, Math.min(player.balanceUnits - reservedIdentityUnits - auctionReserve, Math.round(value))))
   }
   const predicted = session.players.find((candidate) => candidate.id === prediction)
+  const predictionBlockedByInvestment = identityAction?.type === 'invest' && prediction === identityAction.targetPlayerId
   const previousTurns = session.turns.filter((turn) => turn.playerId !== player.id)
   const targetPlayers = previousTurns.map((turn) => session.players.find((candidate) => candidate.id === turn.playerId)).filter(Boolean) as Player[]
   const targetPlayersForCard = (cardId: CardId): Player[] => cardTargetScope(cardId) === 'other'
@@ -786,7 +787,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
     }
     const resolvedIdentityAction = identityAction ?? (pendingMerchantOffer?.chosenCardId ? { type: 'merchantAuction' as const } : (currentProphetDivination ?? currentProphetIdentityDivination) ? { type: 'prophetDivination' as const, divinationId: (currentProphetDivination ?? currentProphetIdentityDivination)!.id } : undefined)
     const auctionBids = [...auctionLots.map((lot) => ({ lotId: lot.id, bidUnits: lot.merchantId === player.id ? 0 : auctionBidByLotId[lot.id] ?? 0 })), ...assetAuctionLots.map((lot) => ({ lotId: lot.id, bidUnits: lot.sellerId === player.id ? 0 : auctionBidByLotId[lot.id] ?? 0 }))]
-    onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(auctionBids.length ? { auctionBids } : {}), ...(assetAuctionOffer ? { assetAuctionOffer } : {}), ...(allConfirmedCardUses.length > 0 ? { cardUses: allConfirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
+    const resolvedPrediction = identityAction?.type === 'invest' && prediction === identityAction.targetPlayerId ? null : prediction
+    onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: resolvedPrediction, ...(auctionBids.length ? { auctionBids } : {}), ...(assetAuctionOffer ? { assetAuctionOffer } : {}), ...(allConfirmedCardUses.length > 0 ? { cardUses: allConfirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
   }
   return (
     <section className="private-turn">
@@ -821,7 +823,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {!predictionUnlocked && <p className="tutorial-locked-copy">下一轮解锁：先把秘密下注练熟。</p>}
           <button className={cx('prediction-skip', prediction === null && 'is-selected')} disabled={!predictionUnlocked} onClick={() => setPrediction(null)}><span>稳一手</span><small>这轮不预测</small><i>{prediction === null ? '✓' : ''}</i></button>
           <div className="prediction-list">
-            {session.players.filter((candidate) => candidate.id !== player.id).map((candidate) => <button key={candidate.id} disabled={!predictionUnlocked} className={cx(prediction === candidate.id && 'is-selected')} onClick={() => setPrediction(candidate.id)} style={{ '--player-color': candidate.color } as React.CSSProperties}><span>{candidate.name.slice(0, 1)}</span><strong>{candidate.name}</strong><i>{prediction === candidate.id ? '✓' : ''}</i></button>)}
+            {session.players.filter((candidate) => candidate.id !== player.id).map((candidate) => { const investedTarget = identityAction?.type === 'invest' && identityAction.targetPlayerId === candidate.id; return <button key={candidate.id} disabled={!predictionUnlocked || investedTarget} className={cx(prediction === candidate.id && 'is-selected')} onClick={() => setPrediction(candidate.id)} style={{ '--player-color': candidate.color } as React.CSSProperties}><span>{candidate.name.slice(0, 1)}</span><strong>{candidate.name}</strong><i>{investedTarget ? '不可预测' : prediction === candidate.id ? '✓' : ''}</i></button> })}
           </div>
         </div>
       </div>
@@ -894,7 +896,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       {pendingMerchantOffer && !pendingMerchantOffer.chosenCardId && <div className="modal-backdrop" role="dialog" aria-modal="true"><CardOfferPicker eyebrow="道具商人 · 已锁定候选" title="选择下一轮要竞购的道具" detail="三张候选已经抽出并保存；选择后不能重抽，另外两张会回到循环池。" cardIds={pendingMerchantOffer.offeredCardIds} requiredCount={1} onChoose={onChooseMerchantOffer} /></div>}
       {pendingProphetOffer && <div className="modal-backdrop" role="dialog" aria-modal="true"><CardOfferPicker eyebrow="预言家 · 识破里程碑" title="从 6 张不同道具中选择 2 张" detail="候选已锁定且不能重抽。每次点击都会立刻收下该卡，选满两张后自动结束。" cardIds={pendingProphetOffer.offeredCardIds} chosenCardIds={pendingProphetOffer.chosenCardIds} requiredCount={2} onChoose={(cardId) => onChooseProphetOffer(player.id, cardId)} /></div>}
       {pendingKidnapOffer && <div className="modal-backdrop" role="dialog" aria-modal="true"><CardOfferPicker eyebrow="绑匪 · 成功奖励" title="从 3 张道具中选择 1 张" detail="上轮抢到拍品的奖励。三张候选已锁定，选中后立即收下，不能重抽。" cardIds={pendingKidnapOffer.offeredCardIds} requiredCount={1} onChoose={(cardId) => onChooseKidnapOffer(player.id, cardId)} /></div>}
-      <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{[...allConfirmedCardUses.map((use) => getCardDefinition(use.cardId).name), ...(lockedPrizeReroll ? ['改拍令'] : [])].join('、') || '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCards || !lobbyActionValid || (identityAction?.type === 'lobbyistContract' && lobbyShortfallUnits > 0)} onClick={() => setConfirming(true)}>确认我的选择</button></div>
+      <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predictionBlockedByInvestment ? '跳过' : predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{[...allConfirmedCardUses.map((use) => getCardDefinition(use.cardId).name), ...(lockedPrizeReroll ? ['改拍令'] : [])].join('、') || '不使用'}</strong></span></p><button className="button button--primary button--large" disabled={!canSubmitCards || !lobbyActionValid || (identityAction?.type === 'lobbyistContract' && lobbyShortfallUnits > 0)} onClick={() => setConfirming(true)}>确认我的选择</button></div>
       {confirming && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
           <div className="confirm-sheet">
@@ -916,7 +918,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       {targetPicker === 'card' && cardConfirming && <PlayerTargetPicker title={cardConfirming.cardId === 'peek' ? '选择要偷看的玩家' : cardConfirming.cardId === 'bananaPeel' ? '选择香蕉皮目标' : '选择换日对象'} detail={cardConfirming.cardId === 'peek' ? '仅可选择已经提交投资的玩家；查看后本轮使用会锁定。' : cardConfirming.cardId === 'bananaPeel' ? '对方本轮下注会作废，只损失一半费用。' : '所有人提交后，双方的排名用投资额会互换。'} players={targetPlayersForCard(cardConfirming.cardId)} onSelect={(id) => { const use = { ...cardConfirming, targetPlayerId: id }; lockCardUse(use); setTargetPicker(null); if (use.cardId === 'peek') setPeekResult(previousTurns.find((turn) => turn.playerId === id) ?? null) }} onClose={() => { setTargetPicker(null); setCardConfirming(null) }} />}
       {peekResult && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="peek-result-title"><div className="card-grant-sheet"><span>◉</span><p className="eyebrow">仅自己可见</p><h2 id="peek-result-title">你看到了底牌</h2><p><strong>{playerName(session.players, peekResult.playerId)}</strong> 已投资 <CoinValue units={peekResult.bidUnits} />。</p><small>这张偷看底牌已锁定为本轮使用。</small><button className="button button--primary" onClick={() => setPeekResult(null)}>知道了</button></div></div>}
       {targetPicker === 'kidnap' && <PlayerTargetPicker title="选择要绑的人" detail={`花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币。若目标拿下本轮拍品，你会报销费用并抢走拍品。`} players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={identityAction?.type === 'kidnap' ? identityAction.targetPlayerId : null} onSelect={(id) => { setIdentityConfirming({ type: 'kidnap', targetPlayerId: id }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
-      {targetPicker === 'invest' && <PlayerTargetPicker title="选择投资对象" detail="你的金额会秘密加到对方的排名下注；对方不知道是谁投资。" players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={identityAction?.type === 'invest' ? identityAction.targetPlayerId : null} onSelect={(id) => { setIdentityAction({ type: 'invest', targetPlayerId: id, investmentUnits: 1 }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
+      {targetPicker === 'invest' && <PlayerTargetPicker title="选择投资对象" detail="你的金额会秘密加到对方的排名下注；对方不知道是谁投资。投资目标不能同时作为预测第一名对象。" players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={identityAction?.type === 'invest' ? identityAction.targetPlayerId : null} onSelect={(id) => { if (prediction === id) setPrediction(null); setIdentityAction({ type: 'invest', targetPlayerId: id, investmentUnits: 1 }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyTask' && <LobbyistTaskPicker extraCost={session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} onSelect={(taskType) => { setLobbySpecified(Boolean(taskType)); if (taskType) setLobbyTask(taskType); setLobbyTargetId(''); setLobbyCompareId(''); setIdentityAction(undefined); setTargetPicker('lobbyTarget') }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyTarget' && <PlayerTargetPicker title="选择任务对象" detail={lobbySpecified ? `指定任务「${taskLabel(lobbyTask)}」；基础费用 ${lobbyFee} 金币 + 指定费用 ${session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币，合计 ${lobbyFee + session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币。任务会在下一轮私密送达。` : `随机任务；基础费用 ${lobbyFee} 金币。内容会在下一轮私密送达。`} players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={lobbyTargetId} onSelect={(id) => { setLobbyTargetId(id); setLobbyCompareId(''); if (lobbySpecified && taskRequiresComparison(lobbyTask)) { setTargetPicker('lobbyComparison'); return } setIdentityConfirming({ type: 'lobbyistContract', targetPlayerId: id, specified: lobbySpecified, ...(lobbySpecified ? { taskType: lobbyTask } : {}) }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyComparison' && <PlayerTargetPicker title="选择比较对象" detail="用本轮实际下注比较；你自己也可以成为比较对象。" players={session.players.filter((candidate) => candidate.id !== lobbyTargetId)} selectedPlayerId={lobbyCompareId} onSelect={(id) => { setLobbyCompareId(id); setIdentityConfirming({ type: 'lobbyistContract', targetPlayerId: lobbyTargetId, specified: true, taskType: lobbyTask, comparisonPlayerId: id }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
@@ -1408,7 +1410,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (turn.identityAction?.type === 'invest') {
       const action = turn.identityAction
       const targetValid = action.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === action.targetPlayerId)
-      if (currentPlayer.identity?.id !== 'investor' || !targetValid || !Number.isInteger(action.investmentUnits) || action.investmentUnits < 1 || turn.bidUnits + auctionBidTotal + action.investmentUnits > currentPlayer.balanceUnits) return false
+      if (currentPlayer.identity?.id !== 'investor' || !targetValid || turn.predictedPlayerId === action.targetPlayerId || !Number.isInteger(action.investmentUnits) || action.investmentUnits < 1 || turn.bidUnits + auctionBidTotal + action.investmentUnits > currentPlayer.balanceUnits) return false
     }
     if (turn.identityAction?.type === 'nightwalkerDoubleBid') {
       const { shadowBidUnits, prioritizeItem } = turn.identityAction
@@ -1811,11 +1813,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           auctionBudget -= bidUnits
           return { lotId: lot.id, bidUnits: bidUnits >= lot.minimumBidUnits ? bidUnits : 0 }
         }))
-        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, auctionBids, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
+        const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
+        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {
           const retainedBidUnits = Number.isInteger(decision.bidUnits) ? Math.max(0, Math.min(currentPlayer.balanceUnits, decision.bidUnits)) : 0
-          submitTurn({ playerId: currentPlayer.id, bidUnits: retainedBidUnits, predictedPlayerId: decision.predictedPlayerId, auctionBids, cardUses: [] }, { ...decision, reason: `${decision.reason} 附加计划未通过校验，保留竞拍和预测，撤销本回合道具/身份动作。` })
+          submitTurn({ playerId: currentPlayer.id, bidUnits: retainedBidUnits, predictedPlayerId, auctionBids, cardUses: [] }, { ...decision, reason: `${decision.reason} 附加计划未通过校验，保留竞拍和预测，撤销本回合道具/身份动作。` })
         }
       } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
         patch({ phase: 'auctionBid' })
