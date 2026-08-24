@@ -105,6 +105,12 @@ function cardEffect(cardId: CardId, description: string): CardEffect {
   return { cardId, description }
 }
 
+function cardCopiesLabel(cardName: string, count: number): string {
+  if (count <= 1) return cardName
+  const chineseCount = ['零', '一', '两', '三', '四', '五'][count]
+  return `${chineseCount ?? count}张${cardName}`
+}
+
 function identityEffect(symbol: string, description: string): CardEffect {
   return { symbol, description }
 }
@@ -356,10 +362,10 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
 
   const factor = valueFactor(usedCards.map(({ use }) => use))
   const effectiveValueUnits = floorToHalfUnits(item.value * COIN_UNIT * factor)
-  const redUsed = usedCards.some(({ use }) => use.cardId === 'red')
-  const blackUsed = usedCards.some(({ use }) => use.cardId === 'black')
-  if (redUsed) cardEffects.push(cardEffect('red', `红卡已生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
-  if (blackUsed) cardEffects.push(cardEffect('black', `黑卡已生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
+  const redCount = usedCards.filter(({ use }) => use.cardId === 'red').length
+  const blackCount = usedCards.filter(({ use }) => use.cardId === 'black').length
+  if (redCount > 0) cardEffects.push(cardEffect('red', `${cardCopiesLabel('红卡', redCount)}生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
+  if (blackCount > 0) cardEffects.push(cardEffect('black', `${cardCopiesLabel('黑卡', blackCount)}生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
   for (const { use } of usedCards) {
     if (use.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
     if (use.cardId === 'prizeReroll') cardEffects.push(cardEffect('prizeReroll', '有人改写了下一轮拍品。'))

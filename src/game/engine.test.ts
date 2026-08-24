@@ -142,6 +142,18 @@ describe('道具卡结算', () => {
     expect(result.predictionOutcomes.filter((outcome) => outcome.status === 'correct').map((outcome) => outcome.deltaUnits)).toEqual([coinsToUnits(5), coinsToUnits(5)])
   })
 
+  it('多张同类价值卡会叠加，并在结算播报中明确数量', () => {
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 9, null, { cardId: 'red' }),
+      turn('p2', 7, null, { cardId: 'red' }),
+      turn('p3', 2),
+    ]).result
+    expect(result.effectiveValueUnits).toBe(coinsToUnits(20))
+    expect(result.cardEffects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ cardId: 'red', description: '两张红卡生效：拍品真实价值为 20。' }),
+    ]))
+  })
+
   it('黑卡的 1.5V 奖励与 0.5V 罚款均向下取到半金币', () => {
     const result = settle(players([20, 20, 20]), [
       turn('p1', 9, null, { cardId: 'black' }),
