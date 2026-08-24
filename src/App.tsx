@@ -1471,6 +1471,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     let auctionDeck = [...session.cardDeck]
     const auctionNotices = [...session.pendingIdentityNotices]
     const auctionEvents = [...session.identityEvents]
+    const auctionFeedback = new Map(auctionPlayers.map((player) => [player.id, [] as string[]]))
     for (const lot of session.roundAuctions ?? []) {
       const bids = session.turns.map((turn) => ({ playerId: turn.playerId, bidUnits: turn.auctionBids?.find((bid) => bid.lotId === lot.id)?.bidUnits ?? 0 }))
         .filter((bid) => lot.merchantId !== bid.playerId && bid.bidUnits > 0)
@@ -1488,16 +1489,22 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
             auctionEvents.push({ playerId: merchant.id, identityId: 'merchant', roundIndex: session.roundIndex, title: '道具竞购成交', detail: `你的道具以 ${formatCoins(winnerBid.bidUnits)} 金币成交。`, deltaUnits: winnerBid.bidUnits })
           }
           auctionNotices.push({ id: `round-auction-win-${lot.id}-${winner.id}`, playerId: winner.id, title: '道具竞购结果', detail: `恭喜你，竞拍到了道具「${getCardDefinition(lot.cardId).name}」。` })
+          auctionFeedback.get(winner.id)?.push(`恭喜你，竞得「${getCardDefinition(lot.cardId).name}」，支付 ${formatCoins(winnerBid.bidUnits)} 金币。`)
+          if (merchant) auctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」已成交。`)
         }
       } else {
         const merchant = lot.merchantId ? auctionPlayers.find((player) => player.id === lot.merchantId) : undefined
         if (merchant) {
           merchant.cardInventory.push(lot.cardId)
           auctionNotices.push({ id: `round-auction-empty-${lot.id}-${merchant.id}`, playerId: merchant.id, title: '道具竞购流拍', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」无人唯一得标，已归入你的道具库存。` })
+          auctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」流拍，已归入你的道具库存。`)
         } else auctionDeck = shuffle([...auctionDeck, lot.cardId])
       }
       for (const player of auctionPlayers) {
-        if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) auctionNotices.push({ id: `round-auction-loss-${lot.id}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(lot.cardId).name}」。` })
+        if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) {
+          auctionNotices.push({ id: `round-auction-loss-${lot.id}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(lot.cardId).name}」。` })
+          auctionFeedback.get(player.id)?.push(`未竞得「${getCardDefinition(lot.cardId).name}」。`)
+        }
       }
     }
     const settled = settleRound({
@@ -1514,7 +1521,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       identityContracts: session.identityContracts,
     })
     const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
+    const auctionSummaryNotices = auctionPlayers.flatMap((player) => {
+      const lines = auctionFeedback.get(player.id) ?? []
+      return lines.length ? [{ id: `round-auction-summary-${session.roundIndex}-${player.id}`, playerId: player.id, title: '本轮道具竞购', detail: lines.join('\n') }] : []
+    })
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices.filter((notice) => !notice.id.startsWith('round-auction-')), ...auctionSummaryNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
     const eligiblePlayers = basePlayers.map((entry) => entry.identity?.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex
