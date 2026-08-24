@@ -1,5 +1,5 @@
 import { coinsToUnits, defaultRewards } from './engine'
-import { createCardDeck, drawCard } from './cards'
+import { createCardDeck, drawCard, getCardDefinition } from './cards'
 import { emptyBotMemory } from './bots'
 import { createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, ITEM_POOL, shuffle } from './items'
@@ -83,6 +83,18 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   const initialCardDeck = createCardDeck(settings.disabledCardIds)
   const firstDraw = settings.rounds > 1 ? drawCard(initialCardDeck, settings.disabledCardIds) : { cardId: null, cardDeck: initialCardDeck }
+  const initialRoundAuctions = settings.rounds > 1 && firstDraw.cardId
+    ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system' as const, merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }]
+    : []
+  const initialAuctionNotices = initialRoundAuctions.length === 0 ? [] : players.map((player) => {
+    const card = getCardDefinition(initialRoundAuctions[0].cardId)
+    return {
+      id: `card-auction-open-0-${player.id}`,
+      playerId: player.id,
+      title: '本轮道具竞购',
+      detail: `「${card.symbol} ${card.name}」正在竞购：${card.description}`,
+    }
+  })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
     version: 21,
@@ -100,13 +112,13 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),
     identityDraft: settings.identitySettings.enabled ? { playerIndex: 0, choiceIds: dealIdentityChoices([], settings.identitySettings) } : null,
     pendingIdentityCardAwards: [],
-    pendingIdentityNotices: [],
+    pendingIdentityNotices: initialAuctionNotices,
     identityContracts: [],
     identityEvents: [],
     prophetDivinations: [],
     merchantAuction: null,
     auctionQueue: [],
-    roundAuctions: settings.rounds > 1 && firstDraw.cardId ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system', merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }] : [],
+    roundAuctions: initialRoundAuctions,
     pendingAssetAuctions: [],
     roundAssetAuctions: [],
     pendingMerchantOffers: [],
@@ -144,6 +156,9 @@ export function createTutorialSession(): GameSession {
   return {
     ...session,
     phase: 'roundIntro',
+    cardDeck: [...session.cardDeck, ...session.roundAuctions.map((auction) => auction.cardId)],
+    roundAuctions: [],
+    pendingIdentityNotices: [],
     identityDraft: null,
     itemDeck,
     prophecyDeck: itemDeck.map((item) => ({ ...item })),

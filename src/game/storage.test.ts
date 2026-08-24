@@ -86,6 +86,7 @@ describe('对局存档迁移', () => {
   it('新局默认预留首轮系统竞购卡，关闭后不进入竞购流程', () => {
     const enabled = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     expect(enabled.roundAuctions).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'system', merchantId: null, roundIndex: 0 })]))
+    expect(enabled.pendingIdentityNotices.filter((notice) => notice.title === '本轮道具竞购')).toHaveLength(3)
     expect(enabled.cardDeck).toHaveLength(CARD_DEFINITIONS.reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 4), 0) - 1)
     const settings = createDefaultSettings(3)
     settings.firstRoundSystemAuction = false

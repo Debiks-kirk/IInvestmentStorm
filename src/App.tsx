@@ -1633,6 +1633,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       ...(systemDraw.cardId ? [{ id: `system-${roundIndex}-${systemDraw.cardId}-${Date.now()}`, source: 'system' as const, merchantId: null, cardId: systemDraw.cardId, roundIndex }] : []),
       ...(isFinalRound ? [] : scheduled.map((auction, index) => ({ id: `merchant-${roundIndex}-${auction.merchantId}-${index}-${auction.cardId}`, source: 'merchant' as const, merchantId: auction.merchantId, cardId: auction.cardId, roundIndex }))),
     ])
+    const cardAuctionNotices = roundAuctions.length === 0 ? [] : routed.players.map((player) => ({
+      id: `card-auction-open-${roundIndex}-${player.id}`,
+      playerId: player.id,
+      title: '本轮道具竞购',
+      detail: roundAuctions.map((lot) => {
+        const card = getCardDefinition(lot.cardId)
+        return `「${card.symbol} ${card.name}」正在竞购：${card.description}`
+      }).join('\n'),
+    }))
     const roundAssetAuctions = session.pendingAssetAuctions.filter((lot) => lot.roundIndex === roundIndex)
     const remainingAssetAuctions = session.pendingAssetAuctions.filter((lot) => lot.roundIndex !== roundIndex)
     const assetAuctionNotices = roundAssetAuctions.length === 0 ? [] : routed.players.map((player) => ({
@@ -1641,7 +1650,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       title: '本轮拍品竞购',
       detail: roundAssetAuctions.map((lot) => `${categoryConfig(lot.item.category).name}藏品「${lot.item.emoji} ${lot.item.name}」正在竞购：固定资产加成 +${itemFixedAssetCoins(lot.item.value)}，起拍价 ${formatCoins(lot.minimumBidUnits)} 金币。`).join('\n'),
     }))
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: kidnapOffers, operationDeadlineAt: null })
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...cardAuctionNotices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: kidnapOffers, operationDeadlineAt: null })
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult', finalReceiptIndex: null })
