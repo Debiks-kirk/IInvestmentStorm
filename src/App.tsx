@@ -1515,6 +1515,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     let auctionDeck = [...session.cardDeck]
     const auctionNotices = [...session.pendingIdentityNotices]
     const auctionEvents = [...session.identityEvents]
+    const cardAuctionFeedback = new Map(auctionPlayers.map((player) => [player.id, [] as string[]]))
     for (const lot of session.roundAuctions ?? []) {
       const bids = session.turns.map((turn) => ({ playerId: turn.playerId, bidUnits: turn.auctionBids?.find((bid) => bid.lotId === lot.id)?.bidUnits ?? 0 }))
         .filter((bid) => lot.merchantId !== bid.playerId && bid.bidUnits > 0)
@@ -1531,19 +1532,19 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
             merchant.balanceUnits += winnerBid.bidUnits
             auctionEvents.push({ playerId: merchant.id, identityId: 'merchant', roundIndex: session.roundIndex, title: '道具竞购成交', detail: `你的道具以 ${formatCoins(winnerBid.bidUnits)} 金币成交。`, deltaUnits: winnerBid.bidUnits })
           }
-          auctionNotices.push({ id: `round-auction-win-${lot.id}-${winner.id}`, playerId: winner.id, title: '道具竞购结果', detail: `恭喜你，竞拍到了道具「${getCardDefinition(lot.cardId).name}」。` })
-          if (merchant) auctionNotices.push({ id: `round-auction-merchant-sale-${lot.id}-${merchant.id}`, playerId: merchant.id, title: '道具竞购结果', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」已成交。` })
+          cardAuctionFeedback.get(winner.id)?.push(`恭喜你，竞拍到了「${getCardDefinition(lot.cardId).name}」。`)
+          if (merchant) cardAuctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」已成交。`)
         }
       } else {
         const merchant = lot.merchantId ? auctionPlayers.find((player) => player.id === lot.merchantId) : undefined
         if (merchant) {
           merchant.cardInventory.push(lot.cardId)
-          auctionNotices.push({ id: `round-auction-empty-${lot.id}-${merchant.id}`, playerId: merchant.id, title: '道具竞购流拍', detail: `你安排的道具「${getCardDefinition(lot.cardId).name}」无人唯一得标，已归入你的道具库存。` })
+          cardAuctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」流拍，已归入你的道具库存。`)
         } else auctionDeck = shuffle([...auctionDeck, lot.cardId])
       }
       for (const player of auctionPlayers) {
         if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) {
-          auctionNotices.push({ id: `round-auction-loss-${lot.id}-${player.id}`, playerId: player.id, title: '道具竞购结果', detail: `很遗憾，你的出价不足或出现并列出价，没能拍到道具「${getCardDefinition(lot.cardId).name}」。` })
+          cardAuctionFeedback.get(player.id)?.push(`未拍到「${getCardDefinition(lot.cardId).name}」：出价不足或出现并列。`)
         }
       }
     }
@@ -1580,7 +1581,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     })
     settled.result.assetAuctionResults = assetAuctionResults
     const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
+    const cardAuctionNotices = auctionPlayers.flatMap((player) => {
+      const lines = cardAuctionFeedback.get(player.id) ?? []
+      return lines.length ? [{ id: `round-auction-summary-${session.roundIndex}-${player.id}`, playerId: player.id, title: '本轮道具竞购', detail: lines.join('\n') }] : []
+    })
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices, ...cardAuctionNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
     const eligiblePlayers = basePlayers.map((entry) => entry.identity?.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex
@@ -1630,12 +1635,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     ])
     const roundAssetAuctions = session.pendingAssetAuctions.filter((lot) => lot.roundIndex === roundIndex)
     const remainingAssetAuctions = session.pendingAssetAuctions.filter((lot) => lot.roundIndex !== roundIndex)
-    const assetAuctionNotices = roundAssetAuctions.flatMap((lot) => routed.players.map((player) => ({
-      id: `asset-auction-open-${roundIndex}-${lot.id}-${player.id}`,
+    const assetAuctionNotices = roundAssetAuctions.length === 0 ? [] : routed.players.map((player) => ({
+      id: `asset-auction-open-${roundIndex}-${player.id}`,
       playerId: player.id,
       title: '本轮拍品竞购',
-      detail: `${categoryConfig(lot.item.category).name}藏品「${lot.item.emoji} ${lot.item.name}」正在竞购。该藏品固定资产加成 +${itemFixedAssetCoins(lot.item.value)}，起拍价 ${formatCoins(lot.minimumBidUnits)} 金币。`,
-    })))
+      detail: roundAssetAuctions.map((lot) => `${categoryConfig(lot.item.category).name}藏品「${lot.item.emoji} ${lot.item.name}」正在竞购：固定资产加成 +${itemFixedAssetCoins(lot.item.value)}，起拍价 ${formatCoins(lot.minimumBidUnits)} 金币。`).join('\n'),
+    }))
     patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: kidnapOffers, operationDeadlineAt: null })
   }
   const nextRound = () => {
