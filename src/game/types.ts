@@ -162,6 +162,22 @@ export interface AuctionBid {
   bidUnits: number
 }
 
+export interface AssetAuctionLot {
+  id: string
+  sellerId: string
+  item: Item
+  itemRoundIndex: number
+  minimumBidUnits: number
+  roundIndex: number
+}
+
+export interface AssetAuctionResult {
+  lotId: string
+  item: Item
+  sellerId: string
+  winnerId: string | null
+}
+
 export type ProphetDivinationMode = 'wealth' | 'stars' | 'identity'
 
 export interface ProphetDivination {
@@ -292,6 +308,7 @@ export interface RoundTurn {
   cardUse?: CardUse
   identityAction?: IdentityAction
   auctionBids?: AuctionBid[]
+  assetAuctionOffer?: { itemId: string; itemRoundIndex: number; minimumBidUnits: number }
 }
 
 export interface RankingEntry {
@@ -377,6 +394,7 @@ export interface RoundResult {
   identityEvents: IdentityEvent[]
   nightwalkerOutcomes: NightwalkerOutcome[]
   investments: InvestmentRecord[]
+  assetAuctionResults: AssetAuctionResult[]
   /** Cash plus fixed assets after this round, used for comparable end-game trajectories. */
   totalAssetUnitsAfter: Record<string, number>
 }
@@ -416,6 +434,8 @@ export interface GameSession {
   auctionQueue: MerchantAuction[]
   /** v20: all current-round lots are bid on beside the normal sealed bid. */
   roundAuctions: AuctionLot[]
+  pendingAssetAuctions: AssetAuctionLot[]
+  roundAssetAuctions: AssetAuctionLot[]
   /** Merchant's already drawn three-card offer; survives refresh and cannot be rerolled. */
   pendingMerchantOffers: Array<{ playerId: string; roundIndex: number; offeredCardIds: CardId[]; chosenCardId?: CardId }>
   /** Prophet-private stable candidate identities, keyed by prophet then target. */

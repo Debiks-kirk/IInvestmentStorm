@@ -97,6 +97,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     itemWinnerId: result.itemWinnerId ?? result.winnerId ?? null,
     nightwalkerOutcomes: result.nightwalkerOutcomes ?? [],
     investments: result.investments ?? [],
+    assetAuctionResults: result.assetAuctionResults ?? [],
   }))
   const originalCardDeck = [...(session.cardDeck ?? createCardDeck(settings.disabledCardIds))]
   const addNewCard = (deck: CardId[], cardId: CardId) => !settings.disabledCardIds.includes(cardId) && !players.some((player) => player.cardInventory.includes(cardId)) && !deck.includes(cardId) ? [...deck, cardId] : deck
@@ -136,6 +137,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     } : null,
     auctionQueue: [...(session.auctionQueue ?? [])].map((auction) => ({ ...auction, source: auction.source ?? 'merchant', merchantId: auction.merchantId ?? null })),
     roundAuctions: [...(session.roundAuctions ?? [])],
+    pendingAssetAuctions: [...(session.pendingAssetAuctions ?? [])],
+    roundAssetAuctions: [...(session.roundAssetAuctions ?? [])],
     pendingMerchantOffers: [...(session.pendingMerchantOffers ?? [])],
     prophetIdentityCandidates: { ...(session.prophetIdentityCandidates ?? {}) },
     prophetIdentityProgress: Object.fromEntries(players.filter((player) => player.identity?.id === 'prophet').map((prophet) => [prophet.id, Object.fromEntries(players.filter((target) => target.id !== prophet.id).map((target) => [target.id, getProphetIdentityProgress((session.prophetDivinations ?? []) as ProphetDivination[], prophet.id, target.id, session.prophetIdentityProgress?.[prophet.id]?.[target.id])]))])),

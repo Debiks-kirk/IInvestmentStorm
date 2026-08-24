@@ -10,7 +10,7 @@ import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSes
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetModeLabel } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
-import type { AssetCategory, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import type { AssetCategory, AssetAuctionLot, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
@@ -605,6 +605,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const advancedToolsUnlocked = !tutorial || session.roundIndex >= 2
   const [bidUnits, setBidUnits] = useState(0)
   const [auctionBidByLotId, setAuctionBidByLotId] = useState<Record<string, number>>({})
+  const [assetAuctionOffer, setAssetAuctionOffer] = useState<RoundTurn['assetAuctionOffer']>()
   const [prediction, setPrediction] = useState<string | null>(null)
   const [confirmedCardUses, setConfirmedCardUses] = useState<CardUse[]>([])
   const [cardConfirming, setCardConfirming] = useState<CardUse | null>(null)
@@ -746,14 +747,17 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const pendingKidnapOffer = session.pendingKidnapCardOffers.find((offer) => offer.playerId === player.id)
   const merchantUnavailableReason = identity?.id !== 'merchant' ? null : merchantAuctionCount >= session.settings.identitySettings.merchantAuctionLimit ? `本局竞购已用完（${merchantAuctionCount}/${session.settings.identitySettings.merchantAuctionLimit}）` : identity.merchantLastAuctionRound === session.roundIndex ? '同一回合只能发起一次竞购' : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮无法发起下轮竞购' : session.cardDeck.length === 0 ? '卡池为空，无法发起竞购' : null
   const auctionLots = session.roundAuctions ?? []
+  const assetAuctionLots = session.roundAssetAuctions ?? []
   const auctionBidTotal = Object.values(auctionBidByLotId).reduce((total, units) => total + units, 0)
   const setAuctionBid = (lotId: string, value: number) => {
     const lot = auctionLots.find((entry) => entry.id === lotId)
-    if (!lot || lot.merchantId === player.id) return
+    const assetLot = assetAuctionLots.find((entry) => entry.id === lotId)
+    if ((!lot && !assetLot) || lot?.merchantId === player.id || assetLot?.sellerId === player.id) return
     const other = Object.entries(auctionBidByLotId).reduce((total, [id, units]) => total + (id === lotId ? 0 : units), 0)
     const reservedIdentity = identityAction?.type === 'reverserInvert' ? reverserCostUnits : identityAction?.type === 'kidnap' ? kidnapCostUnits : identityAction?.type === 'thiefSteal' ? thiefCostUnits : identityAction?.type === 'invest' ? identityAction.investmentUnits : 0
     const max = Math.max(0, player.balanceUnits - bidUnits - reservedIdentity - other)
-    setAuctionBidByLotId((bids) => ({ ...bids, [lotId]: Math.max(0, Math.min(max, Math.round(value))) }))
+    const minimum = assetLot?.minimumBidUnits ?? 0
+    setAuctionBidByLotId((bids) => ({ ...bids, [lotId]: Math.max(0, Math.min(max, Math.max(value > 0 ? minimum : 0, Math.round(value)))) }))
   }
   const lobbyBaseCostUnits = Math.round((lobbyFee + (lobbySpecified ? session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins : 0)) * 2)
   const lobbyShortfallUnits = Math.max(0, bidUnits + lobbyBaseCostUnits - player.balanceUnits)
@@ -781,8 +785,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       setCoinFlipStarted(false)
     }
     const resolvedIdentityAction = identityAction ?? (pendingMerchantOffer?.chosenCardId ? { type: 'merchantAuction' as const } : (currentProphetDivination ?? currentProphetIdentityDivination) ? { type: 'prophetDivination' as const, divinationId: (currentProphetDivination ?? currentProphetIdentityDivination)!.id } : undefined)
-    const auctionBids = auctionLots.map((lot) => ({ lotId: lot.id, bidUnits: lot.merchantId === player.id ? 0 : auctionBidByLotId[lot.id] ?? 0 }))
-    onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(auctionBids.length ? { auctionBids } : {}), ...(allConfirmedCardUses.length > 0 ? { cardUses: allConfirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
+    const auctionBids = [...auctionLots.map((lot) => ({ lotId: lot.id, bidUnits: lot.merchantId === player.id ? 0 : auctionBidByLotId[lot.id] ?? 0 })), ...assetAuctionLots.map((lot) => ({ lotId: lot.id, bidUnits: lot.sellerId === player.id ? 0 : auctionBidByLotId[lot.id] ?? 0 }))]
+    onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: prediction, ...(auctionBids.length ? { auctionBids } : {}), ...(assetAuctionOffer ? { assetAuctionOffer } : {}), ...(allConfirmedCardUses.length > 0 ? { cardUses: allConfirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
   }
   return (
     <section className="private-turn">
@@ -831,12 +835,27 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           return <article className={cx('round-auction-card', locked && 'is-own')} key={lot.id}><span>{card.symbol}</span><strong>{card.name} <CardRarityTag cardId={card.id} /></strong><small>{locked ? '这是你安排的竞购，本人不可报价。' : card.description}</small><div><button disabled={locked || bid <= 0} onClick={() => setAuctionBid(lot.id, bid - 1)}>−</button><b><CoinValue units={bid} /></b><button disabled={locked} onClick={() => setAuctionBid(lot.id, bid + 1)}>+</button></div></article>
         })}</div>
       </section>}
+      {assetAuctionLots.length > 0 && <section className="round-auctions panel" aria-label="本轮拍品竞购">
+        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>本轮拍品竞购</h2></div><span>报价合计 <CoinValue units={auctionBidTotal} /></span></div>
+        <p className="round-auctions__hint">最高唯一报价者拍下藏品；无人报价或最高价并列，藏品回归原主。未拍到不扣钱。</p>
+        <div className="round-auctions__rail">{assetAuctionLots.map((lot) => {
+          const locked = lot.sellerId === player.id
+          const bid = locked ? 0 : auctionBidByLotId[lot.id] ?? 0
+          const category = categoryConfig(lot.item.category)
+          return <article className={cx('round-auction-card', locked && 'is-own')} key={lot.id}><span>{lot.item.emoji}</span><strong>{lot.item.name}</strong><small>{locked ? '这是你发起的竞购，自己不能报价。' : `${category.name} · 起拍价 ${formatCoins(lot.minimumBidUnits)} 金币`}</small><div><button disabled={locked || bid <= 0} onClick={() => setAuctionBid(lot.id, bid <= lot.minimumBidUnits ? 0 : bid - 1)}>−</button><b><CoinValue units={bid} /></b><button disabled={locked} onClick={() => setAuctionBid(lot.id, bid === 0 ? lot.minimumBidUnits : bid + 1)}>+</button></div></article>
+        })}</div>
+      </section>}
       <section className="private-assets panel">
         <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的固定资产</h2></div><span>只在终局计入总资产</span></div>
         {fixedAssets.length === 0 ? <p className="empty-assets">还没有拍下任何物品。收集同类拍品达到 2 件后即可触发固定资产加成。</p> : <div className="private-asset-list">{fixedAssets.map((asset) => {
           const config = categoryConfig(asset.category)
           const items = player.items.filter(({ item: wonItem }) => wonItem.category === asset.category)
           return <article key={asset.category} className="private-asset-row"><span>{config.symbol}</span><div><strong>{config.name} · {asset.itemCount} 件</strong><small>{items.map(({ item: wonItem }) => `${wonItem.emoji}${wonItem.name}`).join(' · ')}</small></div><div className="private-asset-value">{asset.units > 0 ? <><CoinValue units={asset.units} signed /><small>当前终局加成</small></> : <><strong>再收 {2 - asset.itemCount} 件</strong><small>即可触发加成</small></>}</div></article>
+        })}</div>}
+        {player.items.length > 0 && <div className="asset-auction-list"><strong>我的藏品</strong><small>可将一件真实藏品安排到下一轮竞购；最后一轮不能发起。</small>{player.items.map((won) => {
+          const selected = assetAuctionOffer?.itemId === won.item.id && assetAuctionOffer.itemRoundIndex === won.roundIndex
+          const disabled = session.roundIndex >= session.settings.rounds - 1 || Boolean(assetAuctionOffer && !selected)
+          return <article key={`${won.item.id}-${won.roundIndex}`}><span>{won.item.emoji}</span><div><strong>{won.item.name}</strong><small>{categoryConfig(won.item.category).name}</small></div>{selected ? <div className="asset-auction-list__offer"><label>起拍价 <input type="number" min="0.5" step="0.5" value={unitsToCoins(assetAuctionOffer.minimumBidUnits)} onChange={(event) => setAssetAuctionOffer({ ...assetAuctionOffer, minimumBidUnits: Math.max(1, Math.round(Number(event.target.value || 0) * 2)) })} /></label><button onClick={() => setAssetAuctionOffer(undefined)}>取消拍卖</button></div> : <button disabled={disabled} onClick={() => setAssetAuctionOffer({ itemId: won.item.id, itemRoundIndex: won.roundIndex, minimumBidUnits: 1 })}>{session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可拍卖' : '发起竞购'}</button>}</article>
         })}</div>}
       </section>
       <section className="identity-skills panel">
@@ -989,6 +1008,7 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
       <article className="result-tie-reveal" aria-live="polite"><span>{result.tiedPlayerIds.length > 0 ? '≠' : '✓'}</span><div><small>{stageCopy}</small><strong>{result.tiedPlayerIds.length > 0 ? `${result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局` : '没有并列下注，所有密封标保留排名资格'}</strong></div></article>
       {showSettlement && <aside className="round-bulletin" aria-live="polite"><span>🎙</span><div><small>局势播报</small><strong>{roundBulletin}</strong></div></aside>}
       {showSettlement && result.cardEffects.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">结算影响</p><h2>本轮道具与排名变化</h2></div><span>已计入本轮结果</span></div><div>{result.cardEffects.map((effect, index) => <p key={`${effect.cardId ?? effect.symbol}-${index}`} data-effect={effect.cardId ?? 'general'} style={{ '--effect-delay': `${index * 110}ms` } as React.CSSProperties}><span>{effect.symbol ?? getCardDefinition(effect.cardId as CardId).symbol}</span>{effect.description}</p>)}</div></article>}
+      {showSettlement && result.assetAuctionResults.length > 0 && <article className="panel card-effects"><div className="panel-title"><div><p className="eyebrow">拍品竞购</p><h2>藏品竞购结果</h2></div><span>成交价仅买家可见</span></div><div>{result.assetAuctionResults.map((entry) => <p key={entry.lotId}><span>{entry.item.emoji}</span>{entry.winnerId ? <>{entry.item.name} 由 <strong>{playerName(session.players, entry.winnerId)}</strong> 拍下。</> : <>{entry.item.name} 无人拍下，已回归 <strong>{playerName(session.players, entry.sellerId)}</strong>。</>}</p>)}</div></article>}
       <div className="result-columns">
         {showRankings && <article className="panel result-ranking"><div className="panel-title"><div><p className="eyebrow">下注排名</p><h2>本轮获奖</h2></div>{result.tiedPlayerIds.length > 0 && <span>{result.tiedPlayerIds.map((id) => playerName(session.players, id)).join('、')} 并列出局</span>}</div>
           {result.rankings.length === 0 ? <div className="empty-result">没有唯一排名金额，奖励全部落空。</div> : <ol>{result.rankings.map((entry, index) => <li key={entry.playerId} style={{ '--delay': `${index * 110}ms`, '--player-color': session.players.find((player) => player.id === entry.playerId)?.color } as React.CSSProperties}><span>{MEDALS[index]}</span><strong>{playerName(session.players, entry.playerId)}</strong>{session.settings.revealBids && <small>下注 {formatCoins(entry.actualBidUnits)}{entry.actualBidUnits !== entry.bidUnits ? ` · 排名额 ${formatCoins(entry.bidUnits)}` : ''}</small>}<CoinValue units={entry.publicRewardUnits} signed /></li>)}</ol>}
@@ -1346,10 +1366,23 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const currentPlayer = playersBeforeSubmit.find((player) => player.id === turn.playerId)
     if (!currentPlayer || turn.bidUnits < 0 || turn.bidUnits > currentPlayer.balanceUnits) return false
     const auctionBids = turn.auctionBids ?? []
-    if (auctionBids.length !== session.roundAuctions.length || new Set(auctionBids.map((bid) => bid.lotId)).size !== auctionBids.length) return false
+    const allAuctionLots = [...(session.roundAuctions ?? []), ...(session.roundAssetAuctions ?? [])]
+    if (auctionBids.length !== allAuctionLots.length || new Set(auctionBids.map((bid) => bid.lotId)).size !== auctionBids.length) return false
     const auctionBidTotal = auctionBids.reduce((total, bid) => total + bid.bidUnits, 0)
-    if (auctionBids.some((bid) => !Number.isInteger(bid.bidUnits) || bid.bidUnits < 0 || !session.roundAuctions.some((lot) => lot.id === bid.lotId) || (session.roundAuctions.find((lot) => lot.id === bid.lotId)?.merchantId === turn.playerId && bid.bidUnits !== 0))) return false
+    if (auctionBids.some((bid) => {
+      const cardLot = session.roundAuctions.find((lot) => lot.id === bid.lotId)
+      const assetLot = session.roundAssetAuctions.find((lot) => lot.id === bid.lotId)
+      return !Number.isInteger(bid.bidUnits) || bid.bidUnits < 0 || (!cardLot && !assetLot)
+        || (cardLot?.merchantId === turn.playerId && bid.bidUnits !== 0)
+        || (assetLot?.sellerId === turn.playerId && bid.bidUnits !== 0)
+        || Boolean(assetLot && bid.bidUnits > 0 && bid.bidUnits < assetLot.minimumBidUnits)
+    })) return false
     if (turn.bidUnits + auctionBidTotal > currentPlayer.balanceUnits) return false
+    if (turn.assetAuctionOffer) {
+      const offer = turn.assetAuctionOffer
+      const ownsItem = currentPlayer.items.some((won) => won.item.id === offer.itemId && won.roundIndex === offer.itemRoundIndex)
+      if (session.roundIndex >= session.settings.rounds - 1 || !ownsItem || !Number.isInteger(offer.minimumBidUnits) || offer.minimumBidUnits < 1) return false
+    }
     if (turn.identityAction?.type === 'prophetDivination') {
       const action = turn.identityAction
       const divination = session.prophetDivinations.find((entry) => entry.id === action.divinationId && entry.playerId === turn.playerId && entry.roundIndex === session.roundIndex)
@@ -1461,8 +1494,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     }
     const turns = [...session.turns, resolvedTurn]
     const isLast = turns.length >= session.players.length
+    const newlyScheduledAssetAuctions: AssetAuctionLot[] = isLast ? turns.flatMap((submitted) => {
+      const offer = submitted.assetAuctionOffer
+      if (!offer) return []
+      const seller = players.find((entry) => entry.id === submitted.playerId)
+      const won = seller?.items.find((entry) => entry.item.id === offer.itemId && entry.roundIndex === offer.itemRoundIndex)
+      return won ? [{ id: `asset-${session.roundIndex + 1}-${submitted.playerId}-${won.item.id}-${won.roundIndex}`, sellerId: submitted.playerId, item: won.item, itemRoundIndex: won.roundIndex, minimumBidUnits: offer.minimumBidUnits, roundIndex: session.roundIndex + 1 }] : []
+    }) : []
     const nextTurnIndex = session.players.length > 0 ? (session.currentTurnIndex + 1) % session.players.length : 0
-    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
+    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, pendingAssetAuctions: isLast ? [...session.pendingAssetAuctions, ...newlyScheduledAssetAuctions] : session.pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.chosenItemId && !pendingPrizeReroll?.chosenItemId ? { itemDeck: replaceNextPrize(session.itemDeck, session.roundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.chosenItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
   }
   const reveal = () => {
@@ -1507,6 +1547,24 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         }
       }
     }
+    const assetAuctionResults: AssetAuctionResult[] = []
+    for (const lot of session.roundAssetAuctions ?? []) {
+      const bids = session.turns.map((turn) => ({ playerId: turn.playerId, bidUnits: turn.auctionBids?.find((bid) => bid.lotId === lot.id)?.bidUnits ?? 0 }))
+        .filter((bid) => bid.playerId !== lot.sellerId && bid.bidUnits >= lot.minimumBidUnits)
+      const counts = new Map<number, number>()
+      bids.forEach((bid) => counts.set(bid.bidUnits, (counts.get(bid.bidUnits) ?? 0) + 1))
+      const winnerBid = bids.filter((bid) => counts.get(bid.bidUnits) === 1).sort((left, right) => right.bidUnits - left.bidUnits)[0]
+      const seller = auctionPlayers.find((player) => player.id === lot.sellerId)
+      const winner = winnerBid ? auctionPlayers.find((player) => player.id === winnerBid.playerId) : undefined
+      const itemIndex = seller?.items.findIndex((won) => won.item.id === lot.item.id && won.roundIndex === lot.itemRoundIndex) ?? -1
+      if (seller && winner && winnerBid && itemIndex >= 0 && winner.balanceUnits >= winnerBid.bidUnits) {
+        winner.balanceUnits -= winnerBid.bidUnits
+        seller.balanceUnits += winnerBid.bidUnits
+        const [won] = seller.items.splice(itemIndex, 1)
+        winner.items.push(won)
+        assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: winner.id })
+      } else assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: null })
+    }
     const settled = settleRound({
       playersAfterBids: auctionPlayers,
       turns: session.turns,
@@ -1520,12 +1578,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       identitySettings: session.settings.identitySettings,
       identityContracts: session.identityContracts,
     })
+    settled.result.assetAuctionResults = assetAuctionResults
     const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
     const auctionSummaryNotices = auctionPlayers.flatMap((player) => {
       const lines = auctionFeedback.get(player.id) ?? []
       return lines.length ? [{ id: `round-auction-summary-${session.roundIndex}-${player.id}`, playerId: player.id, title: '本轮道具竞购', detail: lines.join('\n') }] : []
     })
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices.filter((notice) => !notice.id.startsWith('round-auction-')), ...auctionSummaryNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices.filter((notice) => !notice.id.startsWith('round-auction-')), ...auctionSummaryNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
     const eligiblePlayers = basePlayers.map((entry) => entry.identity?.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex
@@ -1573,7 +1632,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       ...(systemDraw.cardId ? [{ id: `system-${roundIndex}-${systemDraw.cardId}-${Date.now()}`, source: 'system' as const, merchantId: null, cardId: systemDraw.cardId, roundIndex }] : []),
       ...(isFinalRound ? [] : scheduled.map((auction, index) => ({ id: `merchant-${roundIndex}-${auction.merchantId}-${index}-${auction.cardId}`, source: 'merchant' as const, merchantId: auction.merchantId, cardId: auction.cardId, roundIndex }))),
     ])
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingKidnapCardOffers: kidnapOffers, operationDeadlineAt: null })
+    const roundAssetAuctions = session.pendingAssetAuctions.filter((lot) => lot.roundIndex === roundIndex)
+    const remainingAssetAuctions = session.pendingAssetAuctions.filter((lot) => lot.roundIndex !== roundIndex)
+    const assetAuctionNotices = roundAssetAuctions.flatMap((lot) => routed.players.map((player) => ({
+      id: `asset-auction-open-${roundIndex}-${lot.id}-${player.id}`,
+      playerId: player.id,
+      title: '本轮拍品竞购',
+      detail: `${categoryConfig(lot.item.category).name}藏品「${lot.item.emoji} ${lot.item.name}」正在竞购。该藏品固定资产加成 +${itemFixedAssetCoins(lot.item.value)}，起拍价 ${formatCoins(lot.minimumBidUnits)} 金币。`,
+    })))
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: systemDraw.cardDeck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: kidnapOffers, operationDeadlineAt: null })
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult', finalReceiptIndex: null })
@@ -1734,7 +1801,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
           auctionBudget -= bidUnits
           return { lotId: lot.id, bidUnits }
-        })
+        }).concat((session.roundAssetAuctions ?? []).map((lot) => {
+          if (lot.sellerId === currentPlayer.id) return { lotId: lot.id, bidUnits: 0 }
+          const categoryInterest = currentPlayer.items.filter((won) => won.item.category === lot.item.category).length
+          const quote = Math.max(lot.minimumBidUnits, Math.round((lot.minimumBidUnits + categoryInterest * 3 + Math.random() * 4) / 1) )
+          const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
+          auctionBudget -= bidUnits
+          return { lotId: lot.id, bidUnits: bidUnits >= lot.minimumBidUnits ? bidUnits : 0 }
+        }))
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId: decision.predictedPlayerId, auctionBids, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {

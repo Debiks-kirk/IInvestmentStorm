@@ -107,6 +107,8 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     merchantAuction: null,
     auctionQueue: [],
     roundAuctions: settings.rounds > 1 && firstDraw.cardId ? [{ id: `system-0-${firstDraw.cardId}`, source: 'system', merchantId: null, cardId: firstDraw.cardId, roundIndex: 0 }] : [],
+    pendingAssetAuctions: [],
+    roundAssetAuctions: [],
     pendingMerchantOffers: [],
     prophetIdentityCandidates: {},
     prophetIdentityProgress: {},

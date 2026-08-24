@@ -737,6 +737,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     identityEvents,
     nightwalkerOutcomes,
     investments: investmentRecords,
+    assetAuctionResults: [],
     totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
   return { players, result, identityContracts, identityEvents }
