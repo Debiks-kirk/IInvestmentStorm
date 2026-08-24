@@ -441,7 +441,7 @@ describe('道具发放', () => {
 })
 
 describe('小偷的兜底盗取', () => {
-  it('偷卡达到上限后，会向并列最富的其他玩家分别转移 10% 金币', () => {
+  it('偷卡达到上限后，会让并列最富的其他玩家公摊一笔 10% 金币', () => {
     const base = players([10, 30, 30, 8])
     base[0].identity = { id: 'thief', thiefSuccesses: 2, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     const settled = settleRound({
@@ -460,10 +460,11 @@ describe('小偷的兜底盗取', () => {
       fairnessOrderIds: base.map((player) => player.id),
       roll: () => .9,
     })
-    expect(settled.players.find((player) => player.id === 'p1')?.balanceUnits).toBe(coinsToUnits(14))
-    expect(settled.players.find((player) => player.id === 'p2')?.balanceUnits).toBe(coinsToUnits(27))
-    expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(27))
+    expect(settled.players.find((player) => player.id === 'p1')?.balanceUnits).toBe(coinsToUnits(11))
+    expect(settled.players.find((player) => player.id === 'p2')?.balanceUnits).toBe(coinsToUnits(28.5))
+    expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(28.5))
     expect(settled.result.identityEvents).toContainEqual(expect.objectContaining({ playerId: 'p1', title: '偷卡落空，转移金币' }))
+    expect(settled.result.identityEvents).toContainEqual(expect.objectContaining({ playerId: 'p2', title: '金币被偷走', detail: '你作为并列最富者，公摊转移了 1.5 金币。' }))
   })
 })
 

@@ -707,17 +707,20 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
           identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}转而偷走了一件拍品。`, deltaUnits: -paid })
           identityEvents.push({ playerId: itemOwner.id, identityId: 'thief', roundIndex, title: '拍品被偷走', detail: '你的一件拍品被人偷走了。', deltaUnits: 0 })
         } else {
-          const transfers = richest.map((player) => ({ player, units: floorToHalfUnits(player.balanceUnits * .1) }))
-          const transfer = transfers.reduce((total, entry) => total + entry.units, 0)
-          for (const entry of transfers) {
-            entry.player.balanceUnits -= entry.units
-            const richestDelta = deltaByPlayer.get(entry.player.id)
-            if (richestDelta) richestDelta.identityUnits -= entry.units
-            identityEvents.push({ playerId: entry.player.id, identityId: 'thief', roundIndex, title: '金币被偷走', detail: `你被转移了 ${formatCoins(entry.units)} 金币。`, deltaUnits: -entry.units })
+          // Tied leaders share one 10% loss; do not charge 10% to every one of
+          // them. Half-coin remainders rotate through the established fair order.
+          const transfer = floorToHalfUnits(richestBalance * .1)
+          const shares = distributeUnits({ totalUnits: transfer, playerIds: richest.map((player) => player.id), fairnessOrderIds, roundIndex })
+          for (const richPlayer of richest) {
+            const share = shares.get(richPlayer.id) ?? 0
+            richPlayer.balanceUnits -= share
+            const richestDelta = deltaByPlayer.get(richPlayer.id)
+            if (richestDelta) richestDelta.identityUnits -= share
+            identityEvents.push({ playerId: richPlayer.id, identityId: 'thief', roundIndex, title: '金币被偷走', detail: richest.length > 1 ? `你作为并列最富者，公摊转移了 ${formatCoins(share)} 金币。` : `你被转移了 ${formatCoins(share)} 金币。`, deltaUnits: -share })
           }
           thief.balanceUnits += transfer
           delta.identityUnits += transfer
-          const crowdLabel = richest.length > 1 ? `向 ${richest.length} 位并列最富者众筹` : '从最富者转移'
+          const crowdLabel = richest.length > 1 ? `由 ${richest.length} 位并列最富者公摊` : '从最富者转移'
           identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}${crowdLabel}了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
         }
       }
