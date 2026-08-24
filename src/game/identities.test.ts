@@ -8,6 +8,19 @@ const player = (id: string, balance = 20): Player => ({ id, name: id, color: '#0
 const turn = (playerId: string, bid: number, predictedPlayerId: string | null = null): RoundTurn => ({ playerId, bidUnits: coinsToUnits(bid), predictedPlayerId })
 
 describe('身份选角与私密卡牌', () => {
+  it('投资者把资金计入目标排名，并按出资比例拆分奖励与拍品', () => {
+    const players = [player('investor', 15), player('target', 10), player('other', 18)]
+    players[0].identity = { id: 'investor', thiefSuccesses: 0, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({ playersAfterBids: players, turns: [
+      { ...turn('investor', 0), identityAction: { type: 'invest', targetPlayerId: 'target', investmentUnits: coinsToUnits(5) } },
+      turn('target', 10), turn('other', 4),
+    ], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+    expect(settled.result.rankings[0]).toMatchObject({ playerId: 'target', bidUnits: coinsToUnits(15) })
+    expect(settled.players.find((entry) => entry.id === 'target')?.balanceUnits).toBe(coinsToUnits(10 + 20 / 3))
+    expect(settled.players.find((entry) => entry.id === 'investor')?.balanceUnits).toBe(coinsToUnits(15 + 10 / 3))
+    expect(settled.result.itemWinnerId).toBe('target')
+    expect(settled.result.investments[0]).toMatchObject({ investorId: 'investor', targetPlayerId: 'target', investmentUnits: coinsToUnits(5) })
+  })
   it('身份候选同次不重复，普通池内身份最多出现两次，只有小偷全局唯一', () => {
     const settings = defaultIdentitySettings(true)
     const fresh = dealIdentityChoices([], settings, () => 0)
@@ -16,7 +29,8 @@ describe('身份选角与私密卡牌', () => {
     expect(IDENTITY_DEFINITIONS.find((identity) => identity.id === 'thief')?.repeatable).toBe(false)
     const selected = ['prophet', 'prophet', 'gambler', 'gambler', 'assassin', 'assassin', 'collector', 'collector', 'thief', 'merchant', 'merchant', 'reverser', 'reverser', 'nightwalker', 'nightwalker', 'lobbyist', 'lobbyist'] as const
     const fallback = dealIdentityChoices([...selected], settings, () => 0)
-    expect(fallback).toEqual(['prophet', 'gambler'])
+    expect(fallback).toHaveLength(2)
+    expect(new Set(fallback).size).toBe(2)
     expect(fallback).not.toContain('thief')
   })
 
@@ -24,7 +38,7 @@ describe('身份选角与私密卡牌', () => {
     const settings = defaultIdentitySettings(true)
     settings.identityChoiceCount = 4
     expect(dealIdentityChoices([], settings, () => .2)).toHaveLength(4)
-    settings.disabledIdentityIds = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant']
+    settings.disabledIdentityIds = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'investor']
     expect(identityValidationErrors(settings, 3)).toContain('身份系统至少需要启用 4 个身份')
   })
 

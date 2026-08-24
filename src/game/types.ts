@@ -63,7 +63,7 @@ export interface SeatConfig {
 
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot'
 
-export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker'
+export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker' | 'investor'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
 
 export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
@@ -255,6 +255,7 @@ export type IdentityAction =
   | { type: 'thiefSteal' }
   | { type: 'kidnap'; targetPlayerId: string }
   | { type: 'nightwalkerDoubleBid'; shadowBidUnits: number; prioritizeItem?: boolean }
+  | { type: 'invest'; targetPlayerId: string; investmentUnits: number }
   | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
 
 export interface Item {
@@ -341,6 +342,17 @@ export interface NightwalkerOutcome {
   reason: 'shadowHigherNet' | 'baseHigherOrEqualNet' | 'shadowWinsItem' | 'baseWinsItem'
 }
 
+/** Private until the end-game replay; public results only announce that an investment happened. */
+export interface InvestmentRecord {
+  investorId: string
+  targetPlayerId: string
+  investmentUnits: number
+  targetOwnBidUnits: number
+  finalBidUnits: number
+  rewardShareUnits: number
+  receivedItem: boolean
+}
+
 export interface RoundResult {
   roundIndex: number
   item: Item
@@ -364,6 +376,7 @@ export interface RoundResult {
   balancesAfter: Record<string, number>
   identityEvents: IdentityEvent[]
   nightwalkerOutcomes: NightwalkerOutcome[]
+  investments: InvestmentRecord[]
   /** Cash plus fixed assets after this round, used for comparable end-game trajectories. */
   totalAssetUnitsAfter: Record<string, number>
 }

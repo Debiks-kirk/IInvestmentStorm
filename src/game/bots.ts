@@ -445,6 +445,10 @@ function planCandidates(observation: BotObservation): TurnPlan[] {
   if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
     for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:lobby:${opponent.id}`, identityAction: { type: 'lobbyistContract' as const, targetPlayerId: opponent.id }, specialReason: `向 ${opponent.name} 发布随机任务，争取下轮获得违约收益。` })))
   }
+  if (observation.self.identity?.id === 'investor' && observation.self.balanceUnits >= coinsToUnits(7)) {
+    const target = observation.opponents[hash(`${observation.sessionSeed}:${observation.playerId}:invest-target`) % Math.max(1, observation.opponents.length)]
+    if (target) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:invest:${target.id}`, identityAction: { type: 'invest' as const, targetPlayerId: target.id, investmentUnits: coinsToUnits(5) }, specialReason: `秘密跟投 ${target.name}，争取按出资比例分享排名奖励。` })))
+  }
   // Keep the plan set rich, but bounded: a 10-player spectator game must not spend a turn
   // evaluating the full target-card × identity-action cross product.
   const base = plans.find((plan) => plan.id === 'cards:none')
@@ -503,7 +507,8 @@ function applyBidJitter(best: ScoredPlan, observation: BotObservation, profile: 
     ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
     : best.identityAction?.type === 'kidnap' ? observation.kidnapActivationUnits
       : best.identityAction?.type === 'thiefSteal' ? observation.thiefActivationUnits
-        : best.identityAction?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits : 0
+        : best.identityAction?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits
+          : best.identityAction?.type === 'invest' ? best.identityAction.investmentUnits : 0
   const cap = Math.max(0, observation.self.balanceUnits - identityCost)
   const standardDeviation = behavioralTemperatureUnits(observation, profile, difficulty, mode, memory) * .65
   // 绝大多数报价落在中心附近，少量较大胆/保守的偏移来自正态尾部；截断避免无意义的梭哈或归零。
@@ -537,7 +542,7 @@ export function decideBotProphetAction(observation: BotObservation, memory: BotM
   // Identity remains deliberately rare: the paid read must still leave enough cash to compete.
   if (memory.behavior.cardBias + memory.behavior.riskBias > 1.45 && observation.self.balanceUnits >= observation.prophetIdentityCostUnits + coinsToUnits(4)) {
     const targetPlayerId = choose(observation.opponents.map((opponent) => opponent.id), `${observation.sessionSeed}:${observation.playerId}:prophet-target`)
-    const identities: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker']
+  const identities: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker', 'investor']
     const identityId = choose(identities, `${observation.sessionSeed}:${observation.playerId}:prophet-identity`)
     if (targetPlayerId && identityId) return { mode: 'identity', targetPlayerId, identityId }
   }
@@ -571,7 +576,8 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
     : action?.type === 'kidnap' ? observation.kidnapActivationUnits
       : action?.type === 'thiefSteal' ? observation.thiefActivationUnits
-        : action?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits : 0
+        : action?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits
+          : action?.type === 'invest' ? action.investmentUnits : 0
   const cardUtility = (uses: CardUse[]): number => uses.reduce((total, use) => {
     if (use.cardId === 'red') return total + coinsToUnits((observation.item?.value ?? 0) >= 8 ? 1.5 : .25) * (1 + behavior.cardBias * .25)
     if (use.cardId === 'black') return total - coinsToUnits(.35)
@@ -680,7 +686,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
 export function decideBotIdentity({ choices, player, players, cardOfferIds }: { choices: IdentityId[]; player: Player; players: Player[]; cardOfferIds?: CardId[] }): { identityId: IdentityId; targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId; mode: StrategyMode; reason: string } {
   const controller = player.controller?.kind === 'bot' ? player.controller : { profileId: 'adaptive' as BotProfileId }
   const profile = botProfile(controller.profileId)
-  const scores: Record<IdentityId, number> = { prophet: .4, gambler: profile.risk, assassin: profile.revenge + profile.risk, collector: profile.collect, thief: profile.cards + profile.revenge, merchant: profile.cards, reverser: profile.risk, lobbyist: profile.identity + profile.revenge, nightwalker: profile.risk + profile.identity * .55 }
+  const scores: Record<IdentityId, number> = { prophet: .4, gambler: profile.risk, assassin: profile.revenge + profile.risk, collector: profile.collect, thief: profile.cards + profile.revenge, merchant: profile.cards, reverser: profile.risk, lobbyist: profile.identity + profile.revenge, nightwalker: profile.risk + profile.identity * .55, investor: profile.collect + profile.risk * .35 }
   const identityId = [...choices].sort((left, right) => scores[right] - scores[left] || left.localeCompare(right))[0] ?? choices[0]
   const target = players.filter((entry) => entry.id !== player.id)[hash(`${player.id}:${identityId}`) % Math.max(1, players.length - 1)]
   const categories: AssetCategory[] = ['leisure', 'transport', 'luxury', 'property']

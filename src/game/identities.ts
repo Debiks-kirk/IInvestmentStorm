@@ -21,6 +21,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
   { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
   { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。', repeatable: true },
+  { id: 'investor', name: '投资者', symbol: '◈', summary: '秘密跟投一名玩家；其获奖后按出资比例分享奖金与拍品。', repeatable: true },
 ]
 
 export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
@@ -28,7 +29,7 @@ export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
 }
 
 export function identitySkillMode(id: IdentityId): 'active' | 'passive' {
-  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' || id === 'thief' || id === 'nightwalker' ? 'active' : 'passive'
+  return id === 'prophet' || id === 'assassin' || id === 'merchant' || id === 'reverser' || id === 'lobbyist' || id === 'thief' || id === 'nightwalker' || id === 'investor' ? 'active' : 'passive'
 }
 
 export function defaultIdentitySettings(enabled = true): IdentitySettings {

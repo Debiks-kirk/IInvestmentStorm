@@ -96,6 +96,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     rankingReversalCount: result.rankingReversalCount ?? 0,
     itemWinnerId: result.itemWinnerId ?? result.winnerId ?? null,
     nightwalkerOutcomes: result.nightwalkerOutcomes ?? [],
+    investments: result.investments ?? [],
   }))
   const originalCardDeck = [...(session.cardDeck ?? createCardDeck(settings.disabledCardIds))]
   const addNewCard = (deck: CardId[], cardId: CardId) => !settings.disabledCardIds.includes(cardId) && !players.some((player) => player.cardInventory.includes(cardId)) && !deck.includes(cardId) ? [...deck, cardId] : deck

@@ -18,6 +18,7 @@ import type {
   RoundTurn,
   LobbyistContract,
   NightwalkerOutcome,
+  InvestmentRecord,
 } from './types'
 
 export const COIN_UNIT = 2
@@ -105,6 +106,22 @@ function cardEffect(cardId: CardId, description: string): CardEffect {
   return { cardId, description }
 }
 
+function distributeProportionalUnits(totalUnits: number, contributions: Array<{ playerId: string; units: number }>, fairnessOrderIds: string[], roundIndex: number): Map<string, number> {
+  const result = new Map<string, number>()
+  const total = contributions.reduce((sum, entry) => sum + entry.units, 0)
+  if (totalUnits <= 0 || total <= 0) return result
+  const fairRank = new Map(rotate(fairnessOrderIds, roundIndex).map((id, index) => [id, index]))
+  const rows = contributions.map((entry) => {
+    const numerator = totalUnits * entry.units
+    const base = Math.floor(numerator / total)
+    return { ...entry, base, remainder: numerator % total }
+  })
+  rows.forEach((row) => result.set(row.playerId, row.base))
+  const remaining = totalUnits - rows.reduce((sum, row) => sum + row.base, 0)
+  rows.sort((left, right) => right.remainder - left.remainder || (fairRank.get(left.playerId) ?? 999) - (fairRank.get(right.playerId) ?? 999)).slice(0, remaining).forEach((row) => result.set(row.playerId, (result.get(row.playerId) ?? 0) + 1))
+  return result
+}
+
 function cardCopiesLabel(cardName: string, count: number): string {
   if (count <= 1) return cardName
   const chineseCount = ['零', '一', '两', '三', '四', '五'][count]
@@ -139,6 +156,12 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const identitySettings = input.identitySettings ?? defaultIdentitySettings(false)
   const identityContracts = (input.identityContracts ?? []).map((contract) => ({ ...contract }))
   const players = playersAfterBids.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
+  const investments = submittedTurns.flatMap((turn) => turn.identityAction?.type === 'invest' && turn.identityAction.investmentUnits > 0
+    ? [{ investorId: turn.playerId, targetPlayerId: turn.identityAction.targetPlayerId, investmentUnits: turn.identityAction.investmentUnits }]
+    : [])
+  const investmentUnitsByTarget = new Map<string, number>()
+  for (const investment of investments) investmentUnitsByTarget.set(investment.targetPlayerId, (investmentUnitsByTarget.get(investment.targetPlayerId) ?? 0) + investment.investmentUnits)
+  const investmentRecords: InvestmentRecord[] = investments.map((investment) => ({ ...investment, targetOwnBidUnits: 0, finalBidUnits: 0, rewardShareUnits: 0, receivedItem: false }))
   const playerById = new Map(players.map((player) => [player.id, player]))
   const deltaByPlayer = new Map<string, PlayerRoundDelta>(players.map((player) => [player.id, {
     playerId: player.id,
@@ -217,12 +240,13 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     }
   }
   const settledBidUnits = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
+  const initialRankingBids = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits + (investmentUnitsByTarget.get(turn.playerId) ?? 0)]))
   for (const turn of turns) {
     if (turn.identityAction?.type !== 'nightwalkerDoubleBid' || playerById.get(turn.playerId)?.identity?.id !== 'nightwalker') continue
     const shadowBidUnits = turn.identityAction.shadowBidUnits
     const baseBidUnits = turn.bidUnits
-    const base = rankNightwalkerBid(turn.playerId, baseBidUnits, settledBidUnits)
-    const shadow = rankNightwalkerBid(turn.playerId, shadowBidUnits, settledBidUnits)
+    const base = rankNightwalkerBid(turn.playerId, baseBidUnits + (investmentUnitsByTarget.get(turn.playerId) ?? 0), initialRankingBids)
+    const shadow = rankNightwalkerBid(turn.playerId, shadowBidUnits + (investmentUnitsByTarget.get(turn.playerId) ?? 0), initialRankingBids)
     // The item choice is deliberately made before kidnap resolution: Nightwalker
     // can see the final bids, but cannot foresee whether a kidnapper will steal it.
     const prioritizeItem = turn.identityAction.prioritizeItem !== false
@@ -329,7 +353,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     }
   }
 
-  const rankingBids = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits]))
+  const rankingBids = new Map(turns.map((turn) => [turn.playerId, turn.bidUnits + (investmentUnitsByTarget.get(turn.playerId) ?? 0)]))
   const voidedBidPlayerIds = new Set<string>()
   for (const { playerId, use, targetPlayerId, reflected } of targetedCardUses) {
     if (use.cardId !== 'swap' || reflected || targetPlayerId === playerId) continue
@@ -441,10 +465,47 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const player = playerById.get(ranking.playerId)
     const delta = deltaByPlayer.get(ranking.playerId)
     if (!player || !delta) continue
-    player.balanceUnits += ranking.rewardUnits
+    const targetInvestments = investments.filter((investment) => investment.targetPlayerId === ranking.playerId)
+    const totalContribution = ranking.actualBidUnits + targetInvestments.reduce((total, investment) => total + investment.investmentUnits, 0)
+    const contributions = [{ playerId: ranking.playerId, units: ranking.actualBidUnits }, ...targetInvestments.map((investment) => ({ playerId: investment.investorId, units: investment.investmentUnits }))]
+    const shares = totalContribution > 0
+      ? distributeProportionalUnits(ranking.rewardUnits, contributions, fairnessOrderIds, roundIndex)
+      : new Map<string, number>([[ranking.playerId, ranking.rewardUnits]])
+    const targetShare = shares.get(ranking.playerId) ?? 0
+    player.balanceUnits += targetShare
     delta.rewardUnits += ranking.publicRewardUnits
+    for (const investment of targetInvestments) {
+      const investor = playerById.get(investment.investorId)
+      const share = shares.get(investment.investorId) ?? 0
+      if (investor) investor.balanceUnits += share
+      const record = investmentRecords.find((entry) => entry.investorId === investment.investorId && entry.targetPlayerId === investment.targetPlayerId && entry.investmentUnits === investment.investmentUnits && entry.rewardShareUnits === 0)
+      if (record) { record.targetOwnBidUnits = ranking.actualBidUnits; record.finalBidUnits = ranking.bidUnits; record.rewardShareUnits = share }
+      identityEvents.push({ playerId: investment.investorId, identityId: 'investor', roundIndex, title: '价值投资结算', detail: `目标获得第 ${ranking.place} 名奖励；你按出资比例分得 ${formatCoins(share)} 金币。`, deltaUnits: share })
+    }
+    if (targetInvestments.length > 0) identityEvents.push({ playerId: player.id, identityId: 'investor', roundIndex, title: '获得投资回执', detail: `本轮获得 ${formatCoins(ranking.rewardUnits)} 金币排名奖励，其中你实际保留 ${formatCoins(targetShare)} 金币。`, deltaUnits: 0 })
+  }
+  for (const investment of investments) {
+    if (rankings.some((ranking) => ranking.playerId === investment.targetPlayerId)) continue
+    identityEvents.push({ playerId: investment.investorId, identityId: 'investor', roundIndex, title: '价值投资结算', detail: '目标未进入获奖区，本次投资未获得排名奖励。', deltaUnits: 0 })
+    identityEvents.push({ playerId: investment.targetPlayerId, identityId: 'investor', roundIndex, title: '获得投资回执', detail: '本轮有秘密投资计入你的排名下注，但未进入获奖区。', deltaUnits: 0 })
+  }
+  if (itemWinnerId === winnerId) {
+    const winnerTurn = turns.find((turn) => turn.playerId === winnerId)
+    const winnerInvestments = investments.filter((investment) => investment.targetPlayerId === winnerId)
+    const ownBid = winnerTurn?.bidUnits ?? 0
+    const highestInvestment = Math.max(0, ...winnerInvestments.map((investment) => investment.investmentUnits))
+    const topInvestors = winnerInvestments.filter((investment) => investment.investmentUnits === highestInvestment)
+    if (highestInvestment > ownBid && topInvestors.length === 1) {
+      itemWinnerId = topInvestors[0].investorId
+      const record = investmentRecords.find((entry) => entry.investorId === itemWinnerId && entry.targetPlayerId === winnerId && entry.investmentUnits === highestInvestment)
+      if (record) record.receivedItem = true
+    }
   }
   if (itemWinnerId) playerById.get(itemWinnerId)?.items.push({ item, roundIndex })
+  if (winnerId && investments.some((investment) => investment.targetPlayerId === winnerId)) {
+    identityEvents.push({ playerId: winnerId, identityId: 'investor', roundIndex, title: '获得投资回执', detail: itemWinnerId === winnerId ? `你获得了本轮拍品 ${item.emoji}${item.name}。` : `你拿下第一名，但拍品 ${item.emoji}${item.name} 因投资贡献归属他人。`, deltaUnits: 0 })
+    if (itemWinnerId && itemWinnerId !== winnerId) identityEvents.push({ playerId: itemWinnerId, identityId: 'investor', roundIndex, title: '价值投资拍品', detail: `你的单笔投资贡献最高，获得了 ${item.emoji}${item.name}。`, deltaUnits: 0 })
+  }
 
   const predictionOutcomes: PredictionOutcome[] = []
   const correctTurns: RoundTurn[] = []
@@ -647,6 +708,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   }
 
   const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
+  if (investments.length > 0) cardEffects.push(identityEffect('◈', '有人获得了秘密投资，排名奖励已按实际出资比例分配。'))
   const balanceLeaderIds = players.filter((player) => player.balanceUnits === highestBalance).map((player) => player.id)
   const deltas = players.map((player) => {
     const delta = deltaByPlayer.get(player.id) as PlayerRoundDelta
@@ -661,7 +723,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     tiedPlayerIds,
     winnerId,
     itemWinnerId,
-    totalBidUnits: turns.reduce((total, turn) => total + turn.bidUnits, 0),
+    totalBidUnits: turns.reduce((total, turn) => total + turn.bidUnits, 0) + investments.reduce((total, investment) => total + investment.investmentUnits, 0),
     minWinningBidUnits: rankings.length > 0 ? Math.min(...rankings.map((ranking) => ranking.bidUnits)) : null,
     predictionOutcomes,
     winnerPaymentUnits,
@@ -674,6 +736,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     balancesAfter: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     identityEvents,
     nightwalkerOutcomes,
+    investments: investmentRecords,
     totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
   return { players, result, identityContracts, identityEvents }
