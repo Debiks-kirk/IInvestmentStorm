@@ -19,7 +19,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'thief', name: '小偷', symbol: '◒', summary: '主动偷走别人的未使用道具；没偷到时会盯上最富者。', repeatable: false },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '每轮获赠一张道具，并可安排下一轮竞购。', repeatable: true },
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
-  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: false },
+  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
   { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。', repeatable: true },
 ]
 
@@ -80,7 +80,7 @@ export function dealIdentityChoices(selectedIds: IdentityId[], settings: Identit
   const enabled = enabledIdentityIds(settings)
   const counts = new Map<IdentityId, number>()
   selectedIds.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1))
-  const normal = enabled.filter((id) => (id === 'lobbyist' || id === 'thief') ? (counts.get(id) ?? 0) === 0 : (counts.get(id) ?? 0) < 2)
+  const normal = enabled.filter((id) => id === 'thief' ? (counts.get(id) ?? 0) === 0 : (counts.get(id) ?? 0) < 2)
   const pick = (pool: IdentityId[], current: IdentityId[]) => {
     const candidates = pool.filter((id) => !current.includes(id))
     if (candidates.length === 0) return null
@@ -90,7 +90,7 @@ export function dealIdentityChoices(selectedIds: IdentityId[], settings: Identit
   while (choices.length < settings.identityChoiceCount) {
     const normalPick = pick(normal, choices)
     if (normalPick) { choices.push(normalPick); continue }
-    const fallback = enabled.filter((id) => id !== 'lobbyist' && id !== 'thief').filter((id) => !choices.includes(id))
+    const fallback = enabled.filter((id) => id !== 'thief').filter((id) => !choices.includes(id))
       .sort((left, right) => (counts.get(left) ?? 0) - (counts.get(right) ?? 0))
     const next = pick(fallback, choices)
     if (!next) break
@@ -105,7 +105,6 @@ export function identityValidationErrors(settings: IdentitySettings, _playerCoun
   const errors: string[] = []
   if (!Number.isInteger(settings.identityChoiceCount) || settings.identityChoiceCount < 2 || settings.identityChoiceCount > 5) errors.push('开局身份候选数应为 2–5 张')
   if (enabled.length < settings.identityChoiceCount) errors.push(`身份系统至少需要启用 ${settings.identityChoiceCount} 个身份`)
-  if (enabled.filter((id) => id !== 'lobbyist').length < settings.identityChoiceCount) errors.push(`身份系统至少需要启用 ${settings.identityChoiceCount} 个非说客身份，才能持续提供不同候选`)
   if (settings.thiefSuccessProbability < 0 || settings.thiefSuccessProbability > 100) errors.push('小偷成功率应为 0–100%')
   if (settings.prophetDivinationCoins < 0 || settings.prophetDivinationCoins > 20 || settings.prophetDivinationCoins * 2 % 1 !== 0) errors.push('预言家推演费用应为 0–20，且按 0.5 递增')
   if (settings.thiefActivationCoins < 0 || settings.thiefActivationCoins > 20 || settings.thiefActivationCoins * 2 % 1 !== 0) errors.push('小偷发动费用应为 0–20，且按 0.5 递增')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, randomLobbyistTask, routeCardAwards } from './identities'
+import { IDENTITY_DEFINITIONS, dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, randomLobbyistTask, routeCardAwards } from './identities'
 import { coinsToUnits, rankFinalPlayers, settleRound } from './engine'
 import type { Item, Player, RoundTurn } from './types'
 
@@ -8,14 +8,16 @@ const player = (id: string, balance = 20): Player => ({ id, name: id, color: '#0
 const turn = (playerId: string, bid: number, predictedPlayerId: string | null = null): RoundTurn => ({ playerId, bidUnits: coinsToUnits(bid), predictedPlayerId })
 
 describe('身份选角与私密卡牌', () => {
-  it('身份候选同次不重复，普通池内身份最多出现两次，说客只出现一次', () => {
+  it('身份候选同次不重复，普通池内身份最多出现两次，只有小偷全局唯一', () => {
     const settings = defaultIdentitySettings(true)
     const fresh = dealIdentityChoices([], settings, () => 0)
     expect(new Set(fresh).size).toBe(2)
-    const selected = ['prophet', 'prophet', 'gambler', 'gambler', 'assassin', 'assassin', 'collector', 'collector', 'thief', 'thief', 'merchant', 'merchant', 'reverser', 'reverser', 'nightwalker', 'nightwalker', 'lobbyist'] as const
+    expect(IDENTITY_DEFINITIONS.find((identity) => identity.id === 'lobbyist')?.repeatable).toBe(true)
+    expect(IDENTITY_DEFINITIONS.find((identity) => identity.id === 'thief')?.repeatable).toBe(false)
+    const selected = ['prophet', 'prophet', 'gambler', 'gambler', 'assassin', 'assassin', 'collector', 'collector', 'thief', 'merchant', 'merchant', 'reverser', 'reverser', 'nightwalker', 'nightwalker', 'lobbyist', 'lobbyist'] as const
     const fallback = dealIdentityChoices([...selected], settings, () => 0)
     expect(fallback).toEqual(['prophet', 'gambler'])
-    expect(fallback).not.toContain('lobbyist')
+    expect(fallback).not.toContain('thief')
   })
 
   it('开局候选数可设为 2–5 张，并要求足够的非说客身份', () => {

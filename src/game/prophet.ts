@@ -66,7 +66,10 @@ export function drawProphetRewardCard({ cardDeck, disabledCardIds, heldCardIds, 
   reservedCardId?: CardId | null
   roll?: () => number
 }): { cardId: CardId | null; cardDeck: CardId[]; replenished: boolean } {
-  const candidates = cardDeck.filter((cardId) => cardId !== reservedCardId && !heldCardIds.includes(cardId))
+  // The deck contains physical copies. A card held by another player must not
+  // prevent this copy from being drawn as a reward.
+  void heldCardIds
+  const candidates = cardDeck.filter((cardId) => cardId !== reservedCardId)
   if (candidates.length > 0) {
     const cardId = candidates[Math.min(candidates.length - 1, Math.floor(roll() * candidates.length))]
     return { cardId, cardDeck: cardDeck.filter((entry, index) => entry !== cardId || index !== cardDeck.indexOf(cardId)), replenished: false }

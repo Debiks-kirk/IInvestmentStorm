@@ -52,10 +52,10 @@ describe('预言家天机推演', () => {
     expect(getProphetIdentityProgress(history, 'p', 'solved-target')).toEqual({ excludedIdentityIds: [], solvedIdentityId: 'collector' })
   })
 
-  it('观身份奖励从未持有且未预留的卡池抽卡，空池时补一张', () => {
+  it('观身份奖励从未预留的实体卡池抽卡，允许抽到已有同名卡，空池时补一张', () => {
     const drawn = drawProphetRewardCard({ cardDeck: ['red', 'black', 'peek'], disabledCardIds: [], heldCardIds: ['red'], reservedCardId: 'black', roll: () => 0 })
-    expect(drawn.cardId).toBe('peek')
-    expect(drawn.cardDeck).toEqual(['red', 'black'])
+    expect(drawn.cardId).toBe('red')
+    expect(drawn.cardDeck).toEqual(['black', 'peek'])
     const replenished = drawProphetRewardCard({ cardDeck: [], disabledCardIds: ['red'], heldCardIds: [], roll: () => 0 })
     expect(replenished.replenished).toBe(true)
     expect(replenished.cardId).not.toBe('red')

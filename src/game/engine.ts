@@ -1,4 +1,5 @@
 import { calculateFixedAssets } from './assets'
+import { removeOneCard } from './cards'
 import { defaultIdentitySettings, taskLabel } from './identities'
 import type {
   CardEffect,
@@ -157,7 +158,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       if (reflected) {
         availableShieldPlayerIds.delete(targetPlayerId)
         const protectedPlayer = playerById.get(targetPlayerId)
-        if (protectedPlayer) protectedPlayer.cardInventory = protectedPlayer.cardInventory.filter((cardId) => cardId !== 'reflectShield')
+        if (protectedPlayer) protectedPlayer.cardInventory = removeOneCard(protectedPlayer.cardInventory, 'reflectShield')
         autoConsumedCardIds.push('reflectShield')
       }
       return { playerId, use, targetPlayerId: reflected ? playerId : targetPlayerId, reflected }

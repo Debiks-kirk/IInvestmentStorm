@@ -50,6 +50,18 @@ export function getCardDefinition(cardId: CardId): CardDefinition {
   return CARD_DEFINITIONS.find((card) => card.id === cardId) as CardDefinition
 }
 
+/** Removes exactly one physical copy, preserving other copies in the inventory. */
+export function removeOneCard(cardIds: CardId[], cardId: CardId): CardId[] {
+  const index = cardIds.indexOf(cardId)
+  return index < 0 ? [...cardIds] : [...cardIds.slice(0, index), ...cardIds.slice(index + 1)]
+}
+
+export function cardInventoryCounts(cardIds: CardId[]): Array<{ cardId: CardId; count: number }> {
+  const counts = new Map<CardId, number>()
+  for (const cardId of cardIds) counts.set(cardId, (counts.get(cardId) ?? 0) + 1)
+  return [...counts].map(([cardId, count]) => ({ cardId, count }))
+}
+
 export function createCardDeck(disabledCardIds: CardId[]): CardId[] {
   const disabled = new Set(disabledCardIds)
   return shuffle(CARD_DEFINITIONS.filter((card) => !disabled.has(card.id)).flatMap((card) => card.rarity === 'legendary' ? [card.id] : [card.id, card.id, card.id, card.id]))

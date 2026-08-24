@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyBotMemory } from './bots'
+import { cardInventoryCounts, removeOneCard } from './cards'
 import { coinsToUnits } from './engine'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, roundPlayerIndices } from './session'
 
@@ -13,6 +14,14 @@ describe('轮转操作顺序', () => {
 
   it('可用于任意人数的同一圆桌传递顺序', () => {
     expect(roundPlayerIndices(4, 6)).toEqual([4, 5, 0, 1, 2, 3])
+  })
+})
+
+describe('实体道具库存', () => {
+  it('同名道具可叠加，消耗时只移除一张', () => {
+    const inventory = ['red', 'red', 'black'] as const
+    expect(cardInventoryCounts([...inventory])).toEqual([{ cardId: 'red', count: 2 }, { cardId: 'black', count: 1 }])
+    expect(removeOneCard([...inventory], 'red')).toEqual(['red', 'black'])
   })
 })
 
