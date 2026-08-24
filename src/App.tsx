@@ -1870,7 +1870,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       } else if (allBots && session.phase === 'auctionIntro') {
         patch({ phase: 'auctionHandoff' })
       }
-    }, allBots ? Math.max(45, (session.settings.animationSpeed === 'reduced' ? 80 : 350) / botSpeed) : 550)
+    }, allBots ? Math.max(45, 250 / botSpeed) : 250)
     return () => window.clearTimeout(timer)
   }, [session, botPaused, botSpeed, autoPausedRound])
   const acknowledgeGrant = (playerId: string) => patch({ pendingCardGrants: session.pendingCardGrants.map((grant) => grant.playerId === playerId ? { ...grant, announced: true } : grant) })
