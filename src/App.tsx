@@ -8,7 +8,7 @@ import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SY
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
 import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
-import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetModeLabel } from './game/prophet'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetModeLabel } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, modeLabel, updateBotGrudges } from './game/bots'
 import type { AssetCategory, AssetAuctionLot, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
@@ -846,7 +846,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
         })}</div>
       </section>}
       <section className="private-assets panel">
-        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>我的固定资产</h2></div><span>只在终局计入总资产</span></div>
+        <div className="panel-title"><div><h2>我的固定资产</h2></div><span>只在终局计入总资产</span></div>
         {fixedAssets.length === 0 ? <p className="empty-assets">还没有拍下任何物品。收集同类拍品达到 2 件后即可触发固定资产加成。</p> : <div className="private-asset-list">{fixedAssets.map((asset) => {
           const config = categoryConfig(asset.category)
           const items = player.items.filter(({ item: wonItem }) => wonItem.category === asset.category)
@@ -859,7 +859,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
         })}</div>}
       </section>
       <section className="identity-skills panel">
-        <div className="panel-title"><div><p className="eyebrow">仅自己可见</p><h2>身份技能</h2></div><span>{identity ? getIdentityDefinition(identity.id).name : '未启用身份'}</span></div>
+        <div className="panel-title"><div><h2>身份技能</h2></div><span>{identity ? getIdentityDefinition(identity.id).name : '未启用身份'}</span></div>
         {!identity ? <div className="identity-skill-placeholder"><span>◎</span><div><strong>本局未启用身份系统</strong><small>下局可在高级设置中开启。</small></div></div> : <div className="identity-live">
           <div className="identity-live-head"><span>{getIdentityDefinition(identity.id).symbol}</span><div><strong>{getIdentityDefinition(identity.id).name}</strong><small>{getIdentityDefinition(identity.id).summary}</small></div></div>
           <p className="identity-task">{identitySkillMode(identity.id) === 'active' ? '主动技能：请在这个区域完成选择，再点击对应按钮安排本轮发动。' : '被动技能：没有可点击的主动技能；系统会在符合条件时自动结算。'}</p>
@@ -1301,20 +1301,22 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     // The second observation in one turn replaces the same persisted record.  Build
     // the milestone total from that replacement, rather than double-counting its
     // old version or accidentally omitting the new guess.
-    const allIdentityGuesses = [
-      ...session.prophetDivinations
-        .filter((entry) => entry.playerId === playerId && entry.mode === 'identity' && entry.id !== identityDivinationThisRound?.id)
-        .flatMap((entry) => entry.identityGuesses ?? (entry.identityGuess ? [entry.identityGuess] : [])),
-      ...(divination.identityGuesses ?? (divination.identityGuess ? [divination.identityGuess] : [])),
+    const milestoneHistory: ProphetDivination[] = [
+      ...session.prophetDivinations.filter((entry) => entry.id !== identityDivinationThisRound?.id),
+      divination,
     ]
-    const solvedCount = allIdentityGuesses.filter((guess) => guess.correct).length
-    const threshold = Math.min(3, session.players.length - 1)
-    const unlockMilestone = Boolean(identityFeedbackGuess?.correct) && solvedCount >= threshold && !session.pendingProphetCardOffers.some((offer) => offer.playerId === playerId)
+    const unlockMilestone = Boolean(identityFeedbackGuess?.correct)
+      && hasReachedProphetIdentityMilestone(milestoneHistory, playerId, session.players.length)
+      && !session.pendingProphetCardOffers.some((offer) => offer.playerId === playerId)
     const pendingProphetCardOffers = unlockMilestone ? [...session.pendingProphetCardOffers, { playerId, offeredCardIds: shuffle(CARD_DEFINITIONS.filter((card) => !session.settings.disabledCardIds.includes(card.id)).map((card) => card.id)).slice(0, 6), chosenCardIds: [] }] : session.pendingProphetCardOffers
     const identityProgress = mode === 'identity' && identityFeedbackGuess
       ? { ...session.prophetIdentityProgress, [playerId]: { ...session.prophetIdentityProgress[playerId], [identityFeedbackGuess.targetPlayerId]: { excludedIdentityIds: identityFeedbackGuess.correct ? (session.prophetIdentityProgress[playerId]?.[identityFeedbackGuess.targetPlayerId]?.excludedIdentityIds ?? []) : [...new Set([...(session.prophetIdentityProgress[playerId]?.[identityFeedbackGuess.targetPlayerId]?.excludedIdentityIds ?? []), identityFeedbackGuess.identityId])], ...(identityFeedbackGuess.correct ? { solvedIdentityId: identityFeedbackGuess.identityId } : {}) } } }
       : session.prophetIdentityProgress
-    patch({ players, cardDeck, prophetDivinations: identityDivinationThisRound ? session.prophetDivinations.map((entry) => entry.id === identityDivinationThisRound.id ? divination as ProphetDivination : entry) : [...session.prophetDivinations, divination], prophetIdentityProgress: identityProgress, pendingIdentityNotices: notices, pendingProphetCardOffers })
+    // Let the milestone picker be the immediate feedback. Otherwise the ordinary
+    // "guessed right" notification sits above the 6-choose-2 sheet and makes the
+    // reward look as if it never appeared.
+    const resolvedNotices = unlockMilestone ? notices.filter((notice) => notice.id !== `prophet-identity-feedback-${divination.id}`) : notices
+    patch({ players, cardDeck, prophetDivinations: identityDivinationThisRound ? session.prophetDivinations.map((entry) => entry.id === identityDivinationThisRound.id ? divination as ProphetDivination : entry) : [...session.prophetDivinations, divination], prophetIdentityProgress: identityProgress, pendingIdentityNotices: resolvedNotices, pendingProphetCardOffers })
     return true
   }
   const chooseProphetOffer = (playerId: string, cardId: CardId) => {

@@ -21,6 +21,17 @@ describe('身份选角与私密卡牌', () => {
     expect(settled.result.itemWinnerId).toBe('target')
     expect(settled.result.investments[0]).toMatchObject({ investorId: 'investor', targetPlayerId: 'target', investmentUnits: coinsToUnits(5) })
   })
+  it('投资者接受最低 0.5 金币的真实投资，不隐含 5 金币下限', () => {
+    const players = [player('investor', 3), player('target', 2), player('other', 4)]
+    players[0].identity = { id: 'investor', thiefSuccesses: 0, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({ playersAfterBids: players, turns: [
+      { ...turn('investor', 0), identityAction: { type: 'invest', targetPlayerId: 'target', investmentUnits: 1 } },
+      turn('target', 1), turn('other', 0),
+    ], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
+    expect(settled.result.investments[0]).toMatchObject({ investmentUnits: 1 })
+    expect(settled.result.rankings[0]).toMatchObject({ playerId: 'target', bidUnits: 3 })
+  })
+
   it('身份候选同次不重复，普通池内身份最多出现两次，只有小偷全局唯一', () => {
     const settings = defaultIdentitySettings(true)
     const fresh = dealIdentityChoices([], settings, () => 0)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress } from './prophet'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone } from './prophet'
 import type { ProphetDivination } from './types'
 
 describe('预言家天机推演', () => {
@@ -22,6 +22,18 @@ describe('预言家天机推演', () => {
     expect(canMakeIdentityGuess([...history], 'p', 't', 'gambler')).toBe(false)
     expect(canMakeIdentityGuess([...history], 'p', 't', 'collector')).toBe(true)
     expect(canMakeIdentityGuess([...history], 'p', 'win', 'prophet')).toBe(false)
+  })
+
+  it('三人局识破两名其他玩家时立即达到六选二里程碑', () => {
+    const history: ProphetDivination[] = [{
+      id: 'three-player-milestone', playerId: 'prophet', roundIndex: 1, mode: 'identity', costUnits: 0,
+      identityGuesses: [
+        { targetPlayerId: 'a', identityId: 'gambler', correct: true },
+        { targetPlayerId: 'b', identityId: 'merchant', correct: true },
+      ],
+    }]
+    expect(hasReachedProphetIdentityMilestone(history, 'prophet', 3)).toBe(true)
+    expect(hasReachedProphetIdentityMilestone(history, 'prophet', 4)).toBe(false)
   })
 
   it('同一回合的两次观身份都会计入排除与已识破限制', () => {

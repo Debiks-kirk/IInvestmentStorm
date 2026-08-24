@@ -445,9 +445,10 @@ function planCandidates(observation: BotObservation): TurnPlan[] {
   if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
     for (const opponent of observation.opponents) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:lobby:${opponent.id}`, identityAction: { type: 'lobbyistContract' as const, targetPlayerId: opponent.id }, specialReason: `向 ${opponent.name} 发布随机任务，争取下轮获得违约收益。` })))
   }
-  if (observation.self.identity?.id === 'investor' && observation.self.balanceUnits >= coinsToUnits(7)) {
+  if (observation.self.identity?.id === 'investor' && observation.self.balanceUnits >= coinsToUnits(.5)) {
     const target = observation.opponents[hash(`${observation.sessionSeed}:${observation.playerId}:invest-target`) % Math.max(1, observation.opponents.length)]
-    if (target) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:invest:${target.id}`, identityAction: { type: 'invest' as const, targetPlayerId: target.id, investmentUnits: coinsToUnits(5) }, specialReason: `秘密跟投 ${target.name}，争取按出资比例分享排名奖励。` })))
+    const investmentUnits = Math.max(1, Math.min(observation.self.balanceUnits, coinsToUnits(1 + unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:invest-size`) * 5)))
+    if (target) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:invest:${target.id}:${investmentUnits}`, identityAction: { type: 'invest' as const, targetPlayerId: target.id, investmentUnits }, specialReason: `秘密跟投 ${target.name}，争取按出资比例分享排名奖励。` })))
   }
   // Keep the plan set rich, but bounded: a 10-player spectator game must not spend a turn
   // evaluating the full target-card × identity-action cross product.

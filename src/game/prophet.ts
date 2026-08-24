@@ -59,6 +59,18 @@ export function canMakeIdentityGuess(divinations: ProphetDivination[], playerId:
   return !progress.solvedIdentityId && !progress.excludedIdentityIds.includes(identityId)
 }
 
+/** The milestone is based on distinct players whose identity has been solved, not on
+ * raw guesses. This matters in three-player games: solving both opponents must
+ * immediately unlock the 6-choose-2 reward. */
+export function hasReachedProphetIdentityMilestone(divinations: ProphetDivination[], playerId: string, playerCount: number): boolean {
+  const solvedTargets = new Set(divinations
+    .filter((entry) => entry.playerId === playerId && entry.mode === 'identity')
+    .flatMap((entry) => entry.identityGuesses ?? (entry.identityGuess ? [entry.identityGuess] : []))
+    .filter((guess) => guess.correct)
+    .map((guess) => guess.targetPlayerId))
+  return solvedTargets.size >= Math.min(3, Math.max(0, playerCount - 1))
+}
+
 export function drawProphetRewardCard({ cardDeck, disabledCardIds, heldCardIds, reservedCardId, roll = Math.random }: {
   cardDeck: CardId[]
   disabledCardIds: CardId[]
