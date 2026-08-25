@@ -64,7 +64,15 @@ export function cardInventoryCounts(cardIds: CardId[]): Array<{ cardId: CardId; 
 
 export function createCardDeck(disabledCardIds: CardId[]): CardId[] {
   const disabled = new Set(disabledCardIds)
-  return shuffle(CARD_DEFINITIONS.filter((card) => !disabled.has(card.id)).flatMap((card) => card.rarity === 'legendary' ? [card.id] : [card.id, card.id, card.id, card.id]))
+  const copiesByRarity: Record<CardRarity, number> = {
+    common: 4,
+    rare: 3,
+    uncommon: 2,
+    legendary: 1,
+  }
+  return shuffle(CARD_DEFINITIONS
+    .filter((card) => !disabled.has(card.id))
+    .flatMap((card) => Array.from({ length: copiesByRarity[card.rarity] }, () => card.id)))
 }
 
 export function enabledCardIds(disabledCardIds: CardId[]): CardId[] {

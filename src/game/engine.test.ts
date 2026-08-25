@@ -382,7 +382,8 @@ describe('道具发放', () => {
   it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
-    expect(deck).toHaveLength(CARD_DEFINITIONS.filter((card) => !['red', 'black', 'peek'].includes(card.id)).reduce((total, card) => total + (card.rarity === 'legendary' ? 1 : 4), 0))
+    const copiesByRarity = { common: 4, rare: 3, uncommon: 2, legendary: 1 }
+    expect(deck).toHaveLength(CARD_DEFINITIONS.filter((card) => !['red', 'black', 'peek'].includes(card.id)).reduce((total, card) => total + copiesByRarity[card.rarity], 0))
   })
 
   it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
@@ -393,6 +394,9 @@ describe('道具发放', () => {
     expect(createCardDeck([])).toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
     expect(createCardDeck(['bananaPeel', 'reflectShield'])).not.toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
     expect(createCardDeck([]).filter((cardId) => cardId === 'legendaryLoot')).toHaveLength(1)
+    expect(createCardDeck([]).filter((cardId) => cardId === 'red')).toHaveLength(4)
+    expect(createCardDeck([]).filter((cardId) => cardId === 'reverseRank')).toHaveLength(3)
+    expect(createCardDeck([]).filter((cardId) => cardId === 'bananaPeel')).toHaveLength(2)
     expect(createCardDeck(['legendaryLoot'])).not.toContain('legendaryLoot')
   })
 
