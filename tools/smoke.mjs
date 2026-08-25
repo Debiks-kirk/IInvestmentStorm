@@ -85,9 +85,29 @@ async function dismissPrivateNotices(page) {
   while (await page.getByRole('button', { name: '知道了' }).count() > 0) {
     await page.getByRole('button', { name: '知道了' }).last().click()
   }
-  while (await page.getByRole('button', { name: '收下道具卡' }).count() > 0) {
-    await page.getByRole('button', { name: '收下道具卡' }).last().click()
+  while (await page.getByRole('button', { name: /收下道具卡|收下/ }).count() > 0) {
+    await page.getByRole('button', { name: /收下道具卡|收下/ }).last().click()
   }
+}
+
+async function choosePrediction(page, index = 0) {
+  await page.getByTestId('prediction-picker').click()
+  await page.locator('.prediction-picker-grid button').nth(index).click()
+}
+
+async function openBackpack(page) {
+  await page.getByTestId('backpack-tool').click()
+  await page.getByRole('heading', { name: '选择一张卡' }).waitFor()
+}
+
+async function openIdentityTool(page) {
+  await page.getByTestId('identity-tool').click()
+  await page.locator('.focus-sheet--identity').waitFor()
+}
+
+async function openAssetsTool(page) {
+  await page.getByTestId('assets-tool').click()
+  await page.getByRole('heading', { name: '我的收藏' }).waitFor()
 }
 
 async function finishAuction(page, playerCount) {
@@ -117,9 +137,10 @@ async function chooseIdentities(page, playerCount) {
 async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard = false) {
   await enterPrivateTurn(page)
   while (await page.getByRole('button', { name: '知道了' }).count() > 0) await page.getByRole('button', { name: '知道了' }).last().click()
-  while (await page.getByRole('button', { name: '收下道具卡' }).count() > 0) await page.getByRole('button', { name: '收下道具卡' }).last().click()
-  if (predictionIndex !== null) await page.locator('.prediction-list button').nth(predictionIndex).click()
+  while (await page.getByRole('button', { name: /收下道具卡|收下/ }).count() > 0) await page.getByRole('button', { name: /收下道具卡|收下/ }).last().click()
+  if (predictionIndex !== null) await choosePrediction(page, predictionIndex)
   if (useCard) {
+    await openBackpack(page)
     await page.locator('.card-choice').first().click()
     const targetConfirm = page.getByRole('button', { name: '确认并选择玩家' })
     if (await targetConfirm.count() > 0) {
@@ -132,7 +153,7 @@ async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard
     if (await page.getByText('你看到了底牌', { exact: true }).count() > 0) await page.getByRole('button', { name: '知道了' }).click()
   }
   await setRange(page.getByLabel('秘密下注'), bidUnits)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
 }
 
@@ -159,11 +180,9 @@ async function runGame(page, playerCount, verifyPrivateRestore = false, motion =
     await enterPrivateTurn(page)
     if (index === 0) {
       await assertNoHorizontalOverflow(page, `${playerCount} 人私密操作页`)
-      const identityButton = page.getByRole('button', { name: '查看身份详情' })
-      await identityButton.click()
-      await page.getByText('身份档案', { exact: true }).waitFor()
-      await page.getByRole('button', { name: '收起身份详情' }).click()
-      await page.getByText('身份技能', { exact: true }).waitFor()
+      await openIdentityTool(page)
+      await page.getByRole('button', { name: '关闭身份技能' }).click()
+      await page.getByTestId('identity-tool').waitFor()
     }
     if (verifyPrivateRestore && index === 0) {
       await page.reload()
@@ -172,7 +191,7 @@ async function runGame(page, playerCount, verifyPrivateRestore = false, motion =
       await enterPrivateTurn(page)
     }
     await setRange(page.getByLabel('秘密下注'), index + 1)
-    await page.getByRole('button', { name: '确认我的选择' }).click()
+    await page.getByRole('button', { name: '确认提交' }).click()
     await page.getByRole('button', { name: '确定提交' }).click()
   }
 
@@ -195,19 +214,19 @@ async function runTutorialFlow(page) {
   await startRound(page)
   await enterPrivateTurn(page)
   await page.getByText('第 1 / 3 轮 · 只学下注', { exact: true }).waitFor()
-  if (!await page.getByRole('button', { name: '稳一手' }).isDisabled()) throw new Error('新手局第一轮不应开放预测')
+  if (await page.getByTestId('prediction-picker').count() > 0) throw new Error('新手局第一轮不应开放预测')
   await assertNoHorizontalOverflow(page, '新手引导第一轮')
   await setRange(page.getByLabel('秘密下注'), 4)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await page.getByRole('button', { name: /进入私密操作/ }).waitFor()
   await enterPrivateTurn(page)
   await setRange(page.getByLabel('秘密下注'), 6)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await enterPrivateTurn(page)
   await setRange(page.getByLabel('秘密下注'), 8)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
   await page.getByRole('button', { name: /进入下一轮/ }).click()
@@ -215,11 +234,11 @@ async function runTutorialFlow(page) {
   await enterPrivateTurn(page)
   await dismissPrivateNotices(page)
   await page.getByText('第 2 / 3 轮 · 解锁预测', { exact: true }).waitFor()
-  if (await page.getByRole('button', { name: '稳一手' }).isDisabled()) throw new Error('新手局第二轮应开放预测')
-  await page.locator('.prediction-list button').first().click()
+  if (await page.getByTestId('prediction-picker').count() === 0) throw new Error('新手局第二轮应开放预测')
+  await choosePrediction(page)
   await assertNoHorizontalOverflow(page, '新手引导预测页')
   await setRange(page.getByLabel('秘密下注'), 4)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await submitPrivateTurn(page, 6)
   await submitPrivateTurn(page, 8)
@@ -229,11 +248,13 @@ async function runTutorialFlow(page) {
   await enterPrivateTurn(page)
   await dismissPrivateNotices(page)
   await page.getByText('第 3 / 3 轮 · 道具与主动身份', { exact: true }).waitFor()
+  await openBackpack(page)
   await page.locator('.card-choice').filter({ hasText: '反客为主' }).click()
   await page.getByRole('button', { name: '确认使用' }).click()
+  await openIdentityTool(page)
   await page.getByRole('button', { name: /花费 4 金币发动/ }).click()
   await page.getByRole('button', { name: '确认安排' }).click()
-  await page.getByRole('button', { name: /已安排逆转排名/ }).waitFor()
+  await page.getByTestId('identity-tool').locator('i').waitFor()
   await assertNoHorizontalOverflow(page, '新手引导道具与主动技能页')
 }
 
@@ -259,16 +280,23 @@ async function runCardFlow(page) {
   await startRound(page)
   await enterPrivateTurn(page)
   await dismissPrivateNotices(page)
-  await page.getByText('我的固定资产', { exact: true }).waitFor()
+  await openAssetsTool(page)
   if (await page.locator('.private-asset-row').count() < 1) throw new Error('已拍下物品的玩家未看到自己的固定资产分类。')
   await assertNoHorizontalOverflow(page, '私密固定资产页')
   await setRange(page.getByLabel('秘密下注'), 2)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '关闭资产' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await enterPrivateTurn(page)
-  while (await page.getByRole('button', { name: '知道了' }).count() > 0) await page.getByRole('button', { name: '知道了' }).last().click()
-  await page.screenshot({ path: '.artifacts/card-private-mobile.png', fullPage: true })
-  if (await page.getByRole('button', { name: '收下道具卡' }).count() > 0) await page.getByRole('button', { name: '收下道具卡' }).click()
+  await dismissPrivateNotices(page)
+  await page.screenshot({ path: '.artifacts/private-command-mobile.png' })
+  await page.setViewportSize({ width: 844, height: 390 })
+  await page.screenshot({ path: '.artifacts/private-command-landscape.png', fullPage: true })
+  await page.locator('.asset-summary-strip').screenshot({ path: '.artifacts/asset-summary-landscape.png' })
+  await page.setViewportSize({ width: 360, height: 640 })
+  await openBackpack(page)
+  await page.waitForTimeout(120)
+  await page.screenshot({ path: '.artifacts/backpack-mobile.png' })
   const usableCards = page.locator('.card-choice:not([disabled])')
   if (await usableCards.count() > 0) await usableCards.first().click()
   const targetConfirm = page.getByRole('button', { name: '确认并选择玩家' })
@@ -291,9 +319,10 @@ async function runCardFlow(page) {
     if (await rerollOptions.count() !== 6) throw new Error('改拍令确认后应锁定展示 6 张候选拍品。')
     await rerollOptions.first().click()
   }
-  if (await page.getByText('你看到了底牌', { exact: true }).count() > 0) await page.getByRole('button', { name: '知道了' }).click()
+  if (await page.getByRole('button', { name: '关闭背包' }).count() > 0) await page.getByRole('button', { name: '关闭背包' }).click()
+  await dismissPrivateNotices(page)
   await setRange(page.getByLabel('秘密下注'), 6)
-  await page.getByRole('button', { name: '确认我的选择' }).click()
+  await page.getByRole('button', { name: '确认提交' }).click()
   await page.getByRole('button', { name: '确定提交' }).click()
   await submitPrivateTurn(page, 0)
   await page.getByRole('button', { name: '揭晓本轮结果' }).click()
@@ -367,16 +396,18 @@ async function runLobbyistTaskFlow(page) {
   await startRound(page)
   await enterPrivateTurn(page)
   await dismissPrivateNotices(page)
-  await page.getByRole('button', { name: '发动技能' }).click()
+  await openIdentityTool(page)
+  await page.getByRole('button', { name: '发动技能', exact: true }).click()
   await page.getByText('选择发布方式', { exact: true }).waitFor()
   await assertNoHorizontalOverflow(page, '说客发布方式选择')
   await page.getByRole('button', { name: /随机发布/ }).click()
   await page.getByText(/随机任务；基础费用 0 金币/).waitFor()
   await page.locator('.target-picker-grid button').first().click()
   await page.getByRole('button', { name: '确认安排' }).click()
+  await openIdentityTool(page)
   await page.getByRole('button', { name: /已安排：随机任务/ }).waitFor()
   await page.getByRole('button', { name: /已安排：随机任务/ }).click()
-  await page.getByRole('button', { name: '发动技能' }).click()
+  await page.getByRole('button', { name: '发动技能', exact: true }).click()
   await page.getByRole('button', { name: /指定发布/ }).click()
   await page.getByText('选择指定任务', { exact: true }).waitFor()
   await assertNoHorizontalOverflow(page, '说客指定任务选择')
@@ -387,9 +418,10 @@ async function runLobbyistTaskFlow(page) {
   await page.getByText('选择任务对象', { exact: true }).waitFor()
   await page.locator('.target-picker-grid button').first().click()
   await page.getByRole('button', { name: '确认安排' }).click()
+  await openIdentityTool(page)
   await page.getByRole('button', { name: /已安排：获得第二名/ }).waitFor()
   await page.getByRole('button', { name: /已安排：获得第二名/ }).click()
-  await page.getByRole('button', { name: '发动技能' }).click()
+  await page.getByRole('button', { name: '发动技能', exact: true }).click()
   await page.getByRole('button', { name: /指定发布/ }).click()
   await page.getByRole('button', { name: /下注高于某人/ }).click()
   await page.locator('.target-picker-grid button').first().click()
@@ -398,6 +430,7 @@ async function runLobbyistTaskFlow(page) {
   if (await comparisonCards.count() < 2) throw new Error('说客的比较对象应包含说客本人和其他非任务对象玩家。')
   await comparisonCards.first().click()
   await page.getByRole('button', { name: '确认安排' }).click()
+  await openIdentityTool(page)
   await page.getByRole('button', { name: /已安排：下注高于某人/ }).waitFor()
   await assertNoHorizontalOverflow(page, '说客任务卡与人物卡流程')
 }
@@ -464,6 +497,7 @@ async function runBalanceRevealFlow(page) {
   const balance = page.getByRole('button', { name: '查看余额' })
   await balance.click()
   await page.getByText('当前余额', { exact: true }).waitFor()
+  await page.screenshot({ path: '.artifacts/balance-flip-mobile.png' })
   await page.getByRole('button', { name: '隐藏余额' }).click()
   await page.getByText('点击翻牌', { exact: true }).waitFor()
 }
@@ -483,7 +517,7 @@ async function runSystemAuctionFlow(page) {
   await enterPrivateTurn(page)
   await page.getByRole('dialog').getByText('本轮道具竞购', { exact: true }).waitFor()
   await page.getByRole('button', { name: '知道了' }).click()
-  await page.getByRole('region', { name: '本轮道具竞购' }).waitFor()
+  await page.getByRole('region', { name: '本轮市场' }).waitFor()
   if (await page.locator('.round-auction-card').count() !== 1) throw new Error('系统竞购应在下注页提供一张道具卡')
   await assertNoHorizontalOverflow(page, '首轮系统竞购下注页')
 }
@@ -512,6 +546,7 @@ async function runFirstPlayerBananaFlow(page) {
   await page.getByRole('button', { name: /继续第 1 轮/ }).click()
   await startRound(page)
   await enterPrivateTurn(page)
+  await openBackpack(page)
   const banana = page.locator('.card-choice').filter({ hasText: '香蕉皮' })
   if (await banana.isDisabled()) throw new Error('第一位玩家持有香蕉皮时不应被禁用')
   await banana.click()
@@ -568,6 +603,7 @@ async function runPrizeRerollFlow(page) {
   await startRound(page)
   await enterPrivateTurn(page)
   await dismissPrivateNotices(page)
+  await openBackpack(page)
   await page.locator('.card-choice').filter({ hasText: '改拍令' }).click()
   await page.getByRole('button', { name: '确认并抽取 6 张' }).waitFor()
   if (await page.locator('.prize-reroll-option').count() !== 0) throw new Error('改拍令确认前不应抽出候选拍品')
@@ -609,6 +645,7 @@ try {
     await runIdentityFlow(page)
     await runLobbyistTaskFlow(page)
     await runAssetFinalFlow(page)
+    await runBalanceRevealFlow(page)
     await runBotSpectatorFlow(page)
     await page.setViewportSize({ width: 1366, height: 768 })
     await page.evaluate(() => localStorage.clear())

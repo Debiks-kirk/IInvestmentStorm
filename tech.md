@@ -274,3 +274,10 @@
 - `task-inbox` 从标题摘要升级为持久化任务详情视图：它由 `identityContracts` 的当前目标契约渲染任务定义、比较对象名称和设置中的违约金额，故关闭私密通知不改变或隐藏后续操作所需信息。
 - `IdentitySettings.prophetDivinationCoins` 的新局默认值为 3，仅用于观身份；观财／观星始终免费。迁移和预设归一化保留已保存的显式值；Bot 观察适配器携带实际费用，以便付费推演的可用性判断不依赖硬编码。
 - `BalanceReveal` 使用指针事件而非点击：按下即显示，松开／取消／丢失捕获／失焦即隐藏。余额按钮设置 `touch-action: none` 和 `-webkit-touch-callout: none`，避免手机浏览器将按住解释为滚动或系统长按并丢掉事件；`SMOKE_ONLY=balance` 验证触摸指针完整路径。
+
+## 私密操作页 UI 架构（2026-08-25）
+
+- `PrivateTurn` 使用 `PrivateToolPanel` 维护 `prediction | identity | assets | backpack` 的单一临时界面状态；焦点弹窗只影响展示与临时选择，所有已确认动作继续通过既有 `onSubmit`、会话持久化与纯结算函数处理。
+- `BalanceReveal` 采用点击式 3D 翻牌，`.is-visible` 状态明确设置暖白前景、金色点缀与深色背景；减少动态效果仍保留即时可读的正反面切换。
+- `assetTierWindow` 只生成当前件数附近三档，调用 `fixedAssetCoins` 复用固定资产的唯一计算来源。摘要使用 `asset.itemCount`，因而收藏家私密虚拟件数也会与其实际终局加成一致。
+- `tools/smoke.mjs` 已保存私密操作手机/横屏、资产摘要、背包和余额翻牌截图；全量烟测涵盖 3/6/10 人、全 Bot、刷新隐私、教程、身份、竞购与终局路径。
