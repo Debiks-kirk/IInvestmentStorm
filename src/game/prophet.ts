@@ -71,6 +71,17 @@ export function hasReachedProphetIdentityMilestone(divinations: ProphetDivinatio
   return solvedTargets.size >= Math.min(3, Math.max(0, playerCount - 1))
 }
 
+/** A completed offer remains as the durable one-time receipt for this reward. */
+export function shouldQueueProphetMilestoneOffer({ divinations, pendingOffers, playerId, playerCount }: {
+  divinations: ProphetDivination[]
+  pendingOffers: Array<{ playerId: string }>
+  playerId: string
+  playerCount: number
+}): boolean {
+  return hasReachedProphetIdentityMilestone(divinations, playerId, playerCount)
+    && !pendingOffers.some((offer) => offer.playerId === playerId)
+}
+
 export function drawProphetRewardCard({ cardDeck, disabledCardIds, heldCardIds, reservedCardId, roll = Math.random }: {
   cardDeck: CardId[]
   disabledCardIds: CardId[]

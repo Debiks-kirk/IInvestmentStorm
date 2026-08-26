@@ -8,7 +8,7 @@ import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SY
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
 import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
-import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetModeLabel } from './game/prophet'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
 import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
@@ -1445,8 +1445,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       divination,
     ]
     const unlockMilestone = Boolean(identityFeedbackGuess?.correct)
-      && hasReachedProphetIdentityMilestone(milestoneHistory, playerId, session.players.length)
-      && !session.pendingProphetCardOffers.some((offer) => offer.playerId === playerId)
+      && shouldQueueProphetMilestoneOffer({ divinations: milestoneHistory, pendingOffers: session.pendingProphetCardOffers, playerId, playerCount: session.players.length })
     const pendingProphetCardOffers = unlockMilestone ? [...session.pendingProphetCardOffers, { playerId, offeredCardIds: shuffle(CARD_DEFINITIONS.filter((card) => !session.settings.disabledCardIds.includes(card.id)).map((card) => card.id)).slice(0, 6), chosenCardIds: [] }] : session.pendingProphetCardOffers
     const identityProgress = mode === 'identity' && identityFeedbackGuess
       ? { ...session.prophetIdentityProgress, [playerId]: { ...session.prophetIdentityProgress[playerId], [identityFeedbackGuess.targetPlayerId]: { excludedIdentityIds: identityFeedbackGuess.correct ? (session.prophetIdentityProgress[playerId]?.[identityFeedbackGuess.targetPlayerId]?.excludedIdentityIds ?? []) : [...new Set([...(session.prophetIdentityProgress[playerId]?.[identityFeedbackGuess.targetPlayerId]?.excludedIdentityIds ?? []), identityFeedbackGuess.identityId])], ...(identityFeedbackGuess.correct ? { solvedIdentityId: identityFeedbackGuess.identityId } : {}) } } }
@@ -1938,6 +1937,15 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   }
   const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
   const currentPlayer = session.players[session.currentTurnIndex]
+  // Recovery guard: an older save may already have enough solved identities but
+  // have missed the one-time offer during a previous state transition.
+  useEffect(() => {
+    if (session.phase !== 'privateTurn' || currentPlayer?.identity?.id !== 'prophet') return
+    if (!shouldQueueProphetMilestoneOffer({ divinations: session.prophetDivinations, pendingOffers: session.pendingProphetCardOffers, playerId: currentPlayer.id, playerCount: session.players.length })) return
+    const offeredCardIds = shuffle(CARD_DEFINITIONS.filter((card) => !session.settings.disabledCardIds.includes(card.id)).map((card) => card.id)).slice(0, 6)
+    if (offeredCardIds.length < 6) return
+    patch({ pendingProphetCardOffers: [...session.pendingProphetCardOffers, { playerId: currentPlayer.id, offeredCardIds, chosenCardIds: [] }] })
+  }, [currentPlayer, session])
   const auctionBidder = session.merchantAuction ? session.players[playerIndexForRoundPosition(session.merchantAuction.roundIndex, session.merchantAuction.bidderIndex, session.players.length)] : undefined
   const armTurnDeadline = () => {
     if (session.phase !== 'privateTurn' || !session.settings.turnTimerEnabled || !currentPlayer || isBot(currentPlayer) || session.operationDeadlineAt) return

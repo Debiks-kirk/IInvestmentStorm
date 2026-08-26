@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone } from './prophet'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, shouldQueueProphetMilestoneOffer } from './prophet'
 import type { ProphetDivination } from './types'
 
 describe('预言家天机推演', () => {
@@ -34,6 +34,8 @@ describe('预言家天机推演', () => {
     }]
     expect(hasReachedProphetIdentityMilestone(history, 'prophet', 3)).toBe(true)
     expect(hasReachedProphetIdentityMilestone(history, 'prophet', 4)).toBe(false)
+    expect(shouldQueueProphetMilestoneOffer({ divinations: history, pendingOffers: [], playerId: 'prophet', playerCount: 3 })).toBe(true)
+    expect(shouldQueueProphetMilestoneOffer({ divinations: history, pendingOffers: [{ playerId: 'prophet' }], playerId: 'prophet', playerCount: 3 })).toBe(false)
   })
 
   it('同一回合的两次观身份都会计入排除与已识破限制', () => {
