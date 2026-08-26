@@ -464,7 +464,7 @@ describe('小偷的兜底盗取', () => {
       fairnessOrderIds: base.map((player) => player.id),
       roll: () => .9,
     })
-    expect(settled.players.find((player) => player.id === 'p1')?.balanceUnits).toBe(coinsToUnits(11))
+    expect(settled.players.find((player) => player.id === 'p1')?.balanceUnits).toBe(coinsToUnits(13))
     expect(settled.players.find((player) => player.id === 'p2')?.balanceUnits).toBe(coinsToUnits(28.5))
     expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(28.5))
     expect(settled.result.identityEvents).toContainEqual(expect.objectContaining({ playerId: 'p1', title: '偷卡落空，转移金币' }))

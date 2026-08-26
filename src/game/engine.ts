@@ -668,6 +668,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const delta = thief ? deltaByPlayer.get(thief.id) : undefined
     const due = coinsToUnits(identitySettings.thiefActivationCoins)
     const paid = Math.min(thief?.balanceUnits ?? 0, due)
+    const activationCopy = paid === 0 ? '免费发动' : `花费 ${formatCoins(paid)} 金币`
     if (thief && delta) {
       // Use the table state before paying the activation cost. Otherwise the
       // thief's own fee can manufacture a fake "everyone is tied" result.
@@ -684,7 +685,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         choice.owner.cardInventory.splice(choice.cardIndex, 1)
         thief.cardInventory.push(choice.cardId)
         thief.identity = thief.identity ? { ...thief.identity, thiefSuccesses: (thief.identity.thiefSuccesses ?? 0) + 1 } : thief.identity
-        identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡成功', detail: `花费 ${formatCoins(paid)} 金币，获得了一张未使用道具卡。`, deltaUnits: -paid })
+        identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡成功', detail: `${activationCopy}，获得了一张未使用道具卡。`, deltaUnits: -paid })
         identityEvents.push({ playerId: choice.owner.id, identityId: 'thief', roundIndex, title: '道具被偷走', detail: '你的一张未使用道具卡被人偷走了。', deltaUnits: 0 })
       } else {
         const fallbackReason = !canStealCard
@@ -697,14 +698,14 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
         const richest = otherPlayers.filter((player) => balanceBeforeTheftByPlayerId.get(player.id) === richestBalance)
         if (allBalancesEqual || richest.length === 0) {
           const reason = allBalancesEqual ? '但全员余额相同。' : '但你当前就是唯一最富者，没有可偷取的对象。'
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}${reason}`, deltaUnits: -paid })
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡失败', detail: `${activationCopy}。${fallbackReason}${reason}`, deltaUnits: -paid })
         } else if (richest.some((player) => player.items.length > 0) && roll() < .05) {
           const itemOwners = richest.filter((player) => player.items.length > 0)
           const itemOwner = itemOwners[Math.min(itemOwners.length - 1, Math.floor(roll() * itemOwners.length))]
           const itemIndex = Math.min(itemOwner.items.length - 1, Math.floor(roll() * itemOwner.items.length))
           const [stolenItem] = itemOwner.items.splice(itemIndex, 1)
           if (stolenItem) thief.items.push(stolenItem)
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}转而偷走了一件拍品。`, deltaUnits: -paid })
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，偷走藏品', detail: `${activationCopy}。${fallbackReason}转而偷走了一件拍品。`, deltaUnits: -paid })
           identityEvents.push({ playerId: itemOwner.id, identityId: 'thief', roundIndex, title: '拍品被偷走', detail: '你的一件拍品被人偷走了。', deltaUnits: 0 })
         } else {
           // Tied leaders share one 10% loss; do not charge 10% to every one of
@@ -721,7 +722,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
           thief.balanceUnits += transfer
           delta.identityUnits += transfer
           const crowdLabel = richest.length > 1 ? `由 ${richest.length} 位并列最富者公摊` : '从最富者转移'
-          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `花费 ${formatCoins(paid)} 金币。${fallbackReason}${crowdLabel}了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
+          identityEvents.push({ playerId: thief.id, identityId: 'thief', roundIndex, title: '偷卡落空，转移金币', detail: `${activationCopy}。${fallbackReason}${crowdLabel}了 ${formatCoins(transfer)} 金币。`, deltaUnits: -paid + transfer })
         }
       }
     }

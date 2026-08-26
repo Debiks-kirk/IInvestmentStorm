@@ -43,7 +43,7 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     prophetDivinationCoins: 0,
     reverserActivationCoins: 3,
     kidnapActivationCoins: 3,
-    thiefActivationCoins: 2,
+    thiefActivationCoins: 0,
     thiefSuccessProbability: 100,
     thiefMaxSteals: 2,
     merchantInitialOfferCount: 3,

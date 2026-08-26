@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyBotMemory } from './bots'
-import { cardInventoryCounts, removeOneCard } from './cards'
+import { CARD_DEFINITIONS, cardInventoryCounts, removeOneCard } from './cards'
 import { coinsToUnits } from './engine'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, roundPlayerIndices } from './session'
 
@@ -31,13 +31,15 @@ describe('系统道具竞购数量', () => {
     settings.rounds = 3
     settings.systemAuctionCardsPerRound = 3
     const crowded = createSession(['甲', '乙', '丙'], settings)
+    const copiesByRarity = { common: 4, rare: 3, uncommon: 2, legendary: 1 }
+    const totalCardCopies = CARD_DEFINITIONS.reduce((total, card) => total + copiesByRarity[card.rarity], 0)
     expect(crowded.roundAuctions).toHaveLength(3)
-    expect(crowded.cardDeck).toHaveLength(45 - 3)
+    expect(crowded.cardDeck).toHaveLength(totalCardCopies - 3)
 
     settings.systemAuctionCardsPerRound = 0
     const disabled = createSession(['甲', '乙', '丙'], settings)
     expect(disabled.roundAuctions).toEqual([])
-    expect(disabled.cardDeck).toHaveLength(45)
+    expect(disabled.cardDeck).toHaveLength(totalCardCopies)
   })
 })
 
