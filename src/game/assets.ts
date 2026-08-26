@@ -4,15 +4,16 @@ export interface AssetCategoryConfig {
   category: AssetCategory
   name: string
   symbol: string
-  tiers: [number, number, number]
+  /** 2 / 3 / 4 / 5 件时的累计套装加成。 */
+  tiers: [number, number, number, number]
   additionalUnit: number
 }
 
 export const ASSET_CATEGORY_CONFIGS: AssetCategoryConfig[] = [
-  { category: 'leisure', name: '生活娱乐', symbol: '✦', tiers: [8, 20, 20], additionalUnit: 10 },
-  { category: 'transport', name: '交通旅行', symbol: '➜', tiers: [9, 23, 23], additionalUnit: 10 },
-  { category: 'luxury', name: '奢侈科技', symbol: '◆', tiers: [10, 26, 26], additionalUnit: 10 },
-  { category: 'property', name: '地产产业', symbol: '▰', tiers: [12, 30, 30], additionalUnit: 10 },
+  { category: 'leisure', name: '生活娱乐', symbol: '✦', tiers: [12, 25, 48, 82], additionalUnit: 30 },
+  { category: 'transport', name: '交通旅行', symbol: '➜', tiers: [14, 29, 53, 88], additionalUnit: 30 },
+  { category: 'luxury', name: '奢侈科技', symbol: '◆', tiers: [16, 32, 59, 94], additionalUnit: 30 },
+  { category: 'property', name: '地产产业', symbol: '▰', tiers: [18, 36, 64, 100], additionalUnit: 30 },
 ]
 
 const COIN_UNITS = 2
@@ -26,7 +27,9 @@ export function fixedAssetCoins(category: AssetCategory, itemCount: number): num
   if (itemCount < 2) return 0
   if (itemCount === 2) return config.tiers[0]
   if (itemCount === 3) return config.tiers[1]
-  return config.tiers[2] + Math.max(0, itemCount - 3) * config.additionalUnit
+  if (itemCount === 4) return config.tiers[2]
+  if (itemCount === 5) return config.tiers[3]
+  return config.tiers[3] + Math.max(0, itemCount - 5) * config.additionalUnit
 }
 
 /** A real item contributes a small, value-based fixed asset bonus by itself. */

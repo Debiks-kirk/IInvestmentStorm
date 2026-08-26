@@ -283,7 +283,7 @@
 
 - `PrivateTurn` 使用 `PrivateToolPanel` 维护 `prediction | identity | assets | backpack` 的单一临时界面状态；焦点弹窗只影响展示与临时选择，所有已确认动作继续通过既有 `onSubmit`、会话持久化与纯结算函数处理。
 - `BalanceReveal` 采用点击式 3D 翻牌，`.is-visible` 状态明确设置暖白前景、金色点缀与深色背景；减少动态效果仍保留即时可读的正反面切换。
-- `assetTierWindow` 只生成当前件数附近三档，调用 `fixedAssetCoins` 复用固定资产的唯一计算来源。摘要使用 `asset.itemCount`，因而收藏家私密虚拟件数也会与其实际终局加成一致。
+- `assetTierWindow` 只生成当前件数附近三档，调用 `fixedAssetCoins` 复用固定资产的唯一计算来源。套装累计档为 2/3/4/5 件，之后每件额外 +30；摘要使用 `asset.itemCount`，因而收藏家私密虚拟件数也会与其实际终局加成一致。
 - `tools/smoke.mjs` 已保存私密操作手机/横屏、资产摘要、背包和余额翻牌截图；全量烟测涵盖 3/6/10 人、全 Bot、刷新隐私、教程、身份、竞购与终局路径。
 
 ### Bot 绑票与拍品竞购

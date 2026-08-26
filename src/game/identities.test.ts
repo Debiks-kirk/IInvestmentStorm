@@ -207,7 +207,7 @@ describe('身份结算', () => {
     const standing = rankFinalPlayers([collector])[0]
     // The collector's virtual item unlocks the 2-piece set; the real item also
     // contributes its own value-based single-item asset bonus.
-    expect(standing.fixedAssetUnits).toBe(coinsToUnits(9))
+    expect(standing.fixedAssetUnits).toBe(coinsToUnits(13))
     expect(collector.balanceUnits).toBe(coinsToUnits(20))
   })
 
