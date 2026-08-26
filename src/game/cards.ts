@@ -32,18 +32,18 @@ export function cardTargetScope(cardId: CardId): CardTargetScope {
 }
 
 export const CARD_DEFINITIONS: CardDefinition[] = [
-  { id: 'red', name: '红卡', symbol: '◆', description: '本轮拍品真实价值翻倍，奖励预览不变。', needsTarget: false, rarity: 'common' },
-  { id: 'peek', name: '偷看底牌', symbol: '◉', description: '查看一名已投资玩家的实际投资额。', needsTarget: true, rarity: 'common' },
-  { id: 'swap', name: '偷天换日', symbol: '↔', description: '与任意一名其他玩家交换本轮排名用投资额。', needsTarget: true, rarity: 'rare' },
-  { id: 'redistribute', name: '劫富济贫', symbol: '⚖', description: '结算前由最富者向最穷者转移金币。', needsTarget: false, rarity: 'common' },
-  { id: 'doubleBid', name: '反客为主', symbol: '↑', description: '本轮投资以双倍金额参与排名。', needsTarget: false, rarity: 'rare' },
-  { id: 'black', name: '黑卡', symbol: '◐', description: '本轮拍品真实价值减半，奖励预览不变。', needsTarget: false, rarity: 'common' },
-  { id: 'reverseRank', name: '逆转排名', symbol: '↻', description: '倒转本轮获奖区内的排名；若与其他逆转叠加，偶数次会抵消。', needsTarget: false, rarity: 'rare' },
-  { id: 'fateCoin', name: '命运硬币', symbol: '◒', description: '掷硬币：正面获得 10 金币，反面没有效果。', needsTarget: false, rarity: 'common' },
-  { id: 'bananaPeel', name: '香蕉皮', symbol: '🍌', description: '指定一名其他玩家：其本轮下注作废，只损失一半下注费用。', needsTarget: true, rarity: 'uncommon' },
-  { id: 'reflectShield', name: '反弹护盾', symbol: '🛡', description: '自动待命：有人用香蕉皮或偷天换日指定你时，自动反弹该次效果并消耗，不占本轮道具次数。', needsTarget: false, rarity: 'rare' },
-  { id: 'prizeReroll', name: '改拍令', symbol: '🎴', description: '确认后抽取 6 件新拍品，私密选择其中一件替换下一轮拍品。抽取后不能取消或重抽。', needsTarget: false, rarity: 'uncommon' },
-  { id: 'legendaryLoot', name: '夺宝令', symbol: '♛', description: '直接夺走本轮最终藏品，优先于绑匪；不影响排名奖励和预测。', needsTarget: false, rarity: 'legendary' },
+  { id: 'red', name: '红卡', symbol: '◆', description: '本轮价值 ×2。', needsTarget: false, rarity: 'common' },
+  { id: 'peek', name: '偷看底牌', symbol: '◉', description: '查看一名已提交者的下注。', needsTarget: true, rarity: 'common' },
+  { id: 'swap', name: '偷天换日', symbol: '↔', description: '交换一人的排名下注。', needsTarget: true, rarity: 'rare' },
+  { id: 'redistribute', name: '劫富济贫', symbol: '⚖', description: '最富者向最穷者转钱。', needsTarget: false, rarity: 'common' },
+  { id: 'doubleBid', name: '反客为主', symbol: '↑', description: '你的下注 ×2 计排名。', needsTarget: false, rarity: 'rare' },
+  { id: 'black', name: '黑卡', symbol: '◐', description: '本轮价值减半。', needsTarget: false, rarity: 'common' },
+  { id: 'reverseRank', name: '逆转排名', symbol: '↻', description: '倒转获奖区名次。', needsTarget: false, rarity: 'rare' },
+  { id: 'fateCoin', name: '命运硬币', symbol: '◒', description: '正面 +10；反面无效。', needsTarget: false, rarity: 'common' },
+  { id: 'bananaPeel', name: '香蕉皮', symbol: '🍌', description: '指定者下注作废，损失一半。', needsTarget: true, rarity: 'uncommon' },
+  { id: 'reflectShield', name: '反弹护盾', symbol: '🛡', description: '自动反弹一次指定效果。', needsTarget: false, rarity: 'rare' },
+  { id: 'prizeReroll', name: '改拍令', symbol: '🎴', description: '6 选 1 换下轮拍品。', needsTarget: false, rarity: 'uncommon' },
+  { id: 'legendaryLoot', name: '夺宝令', symbol: '♛', description: '夺走本轮最终拍品。', needsTarget: false, rarity: 'legendary' },
 ]
 
 export function getCardDefinition(cardId: CardId): CardDefinition {

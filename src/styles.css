@@ -445,6 +445,8 @@ em { color: var(--red); font-style: normal; }
   .asset-category-summary { min-width: 0; padding: 7px 8px; }
 }
 
+ .collection-item-group header p { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+
 @media (prefers-reduced-motion: reduce) {
   .focus-sheet, .focus-sheet--backpack .card-list, .prediction-picker-grid > button, .backpack-title__icon { animation-delay: 0ms !important; }
 }
