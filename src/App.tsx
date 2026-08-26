@@ -22,45 +22,6 @@ function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
 
-/**
- * A dialog must own the gesture. On mobile, merely drawing a fixed backdrop is
- * not enough: overscroll can still chain through to the page underneath. Watch
- * every screen for modal layers and freeze the document at its exact position.
- */
-function useModalScrollLock(): void {
-  useEffect(() => {
-    const body = document.body
-    let locked = false
-    let scrollY = 0
-    const previous = { position: body.style.position, top: body.style.top, width: body.style.width, overflow: body.style.overflow }
-    const hasModal = () => Boolean(document.querySelector('.modal-backdrop, .advanced-backdrop, .kidnap-negotiation'))
-    const unlock = () => {
-      if (!locked) return
-      body.style.position = previous.position
-      body.style.top = previous.top
-      body.style.width = previous.width
-      body.style.overflow = previous.overflow
-      window.scrollTo(0, scrollY)
-      locked = false
-    }
-    const sync = () => {
-      if (hasModal()) {
-        if (locked) return
-        scrollY = window.scrollY
-        body.style.position = 'fixed'
-        body.style.top = `-${scrollY}px`
-        body.style.width = '100%'
-        body.style.overflow = 'hidden'
-        locked = true
-      } else unlock()
-    }
-    const observer = new MutationObserver(sync)
-    observer.observe(document.body, { childList: true, subtree: true })
-    sync()
-    return () => { observer.disconnect(); unlock() }
-  }, [])
-}
-
 function identityFeedbackNotice(event: IdentityEvent, index: number) {
   return { id: `identity-feedback-${event.roundIndex ?? 'setup'}-${event.playerId}-${index}`, playerId: event.playerId, title: event.title, detail: event.detail }
 }
@@ -2270,7 +2231,6 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
 }
 
 export default function App() {
-  useModalScrollLock()
   const [screen, setScreen] = useState<Screen>('home')
   const [saved, setSaved] = useState<GameSession | null>(() => loadSession())
   const [presets, setPresets] = useState<GamePreset[]>(() => loadPresets())
