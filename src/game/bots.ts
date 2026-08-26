@@ -372,12 +372,10 @@ function predictionDecision(observation: BotObservation, ownRankingBidUnits: num
     const targetChance = estimatePlaceAndChance(observation, targetBid, opponent.id).firstChance
     const ownBlocks = 1 - sigmoid((targetBid - ownRankingBidUnits) / coinsToUnits(1.8))
     const probability = Math.max(.01, targetChance * ownBlocks)
-    const estimate = estimateFor(observation, opponent.id)
-    // Treat a likely winner's ranking prize as uncertain rather than guaranteed cash. This avoids
-    // mechanically predicting a nominal first place whose estimated wallet cannot really pay.
-    const available = Math.max(0, (estimate?.expectedUnits ?? 0) - targetBid)
     const otherGuessers = 1 + Math.max(0, observation.opponents.length - 2) * (.16 + profile.risk * .10 + Math.max(0, behavior.predictionBias) * .08)
-    const payout = Math.min(valueUnits * observation.correctPredictionMultiplier, available) / otherGuessers
+    // The system covers a first-place shortfall, so a correct prediction always receives its
+    // advertised reward; only sharing it with other guessers remains uncertain.
+    const payout = valueUnits * observation.correctPredictionMultiplier / otherGuessers
     const expectedUnits = probability * payout - (1 - probability) * wrongPenalty
     if (expectedUnits > best.expectedUnits) best = { playerId: opponent.id, expectedUnits }
   }

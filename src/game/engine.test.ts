@@ -85,7 +85,7 @@ describe('预测结算', () => {
     expect(result.deltas.find((delta) => delta.playerId === 'p1')?.predictionUnits).toBe(coinsToUnits(-10))
   })
 
-  it('余额不足时以半金币为单位公平分完，差额不超过半金币', () => {
+  it('第一名余额不足时由系统补足，猜中者仍获得完整奖励', () => {
     const base = players([1, 0, 0, 0])
     const { players: settled, result } = settle(base, [
       turn('p1', 8),
@@ -94,19 +94,22 @@ describe('预测结算', () => {
       turn('p4', 3, 'p1'),
     ])
     const payments = result.predictionOutcomes.filter((outcome) => outcome.status === 'correct').map((outcome) => outcome.deltaUnits)
-    expect(Math.max(...payments) - Math.min(...payments)).toBeLessThanOrEqual(1)
-    expect(payments.reduce((sum, payment) => sum + payment, 0)).toBe(result.winnerPaymentUnits)
+    expect(payments).toEqual([coinsToUnits(5), coinsToUnits(5), coinsToUnits(5)])
+    expect(payments.reduce((sum, payment) => sum + payment, 0)).toBe(coinsToUnits(15))
+    expect(result.winnerPaymentUnits).toBe(coinsToUnits(11))
     expect(settled.find((player) => player.id === 'p1')?.balanceUnits).toBe(0)
   })
 
-  it('错误预测最多扣到零', () => {
-    const { players: settled } = settle(players([0, 0, 0, 1]), [
+  it('错误预测最多扣到零，但公开结果仍显示完整应扣额', () => {
+    const { players: settled, result } = settle(players([0, 0, 0, 1]), [
       turn('p1', 8),
       turn('p2', 6),
       turn('p3', 4),
       turn('p4', 2, 'p2'),
     ])
     expect(settled.find((player) => player.id === 'p4')?.balanceUnits).toBe(0)
+    expect(result.deltas.find((delta) => delta.playerId === 'p4')).toMatchObject({ predictionUnits: coinsToUnits(-1), publicPredictionUnits: coinsToUnits(-2.5) })
+    expect(result.predictionOutcomes.find((outcome) => outcome.playerId === 'p4')?.deltaUnits).toBe(coinsToUnits(-2.5))
   })
 })
 

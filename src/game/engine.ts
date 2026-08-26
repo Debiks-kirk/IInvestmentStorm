@@ -540,15 +540,16 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       player.balanceUnits -= paid
       if (gambler) {
         const publicDue = floorToHalfUnits(effectiveValueUnits * wrongPredictionMultiplier)
-        const publicPaid = Math.min(availableBeforePrediction, publicDue)
         delta.predictionUnits -= paid
-        delta.publicPredictionUnits -= publicPaid
-        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜错 −${formatCoins(publicPaid)}”；实际作为赌徒只支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
-        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -publicPaid })
+        delta.publicPredictionUnits -= publicDue
+        identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜错 −${formatCoins(publicDue)}”；实际作为赌徒支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
+        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -publicDue })
       } else {
         delta.predictionUnits -= paid
-        delta.publicPredictionUnits -= paid
-        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -paid })
+        // The public book always shows the rule's full penalty. A zero balance must not
+        // become an accidental public balance reveal.
+        delta.publicPredictionUnits -= due
+        predictionOutcomes.push({ playerId: turn.playerId, predictedPlayerId: turn.predictedPlayerId, status: 'wrong', deltaUnits: -due })
       }
     }
   }
@@ -559,8 +560,11 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const winnerDelta = deltaByPlayer.get(winnerId)
     if (winner && winnerDelta) {
       const maximumPerPlayer = floorToHalfUnits(effectiveValueUnits * correctPredictionMultiplier)
-      winnerPaymentUnits = Math.min(winner.balanceUnits, maximumPerPlayer * correctTurns.length)
-      const payments = distributeUnits({ totalUnits: winnerPaymentUnits, playerIds: correctTurns.map((turn) => turn.playerId), fairnessOrderIds, roundIndex })
+      const totalCorrectRewardUnits = maximumPerPlayer * correctTurns.length
+      // A correct prediction always pays the advertised reward. The first place pays what
+      // they can; the system supplies any shortfall without exposing that shortfall publicly.
+      winnerPaymentUnits = Math.min(winner.balanceUnits, totalCorrectRewardUnits)
+      const payments = distributeUnits({ totalUnits: totalCorrectRewardUnits, playerIds: correctTurns.map((turn) => turn.playerId), fairnessOrderIds, roundIndex })
       winner.balanceUnits -= winnerPaymentUnits
       winnerDelta.predictionUnits -= winnerPaymentUnits
       winnerDelta.publicPredictionUnits -= winnerPaymentUnits
