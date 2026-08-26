@@ -2093,7 +2093,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
           auctionBudget -= bidUnits
           return { lotId: lot.id, bidUnits }
-        }).concat(decideBotAssetAuctionBids({ player: currentPlayer, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
+        }).concat(decideBotAssetAuctionBids({ player: currentPlayer, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id, observation }))
         const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
         const assetAuctionOffer = decideBotAssetAuctionOffer({ player: currentPlayer, observation, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id })
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffer } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)

@@ -43,6 +43,7 @@ export function createBotBehavior(seed = 'default'): BotBehavior {
     antiLeaderBias: spread('leader'),
     predictionBias: spread('prediction'),
     cardBias: spread('cards'),
+    assetMarketBias: spread('asset-market'),
     quoteFingerprint: Math.floor(unitRandom(`${seed}:quote`) * 17),
   }
 }
@@ -134,6 +135,8 @@ export interface BotObservation {
   /** Only the bot's own frozen opening balance is exposed. */
   selfRoundStartBalanceUnits: number
   opponents: Array<{ id: string; name: string }>
+  /** Controller kind is public seating information, not a hidden game resource. */
+  humanOpponentIds: string[]
   previousSubmitterIds: string[]
   publicRounds: PublicRoundObservation[]
   balanceEstimates: CashEstimate[]
@@ -182,6 +185,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     self: { id: player.id, name: player.name, balanceUnits: player.balanceUnits, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined, passivityFeeCount: player.passivityFeeCount ?? 0 },
     selfRoundStartBalanceUnits: session.roundStartBalanceUnits?.[player.id] ?? player.balanceUnits,
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
+    humanOpponentIds: session.players.filter((entry) => entry.id !== playerId && entry.controller?.kind !== 'bot').map((entry) => entry.id),
     previousSubmitterIds: prior,
     publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])) })),
     balanceEstimates: [],
@@ -368,6 +372,9 @@ function predictionDecision(observation: BotObservation, ownRankingBidUnits: num
   const skipValue = gambler ? -valueUnits * observation.gamblerSkipPenaltyMultiplier : 0
   let best = { playerId: null as string | null, expectedUnits: skipValue }
   for (const opponent of observation.opponents) {
+    // A public cash reconstruction can be imperfect, but an opponent whose
+    // entire estimated range is empty should not be treated as a credible winner.
+    if ((estimateFor(observation, opponent.id)?.highUnits ?? 0) <= 0) continue
     const targetBid = expectedCurrentBid(observation, opponent.id)
     const targetChance = estimatePlaceAndChance(observation, targetBid, opponent.id).firstChance
     const ownBlocks = 1 - sigmoid((targetBid - ownRankingBidUnits) / coinsToUnits(1.8))
@@ -432,7 +439,7 @@ function cardUseVariants(observation: BotObservation): CardUse[][] {
   return [unique[0], ...unique.slice(1).sort((left, right) => hash(`${observation.sessionSeed}:${observation.playerId}:${left.map((use) => use.cardId).join('')}`) - hash(`${observation.sessionSeed}:${observation.playerId}:${right.map((use) => use.cardId).join('')}`)).slice(0, 17)].filter(Boolean) as CardUse[][]
 }
 
-function planCandidates(observation: BotObservation): TurnPlan[] {
+function planCandidates(observation: BotObservation, difficulty: BotDifficulty): TurnPlan[] {
   const plans: TurnPlan[] = []
   const cardVariants = cardUseVariants(observation)
   for (const cardUses of cardVariants) {
@@ -445,7 +452,16 @@ function planCandidates(observation: BotObservation): TurnPlan[] {
     plans.push(...plans.filter((plan) => !plan.cardUses.some((use) => use.cardId === 'reverseRank')).map((plan) => ({ ...plan, id: `${plan.id}:reverser`, identityAction: { type: 'reverserInvert' as const }, reversalCount: plan.reversalCount + 1, specialReason: `发动逆转排名，支付 ${observation.reverserActivationUnits * multiplier / 2} 金币后将获奖区倒序。` })))
   }
   if (observation.self.identity?.id === 'assassin') {
-    const orderedTargets = [...observation.opponents].sort((left, right) => kidnapSuccessChance(observation, right.id) - kidnapSuccessChance(observation, left.id))
+    // Expert Bots occasionally lean toward one randomly selected human seat. This
+    // is deliberately a tiny nudge, never privileged information or a fixed grudge.
+    const favouredHumanId = difficulty === 'expert'
+      && unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:expert-human-pressure`) < .38
+      ? choose(observation.humanOpponentIds, `${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:expert-human-target`)
+      : undefined
+    const targetScore = (targetId: string) => kidnapSuccessChance(observation, targetId)
+      + normalRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${targetId}:kidnap-target`) * .026
+      + (targetId === favouredHumanId ? .038 : 0)
+    const orderedTargets = [...observation.opponents].sort((left, right) => targetScore(right.id) - targetScore(left.id))
     const lowTargets = orderedTargets.slice(0, 1)
     const broadTargets = orderedTargets.slice(0, observation.kidnapTargetCap)
     const actions: Array<Extract<IdentityAction, { type: 'kidnap' }>> = lowTargets.length ? [{ type: 'kidnap', targetPlayerIds: lowTargets.map((target) => target.id), ransomUnits: observation.kidnapLowRansomUnits }] : []
@@ -616,7 +632,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     if (use.cardId === 'legendaryLoot') return total + coinsToUnits((observation.item?.value ?? 0) * (.72 + profile.collect * .28)) + assetUnits * (1 + profile.collect)
     return total
   }, 0)
-  for (const plan of planCandidates(observation)) {
+  for (const plan of planCandidates(observation, difficulty)) {
     const valueMultiplier = plan.cardUses.reduce((multiplier, use) => use.cardId === 'red' ? multiplier * 2 : use.cardId === 'black' ? multiplier * .5 : multiplier, 1)
     const valueUnits = coinsToUnits(observation.item?.value ?? 0) * valueMultiplier
     const actionCost = identityCost(plan.identityAction)
@@ -761,19 +777,27 @@ export function decideBotMerchantBid(player: Player, cardId: CardId): { bidUnits
 /** Chooses asset-auction quotes as a budgeted collection decision, not a blind
  * "minimum price plus random" bid. A high reserve price is ignored unless the
  * item can realistically improve this bot's end-game collection. */
-export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed }: {
+export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed, observation }: {
   player: Player
   lots: AssetAuctionLot[]
   budgetUnits: number
   roundIndex: number
   totalRounds: number
   sessionSeed: string
+  /** Public category history lets a Bot recognise that a category is heating up. */
+  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates'>
 }): Array<{ lotId: string; bidUnits: number }> {
   const controller = player.controller?.kind === 'bot' ? player.controller : { profileId: 'adaptive' as BotProfileId }
   const profile = botProfile(controller.profileId)
   const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
   const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
   const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+  const categoryHeat = (category: AssetCategory) => {
+    const rounds = observation?.publicRounds.filter((round) => round.itemCategory === category) ?? []
+    const distinctWinners = new Set(rounds.map((round) => round.winnerId).filter(Boolean)).size
+    const contested = rounds.filter((round) => round.tiedPlayerIds.length > 0 || round.totalBidUnits >= coinsToUnits(12)).length
+    return Math.min(4, rounds.length * .42 + distinctWinners * .36 + contested * .32)
+  }
   const candidates = lots
     .filter((lot) => lot.sellerId !== player.id)
     .map((lot) => {
@@ -781,20 +805,36 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       const assetGain = Math.max(0, afterAssets - beforeAssets)
       const matchingItems = player.items.filter((won) => won.item.category === lot.item.category).length
       const collectorMatch = collectorCategory === lot.item.category
+      const marketHeat = categoryHeat(lot.item.category)
       const baseValue = coinsToUnits(.9 + lot.item.value * .36)
       const collectionWeight = .42 + profile.collect * .24 + Math.max(0, behavior.assetFocusBias) * .16 + (collectorMatch ? .22 : 0)
       const collectionPremium = assetGain * collectionWeight + coinsToUnits(matchingItems * (.55 + profile.collect * .35) + (collectorMatch ? 1.5 : 0))
       const endGameWeight = roundIndex >= totalRounds - 2 ? 1.12 : 1
-      const fairValue = Math.round((baseValue + collectionPremium) * endGameWeight)
+      const fairValue = Math.round((baseValue + collectionPremium + coinsToUnits(marketHeat * .45)) * endGameWeight)
       const maxBid = Math.max(0, Math.round(fairValue * (0.86 + profile.risk * .12 + Math.max(0, behavior.riskBias) * .06)))
-      return { lot, assetGain, matchingItems, fairValue, maxBid, urgency: fairValue - lot.minimumBidUnits }
+      const moonshotPotential = matchingItems * 1.15 + (collectorMatch ? 2.5 : 0) + marketHeat + assetGain / coinsToUnits(8) + lot.item.value / 18
+      return { lot, assetGain, matchingItems, marketHeat, fairValue, maxBid, moonshotPotential, urgency: fairValue - lot.minimumBidUnits }
     })
     .sort((left, right) => right.urgency - left.urgency || right.assetGain - left.assetGain || left.lot.id.localeCompare(right.lot.id))
+
+  // A rare "this category is about to break out" purchase is intentional. It is
+  // limited to one lot, only when the category has real personal/public signals,
+  // and remains part of the Bot's fixed per-game temperament.
+  const moonshotPool = candidates.filter((candidate) => candidate.moonshotPotential >= 1.7)
+  const moonshotChance = clamp(.018 + Math.max(0, behavior.riskBias) * .035 + Math.max(0, profile.risk - .45) * .045 + Math.max(0, behavior.assetFocusBias) * .025, .018, .12)
+  const moonshotCandidate = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:asset-moonshot`) < moonshotChance
+    ? choose([...moonshotPool].sort((left, right) => right.moonshotPotential + unitRandom(`${sessionSeed}:${player.id}:${right.lot.id}:moonshot-order`) * .18 - (left.moonshotPotential + unitRandom(`${sessionSeed}:${player.id}:${left.lot.id}:moonshot-order`) * .18)), `${sessionSeed}:${player.id}:${roundIndex}:asset-moonshot-pick`)
+    : undefined
 
   let remaining = Math.max(0, budgetUnits)
   const bidByLotId = new Map<string, number>()
   for (const candidate of candidates) {
-    const { lot, maxBid, matchingItems } = candidate
+    const { lot, matchingItems } = candidate
+    const moonshot = moonshotCandidate?.lot.id === lot.id
+    const moonshotBoost = moonshot
+      ? coinsToUnits(2.5 + lot.item.value * .45 + candidate.marketHeat * .8 + Math.max(0, behavior.riskBias) * 2)
+      : 0
+    const maxBid = candidate.maxBid + moonshotBoost
     // Never chase a reserve price that already exceeds the item's personalised
     // value. Only a genuine category/collector payoff can cross this line.
     if (lot.minimumBidUnits > maxBid || remaining < lot.minimumBidUnits) {
@@ -804,7 +844,7 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
     const room = Math.min(remaining, maxBid) - lot.minimumBidUnits
     const fingerprint = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${lot.id}:asset-auction`)
     const categoryPush = matchingItems > 0 ? .22 : 0
-    const desired = lot.minimumBidUnits + Math.max(0, Math.round(room * (.18 + categoryPush + fingerprint * .34)))
+    const desired = lot.minimumBidUnits + Math.max(0, Math.round(room * (moonshot ? .72 + fingerprint * .22 : .18 + categoryPush + fingerprint * .34)))
     const bidUnits = Math.max(lot.minimumBidUnits, Math.min(remaining, maxBid, desired))
     // A tiny asymmetry helps Bots avoid mechanically tying exactly at reserve.
     const offset = (behavior.quoteFingerprint + hash(lot.id)) % 3 === 0 && bidUnits < Math.min(remaining, maxBid) ? 1 : 0
@@ -835,32 +875,35 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
   const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
   const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
   const reserveFloor = Math.round(player.balanceUnits * (.12 + Math.max(0, behavior.reserveBias) * .08))
+  const sellMood = clamp(.11 + Math.max(0, behavior.assetMarketBias) * .24 + profile.risk * .05, .08, .37)
   const candidates = player.items.map((won, index) => {
     const remainingItems = player.items.filter((_, itemIndex) => itemIndex !== index)
     const afterAssets = calculateFixedAssets(remainingItems, collectorCategory).reduce((total, entry) => total + entry.units, 0)
     const ownLossUnits = Math.max(0, beforeAssets - afterAssets)
     const ownCategoryCount = player.items.filter((entry) => entry.item.category === won.item.category).length
     const publicRivalWins = observation.publicRounds.filter((round) => round.itemCategory === won.item.category && round.winnerId && round.winnerId !== player.id).length
+    const categoryHeat = observation.publicRounds.filter((round) => round.itemCategory === won.item.category).length
     const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
     const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + Math.max(0, likelyBuyerCount - 1) * .35
     const denyWeight = .45 + profile.revenge * .34 + (controller.profileId === 'blocker' ? .3 : 0) + Math.max(0, behavior.antiLeaderBias) * .16
-    const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + likelyBuyerCount * .25
+    const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + categoryHeat * .26 + likelyBuyerCount * .25
     const selfNeed = ownLossUnits + coinsToUnits(ownCategoryCount * (.35 + profile.collect * .24)) + (collectorCategory === won.item.category ? coinsToUnits(8) : 0)
     const baseReserve = ownLossUnits + coinsToUnits(Math.max(1, .5 + won.item.value * .18))
-    const premium = coinsToUnits(Math.max(0, demandWeight * (.7 + Math.max(0, behavior.edgeBias) * .35)))
+    const premium = coinsToUnits(Math.max(0, demandWeight * (.7 + Math.max(0, behavior.edgeBias) * .35) + Math.max(0, behavior.assetMarketBias) * .35))
     const minimumBidUnits = Math.max(2, Math.ceil((baseReserve + premium) / 2) * 2)
     const timing = roundIndex >= totalRounds - 2 ? -.8 : .35
-    const variance = normalRandom(`${sessionSeed}:${player.id}:${won.item.id}:${won.roundIndex}:seller`) * .7
-    const score = demandWeight * 2.2 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance - selfNeed * .18 - rivalSetPressure * denyWeight
-    return { won, ownLossUnits, publicRivalWins, minimumBidUnits, score }
+    const proactiveSale = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:${won.roundIndex}:seller-mood`) < sellMood
+    const variance = normalRandom(`${sessionSeed}:${player.id}:${won.item.id}:${won.roundIndex}:seller`) * 1.05
+    const score = demandWeight * 2.2 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance + (proactiveSale ? 1.15 + Math.max(0, behavior.assetMarketBias) * 1.35 : 0) - selfNeed * .18 - rivalSetPressure * denyWeight
+    return { won, ownLossUnits, publicRivalWins, proactiveSale, minimumBidUnits, score }
   }).filter((candidate) => {
     // A collector keeps its chosen category unless an explicit future rule says
     // otherwise; selling it cheaply is almost always a strategic own goal.
     if (collectorCategory === candidate.won.item.category) return false
-    return candidate.minimumBidUnits > candidate.ownLossUnits && candidate.publicRivalWins > 0
+    return candidate.minimumBidUnits > candidate.ownLossUnits && (candidate.publicRivalWins > 0 || candidate.proactiveSale)
   }).sort((left, right) => right.score - left.score || left.won.item.id.localeCompare(right.won.item.id))
   const best = candidates[0]
-  if (!best || best.score < 1.2 + Math.max(0, behavior.reserveBias) * .8) return undefined
+  if (!best || best.score < 1.2 + Math.max(0, behavior.reserveBias) * .8 - Math.max(0, behavior.assetMarketBias) * .65) return undefined
   return { itemId: best.won.item.id, itemRoundIndex: best.won.roundIndex, minimumBidUnits: best.minimumBidUnits }
 }
 
@@ -887,11 +930,14 @@ export function decideBotKidnapResponse({ player, item, ransomUnits, roundIndex,
   const remainingCash = player.balanceUnits - ransomUnits
   const roundsLeft = Math.max(0, totalRounds - roundIndex - 1)
   const cashFloor = coinsToUnits(2 + roundsLeft * (1.2 + Math.max(0, behavior.reserveBias)))
-  const itemUrgency = coinsToUnits(item.value * (.18 + profile.collect * .12)) + assetLossUnits * (.72 + profile.collect * .32) + collectorCashUnits
+  const itemUrgency = coinsToUnits(item.value * (.18 + profile.collect * .12)) + assetLossUnits * (.72 + profile.collect * .32) + collectorCashUnits + Math.max(0, behavior.assetFocusBias) * coinsToUnits(.45)
   const cashStress = Math.max(0, cashFloor - remainingCash) * (1.05 - profile.risk * .28)
   const lateGameWeight = roundIndex >= totalRounds - 2 ? 1.2 : 1
-  const variation = normalRandom(`${sessionSeed}:${player.id}:${item.id}:${roundIndex}:kidnap-response`) * coinsToUnits(.7)
-  return itemUrgency * lateGameWeight + variation >= ransomUnits + cashStress
+  // Paying ransom is a personality decision around an economic threshold. The
+  // variation is seeded, so it differs between games but never changes on refresh.
+  const keepBias = (profile.collect - .45 + Math.max(0, behavior.assetFocusBias) * .28 - Math.max(0, behavior.assetMarketBias) * .22) * coinsToUnits(1.2)
+  const variation = normalRandom(`${sessionSeed}:${player.id}:${item.id}:${roundIndex}:kidnap-response`) * coinsToUnits(1.35)
+  return itemUrgency * lateGameWeight + keepBias + variation >= ransomUnits + cashStress
 }
 
 export function modeLabel(mode: StrategyMode): string {

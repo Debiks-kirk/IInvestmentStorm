@@ -291,3 +291,10 @@
 - `decideBotKidnapResponse` 只读取被绑 Bot 自己的库存、余额、拍品和稳定行为参数，比较赎金与实际资产损失后决定保住或放弃拍品。
 - `decideBotAssetAuctionOffer` 仅依据自己的藏品与公开各轮拍品类别赢家记录发起下一轮竞购；它避开收藏家目标类，并把起拍价设在自身资产损失之上，以减少低价资敌。
 - `CollectionBook` 复用 `IDENTITY_DEFINITIONS`、`CARD_DEFINITIONS`、`ITEM_POOL` 与 `ASSET_CATEGORY_CONFIGS` 作为图鉴唯一数据源；图鉴不读取对局存档，也不影响任何游戏状态。
+
+### Bot 拍品市场策略（v26）
+
+- `BotBehavior.assetMarketBias` 是随 `gameId:playerId` 稳定生成的隐藏人格参数；存档迁移会与其他行为参数一并补齐。它只用于 Bot 自己的出售、竞购与赎金取舍，不会显示给玩家。
+- `decideBotAssetAuctionBids` 可选接收公开回合摘要，按类别出现次数、不同赢家和公开高总下注构造 `marketHeat`。在套装、收藏家类别或热门类别有充分价值时，单回合最多一张拍品可按小概率获得高价上限与较激进报价；其随机源是会话种子，刷新可复现。
+- `decideBotAssetAuctionOffer` 以市场倾向抽取每回合卖货意愿，仍保留收藏家目标类别保护、自身套装损失、竞争对手受益和最低保本价约束。`decideBotKidnapResponse` 同时加入市场倾向、资产专注与稳定正态扰动。
+- `BotObservation.humanOpponentIds` 只包含公开的座位控制器类型。仅专家绑匪有 38% 概率随机挑一名真人加 3.8 个百分点的目标评分，作为轻微戏剧性偏向，不读取任何真人私密状态。

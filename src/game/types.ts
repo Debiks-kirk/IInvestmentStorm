@@ -44,6 +44,8 @@ export interface BotBehavior {
   antiLeaderBias: number
   predictionBias: number
   cardBias: number
+  /** Long-term tendency to turn surplus collectibles into market cash. */
+  assetMarketBias: number
   quoteFingerprint: number
 }
 
@@ -450,7 +452,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 25
+  version: 26
   id: string
   phase: GamePhase
   settings: GameSettings

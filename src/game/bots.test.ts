@@ -116,6 +116,24 @@ describe('Bot 信息边界与决策', () => {
     expect(collectorBid).toBeGreaterThanOrEqual(first.find((bid) => bid.lotId === 'affordable')!.bidUnits)
   })
 
+  it('热门类别会保留少量高价抢拍可能，而不是只按固定估值报价', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const hotItem = { ...session.itemDeck[0], id: 'hot-luxury', value: 14, category: 'luxury' as const }
+    const player = {
+      ...session.players[0],
+      balanceUnits: 70,
+      items: [{ item: { ...hotItem, id: 'owned-luxury' }, roundIndex: 0 }],
+      controller: { kind: 'bot' as const, profileId: 'aggressive' as const, difficulty: 'expert' as const },
+      botMemory: { ...emptyBotMemory('hot-market'), behavior: { ...emptyBotMemory('hot-market').behavior, riskBias: 1, assetFocusBias: 1 } },
+    }
+    const lot = { id: 'hot-lot', sellerId: session.players[1].id, item: hotItem, itemRoundIndex: 1, minimumBidUnits: 8, roundIndex: 2 }
+    const observation = buildBotObservation({ ...session, players: [player, ...session.players.slice(1)] }, player.id)
+    observation.publicRounds = Array.from({ length: 4 }, (_, index) => ({ winnerId: session.players[1 + (index % 2)].id, totalBidUnits: 30, minWinningBidUnits: 12, tiedPlayerIds: [], itemCategory: 'luxury' as const, rankings: [], publicDeltaByPlayerId: {} }))
+    const bids = Array.from({ length: 80 }, (_, seed) => decideBotAssetAuctionBids({ player, lots: [lot], budgetUnits: 60, roundIndex: 2, totalRounds: 7, sessionSeed: `hot-market-${seed}`, observation })[0].bidUnits)
+    expect(new Set(bids).size).toBeGreaterThan(6)
+    expect(Math.max(...bids) - Math.min(...bids)).toBeGreaterThanOrEqual(10)
+  })
+
   it('会从公开总下注、门槛与收益变化推算对手现金区间', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     const observation = buildBotObservation(session, session.players[0].id)
@@ -259,5 +277,16 @@ describe('Bot 藏品出售与绑票谈判', () => {
     const collector = { ...session.players[0], balanceUnits: 50, identity: { id: 'collector' as const, collectorCategory: 'luxury' as const, thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }, items: [{ item, roundIndex: 3 }], botMemory: emptyBotMemory('kidnap-keep') }
     expect(decideBotKidnapResponse({ player: collector, item, ransomUnits: 12, roundIndex: 3, totalRounds: 6, sessionSeed: 'kidnap-keep' })).toBe(true)
     expect(decideBotKidnapResponse({ player: { ...collector, balanceUnits: 8 }, item, ransomUnits: 12, roundIndex: 3, totalRounds: 6, sessionSeed: 'kidnap-drop' })).toBe(false)
+  })
+
+  it('带有全局卖货倾向的 Bot 会偶尔挂出非目标类藏品，但不会每局机械上架', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const item = { ...session.itemDeck[0], id: 'seller-mood-item', category: 'transport' as const, value: 8 }
+    const memory = emptyBotMemory('seller-mood')
+    const player = { ...session.players[0], items: [{ item, roundIndex: 0 }], botMemory: { ...memory, behavior: { ...memory.behavior, assetMarketBias: 1 } } }
+    const observation = buildBotObservation({ ...session, players: [player, ...session.players.slice(1)] }, player.id)
+    const outcomes = Array.from({ length: 40 }, (_, seed) => Boolean(decideBotAssetAuctionOffer({ player, observation, roundIndex: 2, totalRounds: 7, sessionSeed: `seller-mood-${seed}` })))
+    expect(outcomes.some(Boolean)).toBe(true)
+    expect(outcomes.some((outcome) => !outcome)).toBe(true)
   })
 })
