@@ -1288,17 +1288,16 @@ function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: Ga
 
 function KidnapNegotiationPanel({ negotiation, onResolve }: { negotiation: KidnapNegotiation; onResolve: (payRansom: boolean) => void }) {
   const captured = negotiation.players.find((player) => player.id === negotiation.capturedPlayerId)
-  const kidnapper = negotiation.players.find((player) => player.id === negotiation.kidnapperId)
-  if (!captured || !kidnapper) return null
+  if (!captured) return null
   const canPay = captured.balanceUnits >= negotiation.ransomUnits
   return <section className="kidnap-negotiation" role="dialog" aria-modal="true" aria-labelledby="kidnap-negotiation-title">
     <div className="kidnap-negotiation__frame">
       <p className="eyebrow">⛓ 绑匪 · 公开谈判</p>
       <h1 id="kidnap-negotiation-title">{captured.name} 拍下了 {negotiation.item.emoji} {negotiation.item.name}</h1>
-      <p>绑匪已发出赎金要求。现在由 <strong>{captured.name}</strong> 公开决定：保住本轮藏品，或将它交给绑匪 <strong>{kidnapper.name}</strong>。</p>
+      <p>有人发出赎金要求。现在由 <strong>{captured.name}</strong> 公开决定：保住本轮藏品，或将它交给绑匪。</p>
       <div className="kidnap-negotiation__choices">
-        <button className="kidnap-choice kidnap-choice--pay" disabled={!canPay} onClick={() => onResolve(true)}><span>💰</span><strong>支付 {formatCoins(negotiation.ransomUnits)} 金币</strong><small>{canPay ? '保住藏品；赎金交给绑匪。' : '余额不足，无法支付赎金。'}</small></button>
-        <button className="kidnap-choice kidnap-choice--surrender" onClick={() => onResolve(false)}><span>⛓</span><strong>放弃藏品</strong><small>{negotiation.item.emoji} {negotiation.item.name} 将归绑匪所有。</small></button>
+        <button className="kidnap-choice kidnap-choice--pay" disabled={!canPay} onClick={() => onResolve(true)}><span>💰</span><strong>支付 {formatCoins(negotiation.ransomUnits)} 金币</strong><small>{canPay ? '保住藏品；赎金会被收走。' : '余额不足，无法支付赎金。'}</small></button>
+        <button className="kidnap-choice kidnap-choice--surrender" onClick={() => onResolve(false)}><span>⛓</span><strong>放弃藏品</strong><small>{negotiation.item.emoji} {negotiation.item.name} 将被绑走。</small></button>
       </div>
     </div>
   </section>
@@ -1777,7 +1776,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       }
       result.itemWinnerId = kidnapper.id
       result.investments = result.investments.map((investment) => ({ ...investment, receivedItem: false }))
-      result.cardEffects.push({ symbol: '⛓', description: `${captured.name} 放弃了 ${negotiation.item.emoji}${negotiation.item.name}，藏品已归绑匪 ${kidnapper.name}。` })
+      result.cardEffects.push({ symbol: '⛓', description: `${captured.name} 放弃了 ${negotiation.item.emoji}${negotiation.item.name}，藏品已被绑走。` })
       result.identityEvents.push({ playerId: captured.id, identityId: 'assassin', roundIndex: session.roundIndex, title: '放弃绑票藏品', detail: `未支付赎金，${negotiation.item.emoji}${negotiation.item.name} 已交给绑匪。${collectorBonusUnits > 0 ? '失去该藏品对应的收藏家奖励。' : ''}`, deltaUnits: collectorBonusUnits > 0 ? -collectorBonusUnits : 0 })
       result.identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex: session.roundIndex, title: '绑票谈判成功', detail: `获得了 ${negotiation.item.emoji}${negotiation.item.name}。`, deltaUnits: 0 })
     }
