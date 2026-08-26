@@ -526,6 +526,7 @@ describe('固定资产与默认配置', () => {
     expect(new Set(ITEM_POOL.map((entry) => entry.category))).toEqual(new Set(['leisure', 'transport', 'luxury', 'property']))
     expect(ITEM_POOL.reduce<Record<string, number>>((counts, entry) => ({ ...counts, [entry.category]: (counts[entry.category] ?? 0) + 1 }), {})).toEqual({ leisure: 25, transport: 25, luxury: 25, property: 25 })
     expect(new Set(ITEM_POOL.map((entry) => entry.id)).size).toBe(100)
+    expect(new Set(ITEM_POOL.map((entry) => entry.emoji)).size).toBe(100)
   })
 
   it('按类别与实际数量计算轻量固定资产档位', () => {
