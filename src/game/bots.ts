@@ -817,6 +817,85 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
   return lots.map((lot) => ({ lotId: lot.id, bidUnits: lot.sellerId === player.id ? 0 : bidByLotId.get(lot.id) ?? 0 }))
 }
 
+/**
+ * A seller Bot only lists an item when the expected reserve can compensate for
+ * its own collection loss and does not hand a large, cheap set bonus to a
+ * visible rival. Category-win history is public, so this stays within the
+ * same information boundary as the rest of Bot planning.
+ */
+export function decideBotAssetAuctionOffer({ player, observation, roundIndex, totalRounds, sessionSeed }: {
+  player: Player
+  observation: BotObservation
+  roundIndex: number
+  totalRounds: number
+  sessionSeed: string
+}): { itemId: string; itemRoundIndex: number; minimumBidUnits: number } | undefined {
+  if (roundIndex >= totalRounds - 1 || player.items.length === 0) return undefined
+  const controller = player.controller?.kind === 'bot' ? player.controller : { profileId: 'adaptive' as BotProfileId }
+  const profile = botProfile(controller.profileId)
+  const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
+  const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
+  const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+  const reserveFloor = Math.round(player.balanceUnits * (.12 + Math.max(0, behavior.reserveBias) * .08))
+  const candidates = player.items.map((won, index) => {
+    const remainingItems = player.items.filter((_, itemIndex) => itemIndex !== index)
+    const afterAssets = calculateFixedAssets(remainingItems, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+    const ownLossUnits = Math.max(0, beforeAssets - afterAssets)
+    const ownCategoryCount = player.items.filter((entry) => entry.item.category === won.item.category).length
+    const publicRivalWins = observation.publicRounds.filter((round) => round.itemCategory === won.item.category && round.winnerId && round.winnerId !== player.id).length
+    const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
+    const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + Math.max(0, likelyBuyerCount - 1) * .35
+    const denyWeight = .45 + profile.revenge * .34 + (controller.profileId === 'blocker' ? .3 : 0) + Math.max(0, behavior.antiLeaderBias) * .16
+    const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + likelyBuyerCount * .25
+    const selfNeed = ownLossUnits + coinsToUnits(ownCategoryCount * (.35 + profile.collect * .24)) + (collectorCategory === won.item.category ? coinsToUnits(8) : 0)
+    const baseReserve = ownLossUnits + coinsToUnits(Math.max(1, .5 + won.item.value * .18))
+    const premium = coinsToUnits(Math.max(0, demandWeight * (.7 + Math.max(0, behavior.edgeBias) * .35)))
+    const minimumBidUnits = Math.max(2, Math.ceil((baseReserve + premium) / 2) * 2)
+    const timing = roundIndex >= totalRounds - 2 ? -.8 : .35
+    const variance = normalRandom(`${sessionSeed}:${player.id}:${won.item.id}:${won.roundIndex}:seller`) * .7
+    const score = demandWeight * 2.2 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance - selfNeed * .18 - rivalSetPressure * denyWeight
+    return { won, ownLossUnits, publicRivalWins, minimumBidUnits, score }
+  }).filter((candidate) => {
+    // A collector keeps its chosen category unless an explicit future rule says
+    // otherwise; selling it cheaply is almost always a strategic own goal.
+    if (collectorCategory === candidate.won.item.category) return false
+    return candidate.minimumBidUnits > candidate.ownLossUnits && candidate.publicRivalWins > 0
+  }).sort((left, right) => right.score - left.score || left.won.item.id.localeCompare(right.won.item.id))
+  const best = candidates[0]
+  if (!best || best.score < 1.2 + Math.max(0, behavior.reserveBias) * .8) return undefined
+  return { itemId: best.won.item.id, itemRoundIndex: best.won.roundIndex, minimumBidUnits: best.minimumBidUnits }
+}
+
+/** Decides whether a captured Bot pays to keep its item during public talks. */
+export function decideBotKidnapResponse({ player, item, ransomUnits, roundIndex, totalRounds, sessionSeed }: {
+  player: Player
+  item: Item
+  ransomUnits: number
+  roundIndex: number
+  totalRounds: number
+  sessionSeed: string
+}): boolean {
+  if (player.balanceUnits < ransomUnits) return false
+  const controller = player.controller?.kind === 'bot' ? player.controller : { profileId: 'adaptive' as BotProfileId }
+  const profile = botProfile(controller.profileId)
+  const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
+  const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
+  const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+  const itemIndex = player.items.findIndex((won) => won.item.id === item.id && won.roundIndex === roundIndex)
+  const withoutItem = itemIndex >= 0 ? player.items.filter((_, index) => index !== itemIndex) : player.items.filter((won) => won.item.id !== item.id)
+  const afterAssets = calculateFixedAssets(withoutItem, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+  const assetLossUnits = Math.max(0, beforeAssets - afterAssets)
+  const collectorCashUnits = player.identity?.id === 'collector' && player.identity.collectorCategory === item.category ? coinsToUnits(5) : 0
+  const remainingCash = player.balanceUnits - ransomUnits
+  const roundsLeft = Math.max(0, totalRounds - roundIndex - 1)
+  const cashFloor = coinsToUnits(2 + roundsLeft * (1.2 + Math.max(0, behavior.reserveBias)))
+  const itemUrgency = coinsToUnits(item.value * (.18 + profile.collect * .12)) + assetLossUnits * (.72 + profile.collect * .32) + collectorCashUnits
+  const cashStress = Math.max(0, cashFloor - remainingCash) * (1.05 - profile.risk * .28)
+  const lateGameWeight = roundIndex >= totalRounds - 2 ? 1.2 : 1
+  const variation = normalRandom(`${sessionSeed}:${player.id}:${item.id}:${roundIndex}:kidnap-response`) * coinsToUnits(.7)
+  return itemUrgency * lateGameWeight + variation >= ransomUnits + cashStress
+}
+
 export function modeLabel(mode: StrategyMode): string {
   return ({ value: '价值竞拍', conserve: '保守蓄力', collect: '收藏冲刺', pressure: '强势施压', revenge: '复仇阻击', cards: '道具组合', identity: '身份经营', comeback: '逆风追赶', finalSprint: '终局冲刺' })[mode]
 }

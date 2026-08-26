@@ -9,7 +9,7 @@ import { createDefaultSettings, createRematchSession, createSession, createTutor
 import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetModeLabel } from './game/prophet'
-import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
+import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
 import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'game'
@@ -2029,7 +2029,8 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           return { lotId: lot.id, bidUnits }
         }).concat(decideBotAssetAuctionBids({ player: currentPlayer, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
         const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
-        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
+        const assetAuctionOffer = decideBotAssetAuctionOffer({ player: currentPlayer, observation, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id })
+        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffer } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {
           const retainedBidUnits = Number.isInteger(decision.bidUnits) ? Math.max(0, Math.min(currentPlayer.balanceUnits, decision.bidUnits)) : 0
@@ -2044,8 +2045,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           : decideBotMerchantBid(auctionBidder as Player, session.merchantAuction.cardId)
         submitAuctionBid(decision.bidUnits, decision)
       } else if (session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation) {
-        const captured = session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
-        if (isBot(captured)) resolveKidnapNegotiation(Boolean(captured && captured.balanceUnits >= session.pendingKidnapNegotiation.ransomUnits))
+        const negotiation = session.pendingKidnapNegotiation
+        const captured = negotiation.players.find((player) => player.id === negotiation.capturedPlayerId)
+        if (isBot(captured) && captured) resolveKidnapNegotiation(decideBotKidnapResponse({ player: captured, item: negotiation.item, ransomUnits: negotiation.ransomUnits, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
       } else if (allBots && session.phase === 'revealReady') {
         reveal()
       } else if (allBots && session.phase === 'roundResult') {
