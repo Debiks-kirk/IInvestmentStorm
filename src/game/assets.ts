@@ -11,8 +11,8 @@ export interface AssetCategoryConfig {
 
 export const ASSET_CATEGORY_CONFIGS: AssetCategoryConfig[] = [
   { category: 'leisure', name: '生活娱乐', symbol: '✦', tiers: [12, 25, 48, 82], additionalUnit: 30 },
-  { category: 'transport', name: '交通旅行', symbol: '➜', tiers: [14, 29, 53, 88], additionalUnit: 30 },
-  { category: 'luxury', name: '奢侈科技', symbol: '◆', tiers: [16, 32, 59, 94], additionalUnit: 30 },
+  { category: 'transport', name: '交通旅行', symbol: '➜', tiers: [16, 32, 59, 94], additionalUnit: 30 },
+  { category: 'luxury', name: '奢侈科技', symbol: '◆', tiers: [14, 29, 53, 88], additionalUnit: 30 },
   { category: 'property', name: '地产产业', symbol: '▰', tiers: [18, 36, 64, 100], additionalUnit: 30 },
 ]
 
