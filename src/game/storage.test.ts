@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
-import { archiveGameHistory, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets } from './storage'
+import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets } from './storage'
+import { defaultBotStrategy } from './bots'
 import { CARD_DEFINITIONS } from './cards'
 
 const values = new Map<string, string>()
@@ -50,7 +51,7 @@ describe('配置预设存储', () => {
     settings.identitySettings.identityChoiceCount = 3
     const source = createGamePreset('社区三人局', [{ name: '甲', controller: { kind: 'human' } }, { name: '乙', controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'expert' } }, { name: '丙', controller: { kind: 'human' } }], settings)
     const raw = exportGamePreset(source)
-    expect(JSON.parse(raw)).toMatchObject({ format: 'who-is-raising-preset', version: 1, preset: { name: '社区三人局' } })
+    expect(JSON.parse(raw)).toMatchObject({ format: 'who-is-raising-preset', version: 2, preset: { name: '社区三人局' } })
     expect(importGamePreset(raw)).toMatchObject({ name: '社区三人局', seats: [{ name: '甲' }, { name: '乙', controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'expert' } }, { name: '丙' }], settings: { playerCount: 3, identitySettings: { identityChoiceCount: 3 } } })
   })
 
@@ -94,6 +95,17 @@ describe('对局存档迁移', () => {
     expect(loaded?.players[0].items).toEqual([])
   })
 
+  it('自定义 Bot 模板会独立保存，并随分享配置携带座位快照', () => {
+    const now = '2026-08-26T00:00:00.000Z'
+    const custom = { id: 'studio-bot', name: '藏品猎手', createdAt: now, updatedAt: now, ...defaultBotStrategy('collectorBot'), collection: 93 }
+    saveCustomBotProfiles([custom])
+    expect(loadCustomBotProfiles()).toMatchObject([{ id: 'studio-bot', name: '藏品猎手', collection: 93 }])
+    const source = createGamePreset('带 Bot 配置', [{ name: 'Bot', controller: { kind: 'bot', profileId: 'custom', difficulty: 'expert', customProfile: custom } }, { name: '乙', controller: { kind: 'human' } }, { name: '丙', controller: { kind: 'human' } }], createDefaultSettings(3))
+    const imported = importGamePreset(exportGamePreset(source))
+    expect(imported?.customProfiles).toMatchObject([{ id: 'studio-bot', collection: 93 }])
+    expect(imported?.seats[0].controller).toMatchObject({ kind: 'bot', profileId: 'custom', customProfile: { name: '藏品猎手', identityTactics: custom.identityTactics } })
+  })
+
   it('新局默认预留首轮系统竞购卡，关闭后不进入竞购流程', () => {
     const enabled = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     expect(enabled.roundAuctions).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'system', merchantId: null, roundIndex: 0 })]))
@@ -124,7 +136,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 26, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
+    expect(loadSession()).toMatchObject({ version: 27, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -141,7 +153,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(26)
+    expect(first?.version).toBe(27)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -159,7 +171,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(26)
+    expect(migrated?.version).toBe(27)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

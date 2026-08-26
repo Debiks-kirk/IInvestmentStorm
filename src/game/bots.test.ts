@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotKidnapResponse, decideBotMerchantBid, decideBotTurn, emptyBotMemory, estimateBalances } from './bots'
+import { buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, estimateBalances } from './bots'
 import { createDefaultSettings, createSession } from './session'
 import { createGamePreset } from './presets'
 import type { SeatConfig } from './types'
@@ -249,6 +249,54 @@ describe('Bot 信息边界与决策', () => {
   it('预设会保存 Bot 座位与难度', () => {
     const preset = createGamePreset('Bot 局', seats('expert'), createDefaultSettings(3))
     expect(preset.seats?.[0].controller).toEqual({ kind: 'bot', profileId: 'adaptive', difficulty: 'expert' })
+  })
+
+  it('自定义 Bot 的收藏权重会提高同类拍品竞购预算，而不是只看标价', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const item = { ...session.itemDeck[0], id: 'custom-collection-lot', value: 8, category: 'property' as const }
+    const lot = { id: 'custom-collection-auction', sellerId: session.players[1].id, item, itemRoundIndex: 0, minimumBidUnits: 4, roundIndex: 1 }
+    const lowStrategy = { ...defaultBotStrategy('steady'), collection: 0 }
+    const highStrategy = { ...defaultBotStrategy('collectorBot'), collection: 100 }
+    const base = { ...session.players[0], items: [{ item: { ...item, id: 'held-property' }, roundIndex: -1 }] }
+    const low = { ...base, controller: { kind: 'bot' as const, profileId: 'custom' as const, difficulty: 'expert' as const, customProfile: { id: 'low', name: '低收藏', createdAt: '', updatedAt: '', ...lowStrategy } }, botMemory: emptyBotMemory('custom-collection', lowStrategy) }
+    const high = { ...base, controller: { kind: 'bot' as const, profileId: 'custom' as const, difficulty: 'expert' as const, customProfile: { id: 'high', name: '高收藏', createdAt: '', updatedAt: '', ...highStrategy } }, botMemory: emptyBotMemory('custom-collection', highStrategy) }
+    const lowBid = decideBotAssetAuctionBids({ player: low, lots: [lot], budgetUnits: 50, roundIndex: 1, totalRounds: 6, sessionSeed: 'custom-collection' })[0].bidUnits
+    const highBid = decideBotAssetAuctionBids({ player: high, lots: [lot], budgetUnits: 50, roundIndex: 1, totalRounds: 6, sessionSeed: 'custom-collection' })[0].bidUnits
+    expect(highBid).toBeGreaterThanOrEqual(lowBid)
+  })
+
+  it('预言家只会从自己尚未排除的候选中猜身份，并跳过已识破目标', () => {
+    const session = createSession(seats('expert'), createDefaultSettings(3))
+    session.players[0].identity = { id: 'prophet', thiefSuccesses: 0, merchantAuctionCount: 0, merchantLastAuctionRound: null, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const [prophet, solved, open] = session.players
+    session.prophetIdentityCandidates[prophet.id] = {
+      [solved.id]: ['collector', 'merchant', 'prophet', 'gambler', 'assassin', 'thief'],
+      [open.id]: ['collector', 'merchant', 'prophet', 'gambler', 'assassin', 'thief'],
+    }
+    session.prophetIdentityProgress[prophet.id] = {
+      [solved.id]: { excludedIdentityIds: ['collector'], solvedIdentityId: 'merchant' },
+      [open.id]: { excludedIdentityIds: ['collector', 'gambler'] },
+    }
+    const action = decideBotProphetAction(buildBotObservation(session, prophet.id), prophet.botMemory ?? emptyBotMemory('prophet'), 'identity')
+    expect(action).toMatchObject({ mode: 'identity', targetPlayerId: open.id })
+    expect(['collector', 'gambler']).not.toContain(action?.identityId)
+  })
+
+  it('道具商人会从已锁定的三张候选中稳定挑选一张，而不是刷新重抽', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const player = { ...session.players[0], controller: { kind: 'bot' as const, profileId: 'cards' as const, difficulty: 'expert' as const }, botMemory: emptyBotMemory('merchant-offer', defaultBotStrategy('cards')) }
+    const offered = ['red', 'fateCoin', 'legendaryLoot'] as const
+    const first = decideBotMerchantOffer(player, [...offered], 2, 'merchant-offer')
+    const second = decideBotMerchantOffer(player, [...offered], 2, 'merchant-offer')
+    expect(first).toBe(second)
+    expect(offered).toContain(first)
+  })
+
+  it('身份选取会把自定义专项偏好纳入二选一评分', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const strategy = { ...defaultBotStrategy('adaptive'), identityTactics: { ...defaultBotStrategy('adaptive').identityTactics, investor: 100, collector: 0 } }
+    const player = { ...session.players[0], controller: { kind: 'bot' as const, profileId: 'custom' as const, difficulty: 'expert' as const, customProfile: { id: 'identity', name: '投资优先', createdAt: '', updatedAt: '', ...strategy } }, botMemory: emptyBotMemory('identity-custom', strategy) }
+    expect(decideBotIdentity({ choices: ['collector', 'investor'], player, players: [player, ...session.players.slice(1)] }).identityId).toBe('investor')
   })
 })
 

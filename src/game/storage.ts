@@ -3,12 +3,13 @@ import { normalizeItem } from './items'
 import { getProphetIdentityProgress } from './prophet'
 import { cloneSettings } from './presets'
 import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
-import { emptyBotMemory } from './bots'
-import type { CardId, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig } from './types'
+import { emptyBotMemory, normalizeBotStrategy, strategyForController } from './bots'
+import type { CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
 const HISTORY_STORAGE_KEY = 'who-is-raising:history:v1'
+const CUSTOM_BOTS_STORAGE_KEY = 'who-is-raising:custom-bots:v1'
 const HISTORY_LIMIT = 12
 
 export function saveSession(session: GameSession): void {
@@ -25,14 +26,14 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
           : migrated
-    if (parsed.version !== 26 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && typeof player.botMemory?.behavior?.assetMarketBias === 'number')) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 27 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && typeof player.botMemory?.behavior?.assetMarketBias === 'number' && player.botMemory?.strategy)) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -57,7 +58,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     turnTimeLimitSeconds: Math.min(120, Math.max(5, oldSettings.turnTimeLimitSeconds ?? 20)),
     turnTimerEnabled: oldSettings.turnTimerEnabled ?? false,
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 || session.version === 13 || session.version === 14 || session.version === 15 || session.version === 16 || session.version === 17 || session.version === 18 || session.version === 19 || session.version === 20 || session.version === 21 || session.version === 22 || session.version === 23 || session.version === 24 || session.version === 25 || session.version === 26 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 || session.version === 13 || session.version === 14 || session.version === 15 || session.version === 16 || session.version === 17 || session.version === 18 || session.version === 19 || session.version === 20 || session.version === 21 || session.version === 22 || session.version === 23 || session.version === 24 || session.version === 25 || session.version === 26 || session.version === 27 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -82,7 +83,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         kidnapFreeRoundIndex: identity.kidnapFreeRoundIndex ?? null,
       } : undefined,
       controller: legacy.controller?.kind === 'bot' ? legacy.controller : { kind: 'human' },
-      ...(legacy.controller?.kind === 'bot' ? { botMemory: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`), ...(legacy.botMemory ?? {}), behavior: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`).behavior, ...(legacy.botMemory?.behavior ?? {}) }, grudgeByPlayerId: { ...(legacy.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(legacy.botMemory?.decisionLog ?? [])], recentBidUnits: [...(legacy.botMemory?.recentBidUnits ?? [])] } } : {}),
+      ...(legacy.controller?.kind === 'bot' ? { botMemory: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`, strategyForController(legacy.controller)), ...(legacy.botMemory ?? {}), behavior: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`).behavior, ...(legacy.botMemory?.behavior ?? {}) }, strategy: normalizeBotStrategy(legacy.botMemory?.strategy ?? (legacy.controller.profileId === 'custom' ? legacy.controller.customProfile : undefined), legacy.controller.profileId), grudgeByPlayerId: { ...(legacy.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(legacy.botMemory?.decisionLog ?? [])], recentBidUnits: [...(legacy.botMemory?.recentBidUnits ?? [])] } } : {}),
     }
   })
   const results = ((session.results ?? []) as RoundResult[]).map((result) => ({
@@ -118,7 +119,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   }
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 26,
+    version: 27,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -185,7 +186,7 @@ function isPreset(value: unknown): value is GamePreset {
 }
 
 function normalizePreset(preset: GamePreset): GamePreset {
-  const seats: SeatConfig[] = (preset.seats?.length ? preset.seats : preset.names.map((name) => ({ name, controller: { kind: 'human' as const } }))).map((seat) => ({ name: seat.name, controller: seat.controller?.kind === 'bot' ? { kind: 'bot' as const, profileId: seat.controller.profileId, difficulty: seat.controller.difficulty } : { kind: 'human' as const } }))
+  const seats: SeatConfig[] = (preset.seats?.length ? preset.seats : preset.names.map((name) => ({ name, controller: { kind: 'human' as const } }))).map((seat) => ({ name: seat.name, controller: seat.controller?.kind === 'bot' ? { kind: 'bot' as const, profileId: seat.controller.profileId, difficulty: seat.controller.difficulty, ...(seat.controller.profileId === 'custom' && seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) } : { kind: 'human' as const } }))
   return { ...preset, names: seats.map((seat) => seat.name), seats, settings: cloneSettings(preset.settings) }
 }
 
@@ -206,6 +207,33 @@ export function savePresets(presets: GamePreset[]): void {
     localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify({ version: 2, presets }))
   } catch {
     // Presets remain usable for the current setup form when storage is unavailable.
+  }
+}
+
+function isCustomBotProfile(value: unknown): value is CustomBotProfile {
+  if (!value || typeof value !== 'object') return false
+  const profile = value as Partial<CustomBotProfile>
+  return typeof profile.id === 'string' && typeof profile.name === 'string' && Boolean(profile.identityTactics)
+}
+
+/** Reusable custom Bot templates are kept separately from game presets. */
+export function loadCustomBotProfiles(): CustomBotProfile[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_BOTS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { version?: number; profiles?: unknown }
+    if (parsed.version !== 1 || !Array.isArray(parsed.profiles)) return []
+    return parsed.profiles.filter(isCustomBotProfile).map((profile) => ({ ...profile, ...normalizeBotStrategy(profile), name: profile.name.slice(0, 20) })).slice(0, 24)
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomBotProfiles(profiles: CustomBotProfile[]): void {
+  try {
+    localStorage.setItem(CUSTOM_BOTS_STORAGE_KEY, JSON.stringify({ version: 1, profiles: profiles.slice(0, 24) }))
+  } catch {
+    // A blocked storage area must not prevent the current setup from working.
   }
 }
 

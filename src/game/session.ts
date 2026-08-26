@@ -1,6 +1,6 @@
 import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck, drawCard, getCardDefinition } from './cards'
-import { emptyBotMemory } from './bots'
+import { emptyBotMemory, strategyForController } from './bots'
 import { createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, ITEM_POOL, shuffle } from './items'
 import type { CardGrant, CardId, GameSession, GameSettings, Item, Player, RoundTurn, SeatConfig } from './types'
@@ -66,7 +66,11 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   const now = new Date().toISOString()
   const gameId = createId('game')
   const initialItemDeck = createItemDeck(settings.rounds)
-  const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' } } : seat)
+  const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string'
+    ? { name: seat, controller: { kind: 'human' } }
+    : { ...seat, controller: seat.controller.kind === 'bot'
+      ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) }
+      : { ...seat.controller } })
   const players: Player[] = seats.map((seat, index) => {
     const id = createId('player')
     return {
@@ -78,7 +82,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
       cardInventory: [],
       passivityFeeCount: 0,
       controller: seat.controller,
-      ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory(`${gameId}:${id}`) } : {}),
+      ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory(`${gameId}:${id}`, strategyForController(seat.controller)) } : {}),
     }
   })
   let cardDeck = createCardDeck(settings.disabledCardIds)
@@ -104,7 +108,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 26,
+    version: 27,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },

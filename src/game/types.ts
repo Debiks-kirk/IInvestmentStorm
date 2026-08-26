@@ -18,11 +18,33 @@ export type AnimationSpeed = 'full' | 'fast' | 'reduced'
 
 export type BotDifficulty = 'easy' | 'standard' | 'expert'
 export type BotProfileId = 'steady' | 'aggressive' | 'collectorBot' | 'observer' | 'revenge' | 'cards' | 'identityBot' | 'comeback' | 'blocker' | 'adaptive'
+export type BotProfileSelection = BotProfileId | 'custom'
 export type StrategyMode = 'value' | 'conserve' | 'collect' | 'pressure' | 'revenge' | 'cards' | 'identity' | 'comeback' | 'finalSprint'
 
 export type PlayerController =
   | { kind: 'human' }
-  | { kind: 'bot'; profileId: BotProfileId; difficulty: BotDifficulty }
+  | { kind: 'bot'; profileId: BotProfileSelection; difficulty: BotDifficulty; customProfile?: CustomBotProfile }
+
+/** Persistent knobs for a reusable custom Bot template. Every number is 0–100. */
+export interface BotStrategyConfig {
+  risk: number
+  bankroll: number
+  collection: number
+  market: number
+  cards: number
+  identity: number
+  interference: number
+  prediction: number
+  comeback: number
+  identityTactics: Record<IdentityId, number>
+}
+
+export interface CustomBotProfile extends BotStrategyConfig {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+}
 
 export interface BotMemory {
   grudgeByPlayerId: Record<string, number>
@@ -30,6 +52,8 @@ export interface BotMemory {
   decisionLog: BotDecisionRecord[]
   /** Per-game latent traits keep same-profile bots coherent without making them identical. */
   behavior: BotBehavior
+  /** Snapshot of the selected system/custom template at game start. */
+  strategy: BotStrategyConfig
   recentBidUnits: number[]
 }
 
@@ -452,7 +476,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 26
+  version: 27
   id: string
   phase: GamePhase
   settings: GameSettings

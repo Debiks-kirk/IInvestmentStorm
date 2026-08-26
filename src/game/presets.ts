@@ -1,7 +1,7 @@
 import { defaultRewards } from './engine'
 import { createDefaultSettings } from './session'
 import { normalizeIdentitySettings } from './identities'
-import type { GamePreset, GameSettings, SeatConfig } from './types'
+import type { CustomBotProfile, GamePreset, GameSettings, SeatConfig } from './types'
 
 export interface SystemPreset {
   id: string
@@ -14,7 +14,7 @@ export interface SystemPreset {
 
 export interface SharedPresetPayload {
   format: 'who-is-raising-preset'
-  version: 1
+  version: 1 | 2
   exportedAt: string
   preset: Pick<GamePreset, 'name' | 'names' | 'seats' | 'settings'>
 }
@@ -54,7 +54,7 @@ function createId(): string {
 
 export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | string[], settings: GameSettings, existing?: GamePreset): GamePreset {
   const now = new Date().toISOString()
-  const seats = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' as const } } : { ...seat, controller: { ...seat.controller } })
+  const seats = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' as const } } : { ...seat, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) } : { ...seat.controller } })
   return {
     id: existing?.id ?? createId(),
     name: name.trim(),
@@ -71,12 +71,12 @@ export function exportGamePreset(preset: GamePreset): string {
   const seats = preset.seats ?? preset.names.map((name) => ({ name, controller: { kind: 'human' as const } }))
   const payload: SharedPresetPayload = {
     format: 'who-is-raising-preset',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     preset: {
       name: preset.name,
       names: [...preset.names],
-      seats: seats.map((seat) => ({ name: seat.name, controller: { ...seat.controller } })),
+      seats: seats.map((seat) => ({ name: seat.name, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) } : { ...seat.controller } })),
       settings: cloneSettings(preset.settings),
     },
   }
@@ -84,10 +84,10 @@ export function exportGamePreset(preset: GamePreset): string {
 }
 
 /** Parses an exported setup into safe, normalized configuration data. It never imports IDs or timestamps. */
-export function importGamePreset(raw: string): { name: string; seats: SeatConfig[]; settings: GameSettings } | null {
+export function importGamePreset(raw: string): { name: string; seats: SeatConfig[]; settings: GameSettings; customProfiles: CustomBotProfile[] } | null {
   try {
     const payload = JSON.parse(raw) as Partial<SharedPresetPayload>
-    if (payload.format !== 'who-is-raising-preset' || payload.version !== 1 || !payload.preset || typeof payload.preset.name !== 'string' || !payload.preset.settings) return null
+    if (payload.format !== 'who-is-raising-preset' || (payload.version !== 1 && payload.version !== 2) || !payload.preset || typeof payload.preset.name !== 'string' || !payload.preset.settings) return null
     const sourceSeats = Array.isArray(payload.preset.seats) && payload.preset.seats.length > 0
       ? payload.preset.seats
       : Array.isArray(payload.preset.names) ? payload.preset.names.map((name) => ({ name, controller: { kind: 'human' as const } })) : []
@@ -96,7 +96,7 @@ export function importGamePreset(raw: string): { name: string; seats: SeatConfig
       const source = seat as Partial<SeatConfig>
       if (!source || typeof source.name !== 'string') throw new Error('invalid seat')
       const controller = source.controller?.kind === 'bot'
-        ? { kind: 'bot' as const, profileId: source.controller.profileId, difficulty: source.controller.difficulty }
+        ? { kind: 'bot' as const, profileId: source.controller.profileId === 'custom' ? 'custom' as const : source.controller.profileId, difficulty: source.controller.difficulty, ...(source.controller.profileId === 'custom' && source.controller.customProfile ? { customProfile: source.controller.customProfile } : {}) }
         : { kind: 'human' as const }
       return { name: source.name.slice(0, 12), controller: controller as SeatConfig['controller'] }
     })
@@ -110,7 +110,8 @@ export function importGamePreset(raw: string): { name: string; seats: SeatConfig
       disabledCardIds: Array.isArray(sourceSettings.disabledCardIds) ? sourceSettings.disabledCardIds : defaults.disabledCardIds,
       identitySettings: { ...defaults.identitySettings, ...(sourceSettings.identitySettings ?? {}) },
     })
-    return { name: payload.preset.name.trim().slice(0, 20), seats, settings }
+    const customProfiles = seats.flatMap((seat) => seat.controller.kind === 'bot' && seat.controller.customProfile ? [seat.controller.customProfile] : [])
+    return { name: payload.preset.name.trim().slice(0, 20), seats, settings, customProfiles }
   } catch {
     return null
   }

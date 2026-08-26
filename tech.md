@@ -1,5 +1,12 @@
 # 技术基线
 
+## Bot 策略快照（v27）
+
+- `PlayerController` 的 Bot 可选系统人格或 `custom`，后者内嵌 `CustomBotProfile`，保证预设可跨设备携带。
+- `BotMemory.strategy` 是开局冻结的 `BotStrategyConfig`；会话迁移会为旧 Bot 由其原人格补齐，刷新与复仇局均不复用旧局行为随机数。
+- 本地模板库键为 `who-is-raising:custom-bots:v1`，与对局存档、普通配置库分离；配置导入时复制模板为新 ID，避免覆盖本机同名或同 ID 模板。
+- `bots.ts` 只消费 `BotObservation` 的公共信息、自己的物品/身份/库存及合法情报。类别加成通过 `calculateFixedAssets` 的边际差额计算，不读取对手实际收藏或余额。
+
 ## 预言家双轨推演（v20 兼容）
 
 - `GameSession.prophetIdentityCandidates` 按“预言家 ID → 目标 ID”保存六个身份候选，身份草案完成时生成；候选含真实身份，顺序已锁定，刷新不重新随机。

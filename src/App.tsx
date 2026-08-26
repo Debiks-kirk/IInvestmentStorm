@@ -6,11 +6,11 @@ import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentit
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
-import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSession, saveGameHistory, savePresets, saveSession } from './game/storage'
+import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
-import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
-import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
+import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'collection' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
@@ -280,7 +280,42 @@ function Rules({ onBack }: { onBack: () => void }) {
   )
 }
 
-function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void }) {
+const BOT_STRATEGY_FIELDS: Array<{ key: Exclude<keyof BotStrategyConfig, 'identityTactics'>; label: string }> = [
+  { key: 'risk', label: '风险进攻' }, { key: 'bankroll', label: '现金保留' }, { key: 'collection', label: '收藏经营' }, { key: 'market', label: '市场买卖' }, { key: 'cards', label: '道具偏好' }, { key: 'identity', label: '身份主动性' }, { key: 'interference', label: '干扰复仇' }, { key: 'prediction', label: '预测积极度' }, { key: 'comeback', label: '逆风反扑' },
+]
+
+function newCustomBotProfile(index: number): CustomBotProfile {
+  const now = new Date().toISOString()
+  return { id: `custom-bot-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: `自定义 Bot ${index}`, createdAt: now, updatedAt: now, ...defaultBotStrategy('adaptive') }
+}
+
+function CustomBotManager({ profiles, onChange, onClose }: { profiles: CustomBotProfile[]; onChange: (profiles: CustomBotProfile[]) => void; onClose: () => void }) {
+  const [selectedId, setSelectedId] = useState<string | null>(profiles[0]?.id ?? null)
+  const [advanced, setAdvanced] = useState(false)
+  const selected = profiles.find((profile) => profile.id === selectedId) ?? null
+  const update = (changes: Partial<CustomBotProfile>) => {
+    if (!selected) return
+    onChange(profiles.map((profile) => profile.id === selected.id ? { ...profile, ...changes, updatedAt: new Date().toISOString() } : profile))
+  }
+  const create = () => {
+    const profile = newCustomBotProfile(profiles.length + 1)
+    onChange([...profiles, profile]); setSelectedId(profile.id); setAdvanced(false)
+  }
+  const duplicate = () => {
+    if (!selected) return
+    const now = new Date().toISOString()
+    const profile: CustomBotProfile = { ...selected, id: `custom-bot-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: `${selected.name} 副本`.slice(0, 20), createdAt: now, updatedAt: now, identityTactics: { ...selected.identityTactics } }
+    onChange([...profiles, profile]); setSelectedId(profile.id)
+  }
+  const remove = () => {
+    if (!selected) return
+    const next = profiles.filter((profile) => profile.id !== selected.id)
+    onChange(next); setSelectedId(next[0]?.id ?? null)
+  }
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="custom-bot-title"><section className="custom-bot-sheet"><header><div><p className="eyebrow">Bot 工坊</p><h2 id="custom-bot-title">自定义 Bot</h2><small>模板会保存到本机；开局后自动复制为本局策略快照。</small></div><button className="icon-button" aria-label="关闭自定义 Bot" onClick={onClose}>×</button></header><div className="custom-bot-layout"><aside><button className="button button--primary" onClick={create}>新建模板</button><div className="custom-bot-list">{profiles.map((profile) => <button key={profile.id} className={cx(profile.id === selected?.id && 'is-selected')} onClick={() => { setSelectedId(profile.id); setAdvanced(false) }}><strong>{profile.name}</strong><small>风险 {profile.risk} · 收藏 {profile.collection}</small></button>)}</div></aside>{selected ? <main><div className="custom-bot-name-row"><label>模板名称<input maxLength={20} value={selected.name} onChange={(event) => update({ name: event.target.value })} /></label><button className="text-button" onClick={duplicate}>复制</button><button className="text-button danger" onClick={remove}>删除</button></div><p className="custom-bot-hint">0 为几乎不用，100 为明显偏好；每局仍会保留少量隐藏随机性。</p><div className="custom-bot-sliders">{BOT_STRATEGY_FIELDS.map((field) => <label key={field.key}><span>{field.label}<b>{selected[field.key]}</b></span><input type="range" min="0" max="100" value={selected[field.key]} onChange={(event) => update({ [field.key]: Number(event.target.value) } as Partial<CustomBotProfile>)} /></label>)}</div><button className="advanced-toggle custom-bot-advanced" onClick={() => setAdvanced((value) => !value)}><span><strong>身份专项策略</strong><small>分别调节十个身份的发动倾向与投入程度</small></span><em>{advanced ? '收起 ↑' : '展开 →'}</em></button>{advanced && <div className="custom-bot-identities">{IDENTITY_DEFINITIONS.map((identity) => <label key={identity.id}><span>{identity.symbol} {identity.name}<b>{selected.identityTactics[identity.id]}</b></span><input type="range" min="0" max="100" value={selected.identityTactics[identity.id]} onChange={(event) => update({ identityTactics: { ...selected.identityTactics, [identity.id]: Number(event.target.value) } })} /></label>)}</div>}</main> : <main className="empty-state"><h3>还没有模板</h3><p>新建一个 Bot，再把它放到任意座位。</p></main>}</div><footer><button className="button button--primary" onClick={onClose}>完成</button></footer></section></div>
+}
+
+function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void }) {
   const [settings, setSettings] = useState<GameSettings>(() => createDefaultSettings())
   const [seats, setSeats] = useState<SeatConfig[]>(() => ['玩家 1', '玩家 2', '玩家 3'].map((name) => ({ name, controller: { kind: 'human' } })))
   const [advanced, setAdvanced] = useState(false)
@@ -292,6 +327,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [importError, setImportError] = useState('')
+  const [customBotsOpen, setCustomBotsOpen] = useState(false)
 
   const applyConfiguration = (nextSeats: SeatConfig[], nextSettings: GameSettings, preset?: GamePreset) => {
     setSeats(nextSeats.map((seat) => ({ ...seat, controller: { ...seat.controller } })))
@@ -356,7 +392,21 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
   const importPreset = () => {
     const imported = importGamePreset(importText)
     if (!imported || !imported.name) { setImportError('这不是有效的《谁在加码》配置文件。'); return }
-    const next = createGamePreset(imported.name, imported.seats, imported.settings)
+    // Imported templates are always copied into this device as fresh profiles.
+    // Seat controllers point at their embedded snapshot, so a name/ID collision
+    // can never silently change how a shared setup plays.
+    const now = new Date().toISOString()
+    const profileIdMap = new Map<string, CustomBotProfile>()
+    const importedProfiles = imported.customProfiles.map((profile, index) => {
+      const copy: CustomBotProfile = { ...profile, id: `custom-bot-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`, name: profile.name.slice(0, 20), createdAt: now, updatedAt: now, identityTactics: { ...profile.identityTactics } }
+      profileIdMap.set(profile.id, copy)
+      return copy
+    })
+    if (importedProfiles.length > 0) onSaveCustomBotProfiles([...customBotProfiles, ...importedProfiles].slice(-24))
+    const importedSeats = imported.seats.map((seat) => seat.controller.kind === 'bot' && seat.controller.profileId === 'custom'
+      ? { ...seat, controller: { ...seat.controller, customProfile: seat.controller.customProfile ? { ...(profileIdMap.get(seat.controller.customProfile.id) ?? seat.controller.customProfile), identityTactics: { ...(profileIdMap.get(seat.controller.customProfile.id)?.identityTactics ?? seat.controller.customProfile.identityTactics) } } : undefined } }
+      : seat)
+    const next = createGamePreset(imported.name, importedSeats, imported.settings)
     onSavePresets([...presets, next])
     applyConfiguration(next.seats ?? next.names.map((name) => ({ name, controller: { kind: 'human' as const } })), next.settings, next)
     setImportOpen(false)
@@ -385,11 +435,19 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                   <select aria-label={`玩家 ${index + 1} 类型`} value={seat.controller.kind} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index ? value : event.target.value === 'bot' ? { ...value, controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } } : { ...value, controller: { kind: 'human' } }))}>
                     <option value="human">真人</option><option value="bot">Bot</option>
                   </select>
-                  {seat.controller.kind === 'bot' && <div className="bot-seat-controls"><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 性格`} value={seat.controller.profileId} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, profileId: event.target.value as BotProfileId } }))}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.summary}</option>)}</select><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></div>}
+                  {seat.controller.kind === 'bot' && <div className="bot-seat-controls"><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 性格`} value={seat.controller.profileId === 'custom' ? `custom:${seat.controller.customProfile?.id ?? ''}` : seat.controller.profileId} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => {
+                    if (itemIndex !== index || value.controller.kind !== 'bot') return value
+                    const selected = event.target.value
+                    if (selected.startsWith('custom:')) {
+                      const template = customBotProfiles.find((profile) => profile.id === selected.slice('custom:'.length))
+                      return template ? { ...value, controller: { ...value.controller, profileId: 'custom', customProfile: { ...template, identityTactics: { ...template.identityTactics } } } } : value
+                    }
+                    return { ...value, controller: { ...value.controller, profileId: selected as BotProfileId, customProfile: undefined } }
+                  }))}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.summary}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义模板">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`}>{profile.name} · 自定义</option>)}</optgroup>}</select><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></div>}
                 </div>
               ))}
             </div>
-            {seats.some((seat) => seat.controller.kind === 'bot') && <p className="bot-setup-note">Bot 的性格、难度和策略在开局后保持隐藏；高手每轮可能得到一次模糊投资情报。</p>}
+            {seats.some((seat) => seat.controller.kind === 'bot') && <div className="bot-setup-note"><span>Bot 的性格、难度和策略在开局后保持隐藏；高手每轮可能得到一次模糊投资情报。</span><button className="text-button" onClick={() => setCustomBotsOpen(true)}>管理自定义 Bot</button></div>}
           </div>
           <div className="panel settings-panel">
             <div className="setting-row"><label htmlFor="rounds">轮数</label><div><input id="rounds" type="number" min="1" max="12" value={settings.rounds} onChange={(event) => setSettings({ ...settings, rounds: Number(event.target.value) })} /><span>轮</span></div></div>
@@ -449,6 +507,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
         </section>
         {sharePreset && <div className="modal-backdrop preset-transfer-backdrop" role="dialog" aria-modal="true" aria-labelledby="preset-export-title"><section className="preset-transfer-sheet"><header><div><p className="eyebrow">配置分享</p><h2 id="preset-export-title">导出「{sharePreset.name}」</h2><small>只包含玩家座位与规则，不含任何对局进度或余额。</small></div><button className="icon-button" aria-label="关闭导出" onClick={() => setSharePreset(null)}>×</button></header><textarea readOnly value={sharedText} aria-label="可分享的配置文本" /><div className="preset-transfer-actions"><button className="button button--paper" onClick={downloadPreset}>下载 .json</button><button className="button button--primary" onClick={copyPreset}>复制配置</button></div>{shareStatus && <p className="preset-transfer-status" role="status">{shareStatus}</p>}</section></div>}
         {importOpen && <div className="modal-backdrop preset-transfer-backdrop" role="dialog" aria-modal="true" aria-labelledby="preset-import-title"><section className="preset-transfer-sheet"><header><div><p className="eyebrow">配置分享</p><h2 id="preset-import-title">导入一个配置</h2><small>粘贴别人分享的文本，或选择导出的 .json 文件。导入后会保存为本机的新配置并立刻载入。</small></div><button className="icon-button" aria-label="关闭导入" onClick={() => setImportOpen(false)}>×</button></header><textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportError('') }} placeholder="把配置文本粘贴到这里" aria-label="导入配置文本" /><label className="preset-file-picker">选择 .json 文件<input type="file" accept="application/json,.json" onChange={(event) => readImportFile(event.target.files?.[0])} /></label>{importError && <p className="preset-transfer-error" role="alert">{importError}</p>}<div className="preset-transfer-actions"><button className="button button--paper" onClick={() => setImportOpen(false)}>取消</button><button className="button button--primary" onClick={importPreset}>导入并载入</button></div></section></div>}
+        {customBotsOpen && <CustomBotManager profiles={customBotProfiles} onChange={onSaveCustomBotProfiles} onClose={() => setCustomBotsOpen(false)} />}
         {errors.length > 0 && <div className="error-box" role="alert">{errors.map((error) => <span key={error}>{error}</span>)}</div>}
         <div className="sticky-action"><div><strong>{settings.playerCount} 人 · {settings.rounds} 轮</strong><span>每人 {settings.initialCoins} 金币</span></div><button className="button button--primary button--large" onClick={submit}>开始这局 <span>→</span></button></div>
       </section>
@@ -2056,18 +2115,35 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           return
         }
         const memory = currentPlayer.botMemory ?? emptyBotMemory(`${session.id}:${currentPlayer.id}`)
+        const merchantOffer = session.pendingMerchantOffers.find((offer) => offer.playerId === currentPlayer.id && offer.roundIndex === session.roundIndex)
+        if (merchantOffer && !merchantOffer.chosenCardId) {
+          const cardId = decideBotMerchantOffer(currentPlayer, merchantOffer.offeredCardIds, session.roundIndex, session.id)
+          if (cardId) chooseMerchantOffer(cardId)
+          return
+        }
         const prophetOffer = session.pendingProphetCardOffers.find((offer) => offer.playerId === currentPlayer.id && offer.chosenCardIds.length < 2)
         if (prophetOffer) {
           const cardId = prophetOffer.offeredCardIds.find((id) => !prophetOffer.chosenCardIds.includes(id))
           if (cardId) chooseProphetOffer(currentPlayer.id, cardId)
           return
         }
-        const hasUsedMainDivination = session.prophetDivinations.some((entry) => entry.playerId === currentPlayer.id && entry.roundIndex === session.roundIndex && entry.mode !== 'identity')
+        const ownDivinations = session.prophetDivinations.filter((entry) => entry.playerId === currentPlayer.id && entry.roundIndex === session.roundIndex)
+        const identityRecord = ownDivinations.find((entry) => entry.mode === 'identity')
+        const identityGuesses = identityRecord?.identityGuesses ?? (identityRecord?.identityGuess ? [identityRecord.identityGuess] : [])
+        if (prophetIdentityGuessesRemaining(identityGuesses) > 0) {
+          const divination = decideBotProphetAction(observation, memory, 'identity')
+          if (divination && useProphetDivination(currentPlayer.id, divination.mode, divination.targetPlayerId, divination.identityId)) return
+        }
+        const hasUsedMainDivination = ownDivinations.some((entry) => entry.mode !== 'identity')
         if (!hasUsedMainDivination) {
-          const divination = decideBotProphetAction(observation, memory)
+          const divination = decideBotProphetAction(observation, memory, 'main')
           if (divination && useProphetDivination(currentPlayer.id, divination.mode, divination.targetPlayerId, divination.identityId)) return
         }
         const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
+        if (decision.identityAction?.type === 'merchantAuction' && !merchantOffer) {
+          startMerchantOffer(currentPlayer.id)
+          return
+        }
         if (decision.cardUses.some((use) => use.cardId === 'prizeReroll') && !session.pendingPrizeReroll) {
           startPrizeReroll(currentPlayer.id)
           return
@@ -2158,6 +2234,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [saved, setSaved] = useState<GameSession | null>(() => loadSession())
   const [presets, setPresets] = useState<GamePreset[]>(() => loadPresets())
+  const [customBotProfiles, setCustomBotProfiles] = useState<CustomBotProfile[]>(() => loadCustomBotProfiles())
   const [history, setHistory] = useState<GameHistoryEntry[]>(() => loadGameHistory())
   const [historyEntry, setHistoryEntry] = useState<GameHistoryEntry | null>(null)
   const [session, setSession] = useState<GameSession | null>(null)
@@ -2179,13 +2256,14 @@ export default function App() {
   const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.seats, cloneSettings(preset.settings))) }
   const tutorialStart = () => begin(createTutorialSession())
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
+  const persistCustomBotProfiles = (next: CustomBotProfile[]) => { setCustomBotProfiles(next); saveCustomBotProfiles(next) }
   const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
   const rematch = (keepBotGrudges: boolean) => { if (session) begin(createRematchSession(session, keepBotGrudges)) }
 
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
-  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} />
+  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} customBotProfiles={customBotProfiles} onSaveCustomBotProfiles={persistCustomBotProfiles} />
   if (historyEntry) return <HistoryDetail entry={historyEntry} onBack={() => { setHistoryEntry(null); setScreen('history') }} />
   if (screen === 'history') return <History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} />
   if (screen === 'collection') return <CollectionBook onBack={() => setScreen('home')} />
