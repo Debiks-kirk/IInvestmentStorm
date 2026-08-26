@@ -65,6 +65,18 @@ function CardRarityTag({ cardId }: { cardId: CardId }) {
   return <em className={`card-rarity card-rarity--${card.rarity}`}>{CARD_RARITY_LABELS[card.rarity]}</em>
 }
 
+/** Must run from a player click: some mobile browsers otherwise mute later speech. */
+function primeCountdownVoice() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return
+  const speech = window.speechSynthesis
+  speech.cancel()
+  speech.resume()
+  const primer = new SpeechSynthesisUtterance(' ')
+  primer.lang = 'zh-CN'
+  primer.volume = 0
+  speech.speak(primer)
+}
+
 function OperationTimer({ deadlineAt, onExpire }: { deadlineAt: number | null; onExpire: () => void }) {
   const [now, setNow] = useState(() => Date.now())
   const onExpireRef = useRef(onExpire)
@@ -74,10 +86,14 @@ function OperationTimer({ deadlineAt, onExpire }: { deadlineAt: number | null; o
   const speakCountdown = (seconds: number) => {
     if (seconds < 1 || seconds > 5 || spokenSecondsRef.current.has(seconds)) return
     spokenSecondsRef.current.add(seconds)
+    if ('vibrate' in navigator) navigator.vibrate(seconds === 5 ? 90 : 45)
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return
+    window.speechSynthesis.resume()
     const utterance = new SpeechSynthesisUtterance(seconds === 5 ? '开始读秒，五' : String(seconds))
     utterance.lang = 'zh-CN'
     utterance.rate = 1.08
+    const chineseVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith('zh'))
+    if (chineseVoice) utterance.voice = chineseVoice
     window.speechSynthesis.speak(utterance)
   }
   useEffect(() => {
@@ -2109,10 +2125,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       {session.phase === 'identityHandoff' && <IdentityHandoff session={session} onReady={() => patch({ phase: 'identityDraft' })} />}
       {session.phase === 'identityDraft' && (isBot(session.players[session.identityDraft?.playerIndex ?? 0]) ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots={allBots} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
       {session.phase === 'auctionIntro' && <AuctionIntro session={session} onContinue={() => patch({ phase: 'auctionHandoff' })} />}
-      {session.phase === 'auctionHandoff' && <AuctionHandoff session={session} onReady={() => patch({ phase: 'auctionBid', operationDeadlineAt: session.settings.turnTimerEnabled && !isBot(auctionBidder) ? session.operationDeadlineAt ?? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null })} />}
+      {session.phase === 'auctionHandoff' && <AuctionHandoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'auctionBid', operationDeadlineAt: session.settings.turnTimerEnabled && !isBot(auctionBidder) ? session.operationDeadlineAt ?? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null }) }} />}
       {session.phase === 'auctionBid' && <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />}
       {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={allBots} onContinue={() => patch({ phase: 'handoff' })} />}
-      {session.phase === 'handoff' && <Handoff session={session} onReady={() => patch({ phase: 'privateTurn' })} />}
+      {session.phase === 'handoff' && <Handoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'privateTurn' }) }} />}
       {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
       {session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation && <KidnapNegotiationPanel negotiation={session.pendingKidnapNegotiation} onResolve={resolveKidnapNegotiation} />}
