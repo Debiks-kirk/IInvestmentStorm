@@ -59,6 +59,16 @@ export function canMakeIdentityGuess(divinations: ProphetDivination[], playerId:
   return !progress.solvedIdentityId && !progress.excludedIdentityIds.includes(identityId)
 }
 
+/**
+ * 观身份 starts with two attempts. A correct read restores both attempts, while
+ * wrong reads consume one. The full log is retained for replay and exclusions.
+ */
+export function prophetIdentityGuessesRemaining(guesses: Array<{ correct: boolean }>, allowance = 2): number {
+  const latestCorrectIndex = guesses.map((guess) => guess.correct).lastIndexOf(true)
+  const wrongsSinceReset = latestCorrectIndex < 0 ? guesses.length : guesses.length - latestCorrectIndex - 1
+  return Math.max(0, allowance - wrongsSinceReset)
+}
+
 /** The milestone is based on distinct players whose identity has been solved, not on
  * raw guesses. This matters in three-player games: solving both opponents must
  * immediately unlock the 6-choose-2 reward. */

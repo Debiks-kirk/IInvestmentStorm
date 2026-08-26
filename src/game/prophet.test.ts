@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, shouldQueueProphetMilestoneOffer } from './prophet'
+import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetIdentityGuessesRemaining, shouldQueueProphetMilestoneOffer } from './prophet'
 import type { ProphetDivination } from './types'
 
 describe('预言家天机推演', () => {
@@ -49,6 +49,13 @@ describe('预言家天机推演', () => {
     expect(canMakeIdentityGuess([...history], 'p', 'a', 'gambler')).toBe(false)
     expect(canMakeIdentityGuess([...history], 'p', 'a', 'merchant')).toBe(true)
     expect(canMakeIdentityGuess([...history], 'p', 'b', 'prophet')).toBe(false)
+  })
+
+  it('观身份猜对后会重置为两次机会，猜错才消耗机会', () => {
+    expect(prophetIdentityGuessesRemaining([])).toBe(2)
+    expect(prophetIdentityGuessesRemaining([{ correct: false }])).toBe(1)
+    expect(prophetIdentityGuessesRemaining([{ correct: false }, { correct: true }])).toBe(2)
+    expect(prophetIdentityGuessesRemaining([{ correct: true }, { correct: false }, { correct: false }])).toBe(0)
   })
 
   it('会从历史记录重建持久排除与识破状态', () => {
