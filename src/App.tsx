@@ -67,21 +67,46 @@ function CardRarityTag({ cardId }: { cardId: CardId }) {
 
 function OperationTimer({ deadlineAt, onExpire }: { deadlineAt: number | null; onExpire: () => void }) {
   const [now, setNow] = useState(() => Date.now())
+  const onExpireRef = useRef(onExpire)
+  const spokenDeadlineRef = useRef<number | null>(null)
+  const spokenSecondsRef = useRef(new Set<number>())
+  useEffect(() => { onExpireRef.current = onExpire }, [onExpire])
+  const speakCountdown = (seconds: number) => {
+    if (seconds < 1 || seconds > 5 || spokenSecondsRef.current.has(seconds)) return
+    spokenSecondsRef.current.add(seconds)
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return
+    const utterance = new SpeechSynthesisUtterance(seconds === 5 ? '开始读秒，五' : String(seconds))
+    utterance.lang = 'zh-CN'
+    utterance.rate = 1.08
+    window.speechSynthesis.speak(utterance)
+  }
   useEffect(() => {
-    if (!deadlineAt) return
+    if (!deadlineAt) {
+      spokenDeadlineRef.current = null
+      spokenSecondsRef.current.clear()
+      return
+    }
+    if (spokenDeadlineRef.current !== deadlineAt) {
+      spokenDeadlineRef.current = deadlineAt
+      spokenSecondsRef.current.clear()
+    }
     let expired = false
     const tick = () => {
       const nextNow = Date.now()
       setNow(nextNow)
+      speakCountdown(Math.max(0, Math.ceil((deadlineAt - nextNow) / 1000)))
       if (!expired && nextNow >= deadlineAt) {
         expired = true
-        onExpire()
+        onExpireRef.current()
       }
     }
     tick()
     const timer = window.setInterval(tick, 250)
-    return () => window.clearInterval(timer)
-  }, [deadlineAt, onExpire])
+    return () => {
+      window.clearInterval(timer)
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    }
+  }, [deadlineAt])
   if (!deadlineAt) return null
   const seconds = Math.max(0, Math.ceil((deadlineAt - now) / 1000))
   return <div className={cx('operation-timer', seconds <= 5 && 'is-warning')} role="status" aria-live="polite"><span aria-hidden="true">◷</span><div><small>本次操作剩余</small><strong>{seconds}s</strong></div><em>{seconds <= 5 ? '即将自动确认' : '超时将按当前选择提交'}</em></div>
