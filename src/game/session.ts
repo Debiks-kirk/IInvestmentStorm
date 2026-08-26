@@ -69,7 +69,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string'
     ? { name: seat, controller: { kind: 'human' } }
     : { ...seat, controller: seat.controller.kind === 'bot'
-      ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) }
+      ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityPriority: [...seat.controller.customProfile.identityPriority] } } : {}) }
       : { ...seat.controller } })
   const players: Player[] = seats.map((seat, index) => {
     const id = createId('player')
@@ -108,7 +108,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 27,
+    version: 28,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },

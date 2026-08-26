@@ -54,7 +54,7 @@ function createId(): string {
 
 export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | string[], settings: GameSettings, existing?: GamePreset): GamePreset {
   const now = new Date().toISOString()
-  const seats = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' as const } } : { ...seat, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) } : { ...seat.controller } })
+  const seats = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' as const } } : { ...seat, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityPriority: [...seat.controller.customProfile.identityPriority] } } : {}) } : { ...seat.controller } })
   return {
     id: existing?.id ?? createId(),
     name: name.trim(),
@@ -76,7 +76,7 @@ export function exportGamePreset(preset: GamePreset): string {
     preset: {
       name: preset.name,
       names: [...preset.names],
-      seats: seats.map((seat) => ({ name: seat.name, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityTactics: { ...seat.controller.customProfile.identityTactics } } } : {}) } : { ...seat.controller } })),
+      seats: seats.map((seat) => ({ name: seat.name, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityPriority: [...seat.controller.customProfile.identityPriority] } } : {}) } : { ...seat.controller } })),
       settings: cloneSettings(preset.settings),
     },
   }

@@ -103,7 +103,7 @@ describe('对局存档迁移', () => {
     const source = createGamePreset('带 Bot 配置', [{ name: 'Bot', controller: { kind: 'bot', profileId: 'custom', difficulty: 'expert', customProfile: custom } }, { name: '乙', controller: { kind: 'human' } }, { name: '丙', controller: { kind: 'human' } }], createDefaultSettings(3))
     const imported = importGamePreset(exportGamePreset(source))
     expect(imported?.customProfiles).toMatchObject([{ id: 'studio-bot', collection: 93 }])
-    expect(imported?.seats[0].controller).toMatchObject({ kind: 'bot', profileId: 'custom', customProfile: { name: '藏品猎手', identityTactics: custom.identityTactics } })
+    expect(imported?.seats[0].controller).toMatchObject({ kind: 'bot', profileId: 'custom', customProfile: { name: '藏品猎手', identityPriority: custom.identityPriority } })
   })
 
   it('新局默认预留首轮系统竞购卡，关闭后不进入竞购流程', () => {
@@ -136,7 +136,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 27, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
+    expect(loadSession()).toMatchObject({ version: 28, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -153,12 +153,29 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(27)
+    expect(first?.version).toBe(28)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
     expect(first?.players[0].botMemory?.decisionLog).toEqual(legacy.players[0].botMemory.decisionLog)
     expect(first?.players[0].botMemory?.recentBidUnits).toEqual([])
+  })
+
+  it('旧版身份专项偏好会迁移成稳定的身份优先顺序', () => {
+    const seats = [
+      { name: 'Bot', controller: { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } },
+      { name: '乙', controller: { kind: 'human' as const } },
+      { name: '丙', controller: { kind: 'human' as const } },
+    ]
+    const legacy = JSON.parse(JSON.stringify(createSession(seats, createDefaultSettings(3))))
+    legacy.version = 27
+    const strategy = legacy.players[0].botMemory.strategy
+    strategy.identityTactics = Object.fromEntries(strategy.identityPriority.map((identityId: string, index: number) => [identityId, index === 4 ? 100 : 0]))
+    delete strategy.identityPriority
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    const migrated = loadSession()
+    expect(migrated?.version).toBe(28)
+    expect(migrated?.players[0].botMemory?.strategy.identityPriority[0]).toBe(legacy.players[0].botMemory.strategy.identityTactics ? Object.keys(legacy.players[0].botMemory.strategy.identityTactics).find((identityId) => legacy.players[0].botMemory.strategy.identityTactics[identityId] === 100) : undefined)
   })
 
   it('v2 存档补齐拍品分类而不改写已有规则数值', () => {
@@ -171,7 +188,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(27)
+    expect(migrated?.version).toBe(28)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

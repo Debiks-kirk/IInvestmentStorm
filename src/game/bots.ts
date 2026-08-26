@@ -33,6 +33,7 @@ export function botProfile(id: BotProfileSelection): BotProfile {
 }
 
 const IDENTITY_IDS: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker', 'investor']
+type BotStrategyInput = Partial<BotStrategyConfig> & { identityTactics?: Partial<Record<IdentityId, number>> }
 
 function boundedPercent(value: number | undefined, fallback: number): number {
   return Math.round(clamp(Number.isFinite(value) ? value as number : fallback, 0, 100))
@@ -42,27 +43,34 @@ function boundedPercent(value: number | undefined, fallback: number): number {
 export function defaultBotStrategy(profileId: BotProfileSelection = 'adaptive'): BotStrategyConfig {
   const profile = botProfile(profileId === 'custom' ? 'adaptive' : profileId)
   const base = (value: number) => Math.round(value * 100)
-  const identityTactics = Object.fromEntries(IDENTITY_IDS.map((id) => [id, 50])) as Record<IdentityId, number>
-  identityTactics.collector = boundedPercent(base(profile.collect * .72 + .22), 50)
-  identityTactics.assassin = boundedPercent(base(profile.revenge * .55 + profile.risk * .35 + .12), 50)
-  identityTactics.thief = boundedPercent(base(profile.cards * .58 + profile.revenge * .28 + .16), 50)
-  identityTactics.merchant = boundedPercent(base(profile.cards * .7 + .15), 50)
-  identityTactics.reverser = boundedPercent(base(profile.risk * .62 + profile.identity * .2 + .12), 50)
-  identityTactics.lobbyist = boundedPercent(base(profile.identity * .62 + profile.revenge * .25 + .12), 50)
-  identityTactics.nightwalker = boundedPercent(base(profile.risk * .52 + profile.identity * .35 + .12), 50)
-  identityTactics.investor = boundedPercent(base(profile.collect * .42 + profile.risk * .35 + .15), 50)
-  identityTactics.prophet = boundedPercent(base(profile.identity * .42 + profile.cards * .3 + .2), 50)
-  identityTactics.gambler = boundedPercent(base(profile.risk * .72 + .12), 50)
+  const identityScores: Record<IdentityId, number> = {
+    collector: profile.collect * .72 + .22,
+    assassin: profile.revenge * .55 + profile.risk * .35 + .12,
+    thief: profile.cards * .58 + profile.revenge * .28 + .16,
+    merchant: profile.cards * .7 + .15,
+    reverser: profile.risk * .62 + profile.identity * .2 + .12,
+    lobbyist: profile.identity * .62 + profile.revenge * .25 + .12,
+    nightwalker: profile.risk * .52 + profile.identity * .35 + .12,
+    investor: profile.collect * .42 + profile.risk * .35 + .15,
+    prophet: profile.identity * .42 + profile.cards * .3 + .2,
+    gambler: profile.risk * .72 + .12,
+  }
+  const identityPriority = [...IDENTITY_IDS].sort((left, right) => identityScores[right] - identityScores[left] || left.localeCompare(right))
   return {
-    risk: base(profile.risk), bankroll: base(1 - profile.risk * .55), collection: base(profile.collect), market: base(profile.risk * .45 + profile.collect * .3 + .2), cards: base(profile.cards), identity: base(profile.identity), interference: base(profile.revenge), prediction: base(profile.risk * .45 + .25), comeback: base(profile.risk * .5 + .3), identityTactics,
+    risk: base(profile.risk), bankroll: base(1 - profile.risk * .55), collection: base(profile.collect), market: base(profile.risk * .45 + profile.collect * .3 + .2), cards: base(profile.cards), identity: base(profile.identity), interference: base(profile.revenge), prediction: base(profile.risk * .45 + .25), comeback: base(profile.risk * .5 + .3), identityPriority,
   }
 }
 
-export function normalizeBotStrategy(value: Partial<BotStrategyConfig> | undefined, fallbackProfile: BotProfileSelection = 'adaptive'): BotStrategyConfig {
+export function normalizeBotStrategy(value: BotStrategyInput | undefined, fallbackProfile: BotProfileSelection = 'adaptive'): BotStrategyConfig {
   const defaults = defaultBotStrategy(fallbackProfile)
+  const fromLegacyTactics = value?.identityTactics
+    ? [...IDENTITY_IDS].sort((left, right) => (value.identityTactics?.[right] ?? 0) - (value.identityTactics?.[left] ?? 0) || left.localeCompare(right))
+    : undefined
+  const preferred = Array.isArray(value?.identityPriority) ? value.identityPriority.filter((id): id is IdentityId => IDENTITY_IDS.includes(id)) : fromLegacyTactics
+  const identityPriority = [...new Set([...(preferred ?? []), ...defaults.identityPriority, ...IDENTITY_IDS])]
   return {
     risk: boundedPercent(value?.risk, defaults.risk), bankroll: boundedPercent(value?.bankroll, defaults.bankroll), collection: boundedPercent(value?.collection, defaults.collection), market: boundedPercent(value?.market, defaults.market), cards: boundedPercent(value?.cards, defaults.cards), identity: boundedPercent(value?.identity, defaults.identity), interference: boundedPercent(value?.interference, defaults.interference), prediction: boundedPercent(value?.prediction, defaults.prediction), comeback: boundedPercent(value?.comeback, defaults.comeback),
-    identityTactics: Object.fromEntries(IDENTITY_IDS.map((id) => [id, boundedPercent(value?.identityTactics?.[id], defaults.identityTactics[id])])) as Record<IdentityId, number>,
+    identityPriority,
   }
 }
 
@@ -528,7 +536,7 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
       ? choose(observation.humanOpponentIds, `${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:expert-human-target`)
       : undefined
     const targetScore = (targetId: string) => kidnapSuccessChance(observation, targetId)
-      * (.7 + memory.strategy.identityTactics.assassin / 200)
+      * (.7 + memory.strategy.interference / 330)
       + normalRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${targetId}:kidnap-target`) * .026
       + (targetId === favouredHumanId ? .038 : 0)
     const orderedTargets = [...observation.opponents].sort((left, right) => targetScore(right.id) - targetScore(left.id))
@@ -541,7 +549,7 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
   if (observation.self.identity?.id === 'thief' && observation.roundIndex < observation.totalRounds - 1) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:thief`, identityAction: { type: 'thiefSteal' as const }, specialReason: '发动偷卡，争取从其他玩家的未使用库存中夺取机会。' })))
   }
-  if (observation.self.identity?.id === 'merchant' && observation.roundIndex < observation.totalRounds - 1 && observation.cardDeckSize > 0 && (observation.self.identity.merchantAuctionCount ?? 0) < observation.merchantAuctionLimit && observation.self.identity.merchantLastAuctionRound !== observation.roundIndex && memory.strategy.identityTactics.merchant >= 20) {
+  if (observation.self.identity?.id === 'merchant' && observation.roundIndex < observation.totalRounds - 1 && observation.cardDeckSize > 0 && (observation.self.identity.merchantAuctionCount ?? 0) < observation.merchantAuctionLimit && observation.self.identity.merchantLastAuctionRound !== observation.roundIndex) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:merchant`, identityAction: { type: 'merchantAuction' as const }, specialReason: '发起下轮道具竞购，争取将循环道具转化为现金。' })))
   }
   if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
@@ -549,7 +557,7 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
     const targets = [...observation.opponents].sort((left, right) => expectedCurrentBid(observation, right.id) - expectedCurrentBid(observation, left.id)).slice(0, Math.min(3, observation.opponents.length))
     for (const opponent of targets) {
       plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:lobby:${opponent.id}`, identityAction: { type: 'lobbyistContract' as const, targetPlayerId: opponent.id }, specialReason: `向 ${opponent.name} 发布随机任务，争取下轮获得违约收益。` })))
-      if (memory.strategy.identityTactics.lobbyist >= 48 && comparator && comparator.id !== opponent.id) {
+      if (comparator && comparator.id !== opponent.id) {
         const taskType: LobbyistTaskType = expectedCurrentBid(observation, opponent.id) > expectedCurrentBid(observation, comparator.id) * .72 ? 'underbid' : 'outbid'
         plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:lobby:specified:${opponent.id}:${taskType}:${comparator.id}`, identityAction: { type: 'lobbyistContract' as const, targetPlayerId: opponent.id, specified: true, taskType, comparisonPlayerId: comparator.id }, specialReason: `向 ${opponent.name} 发出指定任务，挑选较难完成的比较条件。` })))
       }
@@ -557,7 +565,7 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
   }
   if (observation.self.identity?.id === 'investor' && observation.self.balanceUnits >= coinsToUnits(.5)) {
     const targets = [...observation.opponents].sort((left, right) => kidnapSuccessChance(observation, right.id) - kidnapSuccessChance(observation, left.id)).slice(0, Math.min(4, observation.opponents.length))
-    const maxInvestment = Math.min(observation.self.balanceUnits, coinsToUnits(2 + memory.strategy.identityTactics.investor / 12))
+    const maxInvestment = Math.min(observation.self.balanceUnits, coinsToUnits(6))
     const amounts = candidateBids(maxInvestment).filter((units) => units > 0 && (units <= coinsToUnits(3) || units % 2 === 0 || units === maxInvestment))
     for (const target of targets) for (const investmentUnits of amounts) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:invest:${target.id}:${investmentUnits}`, identityAction: { type: 'invest' as const, targetPlayerId: target.id, investmentUnits }, specialReason: `秘密跟投 ${target.name}，争取按出资比例分享排名奖励。` })))
   }
@@ -572,7 +580,7 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
   // disappears merely because a Bot happens to hold many cards.
   const isIdentityPlan = (plan: TurnPlan) => Boolean(plan.identityAction)
   const order = (left: TurnPlan, right: TurnPlan) => hash(`${observation.sessionSeed}:${observation.playerId}:${left.id}`) - hash(`${observation.sessionSeed}:${observation.playerId}:${right.id}`)
-  const identityBudget = activeIdentity ? Math.round(12 + memory.strategy.identityTactics[activeIdentity] * .26) : 0
+  const identityBudget = activeIdentity ? 28 : 0
   const identityPlans = rest.filter(isIdentityPlan).sort(order).slice(0, identityBudget)
   const selectedIdentityIds = new Set(identityPlans.map((plan) => plan.id))
   const otherPlans = rest.filter((plan) => !selectedIdentityIds.has(plan.id)).sort(order).slice(0, Math.max(0, 55 - identityPlans.length))
@@ -664,7 +672,7 @@ export interface BotTurnDecision {
  * up to two identity guesses. Bots only see their own persisted candidate cards. */
 export function decideBotProphetAction(observation: BotObservation, memory: BotMemory, channel: 'main' | 'identity' = 'main'): { mode: 'wealth' | 'stars' | 'identity'; targetPlayerId?: string; identityId?: IdentityId } | null {
   if (observation.self.identity?.id !== 'prophet') return null
-  const strategy = memory.strategy
+  const strategy = memory.strategy ?? defaultBotStrategy('adaptive')
   if (channel === 'identity') {
     const targets = observation.opponents.map((opponent) => {
       const progress = observation.prophetIdentityProgress?.[opponent.id]
@@ -677,7 +685,7 @@ export function decideBotProphetAction(observation: BotObservation, memory: BotM
     const target = [...targets].sort((left, right) => right.importance - left.importance || left.candidates.length - right.candidates.length || hash(`${observation.sessionSeed}:${observation.playerId}:${left.opponent.id}:prophet-target`) - hash(`${observation.sessionSeed}:${observation.playerId}:${right.opponent.id}:prophet-target`))[0]
     // Every remaining candidate is formally equally possible. The fixed draw merely
     // prevents a prophet from visibly repeating the same alphabetical guess pattern.
-    const identityId = choose(target.candidates, `${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${target.opponent.id}:${strategy.identityTactics.prophet}:prophet-guess`)
+    const identityId = choose(target.candidates, `${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${target.opponent.id}:prophet-guess`)
     return identityId ? { mode: 'identity', targetPlayerId: target.opponent.id, identityId } : null
   }
   if (observation.roundIndex >= observation.totalRounds - 1) return { mode: 'wealth' }
@@ -815,7 +823,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const grudgeKidnapBonus = kidnappedTarget && kidnappedTarget === preferredOpponent(observation, memory) ? coinsToUnits(profile.revenge * .7) * kidnapChance : 0
       const tiePenalty = estimate.tieChance * coinsToUnits(2.2 + Math.max(0, behavior.edgeBias) * .8)
       const fingerprintBonus = ((bidUnits + behavior.quoteFingerprint) % 5 === 0 ? coinsToUnits(.12) : 0) + behavior.edgeBias * Math.min(coinsToUnits(.7), bidUnits * .04)
-      const tactic = (id: IdentityId) => .35 + memory.strategy.identityTactics[id] / 100
+      const tactic = (_id: IdentityId) => 1
       const investmentValue = plan.identityAction?.type === 'invest' ? (() => {
         const targetId = plan.identityAction.targetPlayerId
         const targetBid = expectedCurrentBid(observation, targetId) + plan.identityAction.investmentUnits
@@ -827,7 +835,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         return targetChance * share * (reward + categoryUpside) * tactic('investor')
       })() : 0
       const reverserFutureValue = plan.identityAction?.type === 'reverserInvert' && effectivePlace === 1
-        ? coinsToUnits(.8 + memory.strategy.identityTactics.reverser / 120)
+        ? coinsToUnits(.8 + profile.identity * .6)
         : 0
       const thiefOpportunity = observation.cardDeckSize > 0 ? coinsToUnits(.45 + memory.strategy.cards / 220) : coinsToUnits(.18)
       const identityValue = plan.identityAction?.type === 'kidnap' ? kidnapChance * coinsToUnits(2.4 + profile.revenge) * tactic('assassin')
@@ -867,7 +875,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       return rightItemUpgrade - leftItemUpgrade || right.net - left.net || left.bidUnits - right.bidUnits
     })[0]
     const makesItemPush = Boolean(prioritizeItem && shadow?.likelyWinsItem && !baseLikelyWinsItem)
-    if (shadow && memory.strategy.identityTactics.nightwalker >= 25 && (makesItemPush || shadow.net > baseNet + coinsToUnits(.2))) {
+    if (shadow && (makesItemPush || shadow.net > baseNet + coinsToUnits(.2))) {
       identityAction = { type: 'nightwalkerDoubleBid', shadowBidUnits: shadow.bidUnits, prioritizeItem }
     }
   }
@@ -886,8 +894,11 @@ export function decideBotIdentity({ choices, player, players, cardOfferIds }: { 
   const controller = player.controller?.kind === 'bot' ? player.controller : undefined
   const profile = effectiveProfile(controller, player.botMemory)
   const strategy = player.botMemory?.strategy ?? strategyForController(player.controller ?? { kind: 'human' })
-  const tactical = (id: IdentityId) => strategy.identityTactics[id] / 100
-  const scores: Record<IdentityId, number> = { prophet: .4 + tactical('prophet'), gambler: profile.risk + tactical('gambler'), assassin: profile.revenge + profile.risk + tactical('assassin'), collector: profile.collect + tactical('collector'), thief: profile.cards + profile.revenge + tactical('thief'), merchant: profile.cards + tactical('merchant'), reverser: profile.risk + tactical('reverser'), lobbyist: profile.identity + profile.revenge + tactical('lobbyist'), nightwalker: profile.risk + profile.identity * .55 + tactical('nightwalker'), investor: profile.collect + profile.risk * .35 + tactical('investor') }
+  const priorityBonus = (id: IdentityId) => {
+    const index = strategy.identityPriority.indexOf(id)
+    return index < 0 ? 0 : (IDENTITY_IDS.length - index) * .18
+  }
+  const scores: Record<IdentityId, number> = { prophet: .4 + priorityBonus('prophet'), gambler: profile.risk + priorityBonus('gambler'), assassin: profile.revenge + profile.risk + priorityBonus('assassin'), collector: profile.collect + priorityBonus('collector'), thief: profile.cards + profile.revenge + priorityBonus('thief'), merchant: profile.cards + priorityBonus('merchant'), reverser: profile.risk + priorityBonus('reverser'), lobbyist: profile.identity + profile.revenge + priorityBonus('lobbyist'), nightwalker: profile.risk + profile.identity * .55 + priorityBonus('nightwalker'), investor: profile.collect + profile.risk * .35 + priorityBonus('investor') }
   const identityId = [...choices].sort((left, right) => scores[right] - scores[left] || left.localeCompare(right))[0] ?? choices[0]
   const target = players.filter((entry) => entry.id !== player.id)[hash(`${player.id}:${identityId}`) % Math.max(1, players.length - 1)]
   const categories: AssetCategory[] = ['leisure', 'transport', 'luxury', 'property']

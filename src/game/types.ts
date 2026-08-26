@@ -36,7 +36,8 @@ export interface BotStrategyConfig {
   interference: number
   prediction: number
   comeback: number
-  identityTactics: Record<IdentityId, number>
+  /** Ordered most-preferred to least-preferred; only used during identity draft. */
+  identityPriority: IdentityId[]
 }
 
 export interface CustomBotProfile extends BotStrategyConfig {
@@ -476,7 +477,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 27
+  version: 28
   id: string
   phase: GamePhase
   settings: GameSettings

@@ -475,14 +475,23 @@ body:has(.modal-backdrop), body:has(.advanced-backdrop), body:has(.kidnap-negoti
 .custom-bot-name-row label { display: grid; flex: 1 1 auto; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .custom-bot-name-row input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; color: var(--ink); background: rgba(255,255,255,.66); font: inherit; }
 .custom-bot-hint { margin: 14px 0 16px; color: var(--muted); font-size: 12px; }
-.custom-bot-sliders, .custom-bot-identities { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 18px; }
-.custom-bot-sliders label, .custom-bot-identities label { display: grid; gap: 7px; min-width: 0; }
-.custom-bot-sliders span, .custom-bot-identities span { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 700; }
-.custom-bot-sliders b, .custom-bot-identities b { display: grid; min-width: 29px; height: 20px; place-items: center; border-radius: 999px; color: #fffaf4; background: #8a7857; font-size: 10px; }
-.custom-bot-sliders input, .custom-bot-identities input { width: 100%; accent-color: var(--red); }
-.custom-bot-advanced { width: 100%; margin-top: 22px; }
-.custom-bot-advanced small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; }
-.custom-bot-identities { margin-top: 13px; padding: 16px; border: 1px solid rgba(126,115,93,.15); border-radius: 15px; background: rgba(255,255,255,.46); }
+.custom-bot-sliders { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 18px; }
+.custom-bot-sliders label { display: grid; gap: 7px; min-width: 0; }
+.custom-bot-sliders span { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 700; }
+.custom-bot-sliders b { display: grid; min-width: 29px; height: 20px; place-items: center; border-radius: 999px; color: #fffaf4; background: #8a7857; font-size: 10px; }
+.custom-bot-sliders input { width: 100%; accent-color: var(--red); }
+.custom-bot-priority { width: 100%; margin-top: 22px; overflow: hidden; border: 1px solid rgba(126,115,93,.2); border-radius: 16px; background: rgba(255,255,255,.5); }
+.custom-bot-priority > header { display: flex; padding: 14px 16px; border-bottom: 1px solid rgba(126,115,93,.13); }
+.custom-bot-priority > header strong, .custom-bot-priority > header small { display: block; }
+.custom-bot-priority > header small { margin-top: 3px; color: var(--muted); font-size: 12px; }
+.custom-bot-priority ol { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; padding: 12px; list-style: none; }
+.custom-bot-priority li { display: grid; grid-template-columns: 24px 28px minmax(0,1fr) auto; align-items: center; gap: 8px; min-width: 0; padding: 9px 10px; border: 1px solid rgba(126,115,93,.13); border-radius: 11px; background: rgba(255,253,248,.82); }
+.custom-bot-priority li > b { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 999px; color: #fffaf4; background: #8a7857; font-size: 11px; }
+.custom-bot-priority li > span { font-size: 20px; line-height: 1; }
+.custom-bot-priority li > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.custom-bot-priority li > div { display: flex; gap: 3px; }
+.custom-bot-priority button { display: grid; width: 27px; height: 27px; place-items: center; padding: 0; border: 1px solid rgba(126,115,93,.24); border-radius: 8px; color: var(--ink); background: #fffdf8; cursor: pointer; font-weight: 800; }
+.custom-bot-priority button:disabled { opacity: .35; cursor: default; }
 .custom-bot-layout .empty-state { display: grid; place-content: center; min-height: 310px; text-align: center; }
 
 @media (max-width: 660px) {
@@ -494,5 +503,5 @@ body:has(.modal-backdrop), body:has(.advanced-backdrop), body:has(.kidnap-negoti
   .custom-bot-list > button { flex: 0 0 150px; }
   .custom-bot-layout > main { overflow: visible; padding: 17px 16px; }
   .custom-bot-name-row { flex-wrap: wrap; }
-  .custom-bot-sliders, .custom-bot-identities { grid-template-columns: 1fr; }
+  .custom-bot-sliders, .custom-bot-priority ol { grid-template-columns: 1fr; }
 }

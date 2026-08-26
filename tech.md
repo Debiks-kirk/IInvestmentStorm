@@ -1,9 +1,9 @@
 # 技术基线
 
-## Bot 策略快照（v27）
+## Bot 策略快照（v28）
 
 - `PlayerController` 的 Bot 可选系统人格或 `custom`，后者内嵌 `CustomBotProfile`，保证预设可跨设备携带。
-- `BotMemory.strategy` 是开局冻结的 `BotStrategyConfig`；会话迁移会为旧 Bot 由其原人格补齐，刷新与复仇局均不复用旧局行为随机数。
+- `BotMemory.strategy` 是开局冻结的 `BotStrategyConfig`；九项核心参数决定回合内策略，`identityPriority` 仅用于身份候选的取舍。会话迁移会将旧版身份专项参数降序转换为该排序，刷新与复仇局均不复用旧局行为随机数。
 - 本地模板库键为 `who-is-raising:custom-bots:v1`，与对局存档、普通配置库分离；配置导入时复制模板为新 ID，避免覆盖本机同名或同 ID 模板。
 - `bots.ts` 只消费 `BotObservation` 的公共信息、自己的物品/身份/库存及合法情报。类别加成通过 `calculateFixedAssets` 的边际差额计算，不读取对手实际收藏或余额。
 

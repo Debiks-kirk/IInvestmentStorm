@@ -280,7 +280,7 @@ function Rules({ onBack }: { onBack: () => void }) {
   )
 }
 
-const BOT_STRATEGY_FIELDS: Array<{ key: Exclude<keyof BotStrategyConfig, 'identityTactics'>; label: string }> = [
+const BOT_STRATEGY_FIELDS: Array<{ key: Exclude<keyof BotStrategyConfig, 'identityPriority'>; label: string }> = [
   { key: 'risk', label: '风险进攻' }, { key: 'bankroll', label: '现金保留' }, { key: 'collection', label: '收藏经营' }, { key: 'market', label: '市场买卖' }, { key: 'cards', label: '道具偏好' }, { key: 'identity', label: '身份主动性' }, { key: 'interference', label: '干扰复仇' }, { key: 'prediction', label: '预测积极度' }, { key: 'comeback', label: '逆风反扑' },
 ]
 
@@ -291,7 +291,6 @@ function newCustomBotProfile(index: number): CustomBotProfile {
 
 function CustomBotManager({ profiles, onChange, onClose }: { profiles: CustomBotProfile[]; onChange: (profiles: CustomBotProfile[]) => void; onClose: () => void }) {
   const [selectedId, setSelectedId] = useState<string | null>(profiles[0]?.id ?? null)
-  const [advanced, setAdvanced] = useState(false)
   const selected = profiles.find((profile) => profile.id === selectedId) ?? null
   const update = (changes: Partial<CustomBotProfile>) => {
     if (!selected) return
@@ -299,12 +298,12 @@ function CustomBotManager({ profiles, onChange, onClose }: { profiles: CustomBot
   }
   const create = () => {
     const profile = newCustomBotProfile(profiles.length + 1)
-    onChange([...profiles, profile]); setSelectedId(profile.id); setAdvanced(false)
+    onChange([...profiles, profile]); setSelectedId(profile.id)
   }
   const duplicate = () => {
     if (!selected) return
     const now = new Date().toISOString()
-    const profile: CustomBotProfile = { ...selected, id: `custom-bot-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: `${selected.name} 副本`.slice(0, 20), createdAt: now, updatedAt: now, identityTactics: { ...selected.identityTactics } }
+    const profile: CustomBotProfile = { ...selected, id: `custom-bot-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: `${selected.name} 副本`.slice(0, 20), createdAt: now, updatedAt: now, identityPriority: [...selected.identityPriority] }
     onChange([...profiles, profile]); setSelectedId(profile.id)
   }
   const remove = () => {
@@ -312,7 +311,16 @@ function CustomBotManager({ profiles, onChange, onClose }: { profiles: CustomBot
     const next = profiles.filter((profile) => profile.id !== selected.id)
     onChange(next); setSelectedId(next[0]?.id ?? null)
   }
-  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="custom-bot-title"><section className="custom-bot-sheet"><header><div><p className="eyebrow">Bot 工坊</p><h2 id="custom-bot-title">自定义 Bot</h2><small>模板会保存到本机；开局后自动复制为本局策略快照。</small></div><button className="icon-button" aria-label="关闭自定义 Bot" onClick={onClose}>×</button></header><div className="custom-bot-layout"><aside><button className="button button--primary" onClick={create}>新建模板</button><div className="custom-bot-list">{profiles.map((profile) => <button key={profile.id} className={cx(profile.id === selected?.id && 'is-selected')} onClick={() => { setSelectedId(profile.id); setAdvanced(false) }}><strong>{profile.name}</strong><small>风险 {profile.risk} · 收藏 {profile.collection}</small></button>)}</div></aside>{selected ? <main><div className="custom-bot-name-row"><label>模板名称<input maxLength={20} value={selected.name} onChange={(event) => update({ name: event.target.value })} /></label><button className="text-button" onClick={duplicate}>复制</button><button className="text-button danger" onClick={remove}>删除</button></div><p className="custom-bot-hint">0 为几乎不用，100 为明显偏好；每局仍会保留少量隐藏随机性。</p><div className="custom-bot-sliders">{BOT_STRATEGY_FIELDS.map((field) => <label key={field.key}><span>{field.label}<b>{selected[field.key]}</b></span><input type="range" min="0" max="100" value={selected[field.key]} onChange={(event) => update({ [field.key]: Number(event.target.value) } as Partial<CustomBotProfile>)} /></label>)}</div><button className="advanced-toggle custom-bot-advanced" onClick={() => setAdvanced((value) => !value)}><span><strong>身份专项策略</strong><small>分别调节十个身份的发动倾向与投入程度</small></span><em>{advanced ? '收起 ↑' : '展开 →'}</em></button>{advanced && <div className="custom-bot-identities">{IDENTITY_DEFINITIONS.map((identity) => <label key={identity.id}><span>{identity.symbol} {identity.name}<b>{selected.identityTactics[identity.id]}</b></span><input type="range" min="0" max="100" value={selected.identityTactics[identity.id]} onChange={(event) => update({ identityTactics: { ...selected.identityTactics, [identity.id]: Number(event.target.value) } })} /></label>)}</div>}</main> : <main className="empty-state"><h3>还没有模板</h3><p>新建一个 Bot，再把它放到任意座位。</p></main>}</div><footer><button className="button button--primary" onClick={onClose}>完成</button></footer></section></div>
+  const movePriority = (identityId: IdentityId, direction: -1 | 1) => {
+    if (!selected) return
+    const currentIndex = selected.identityPriority.indexOf(identityId)
+    const nextIndex = currentIndex + direction
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= selected.identityPriority.length) return
+    const identityPriority = [...selected.identityPriority]
+    ;[identityPriority[currentIndex], identityPriority[nextIndex]] = [identityPriority[nextIndex], identityPriority[currentIndex]]
+    update({ identityPriority })
+  }
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="custom-bot-title"><section className="custom-bot-sheet"><header><div><p className="eyebrow">Bot 工坊</p><h2 id="custom-bot-title">自定义 Bot</h2><small>模板会保存到本机；开局后自动复制为本局策略快照。</small></div><button className="icon-button" aria-label="关闭自定义 Bot" onClick={onClose}>×</button></header><div className="custom-bot-layout"><aside><button className="button button--primary" onClick={create}>新建模板</button><div className="custom-bot-list">{profiles.map((profile) => <button key={profile.id} className={cx(profile.id === selected?.id && 'is-selected')} onClick={() => setSelectedId(profile.id)}><strong>{profile.name}</strong><small>风险 {profile.risk} · 收藏 {profile.collection}</small></button>)}</div></aside>{selected ? <main><div className="custom-bot-name-row"><label>模板名称<input maxLength={20} value={selected.name} onChange={(event) => update({ name: event.target.value })} /></label><button className="text-button" onClick={duplicate}>复制</button><button className="text-button danger" onClick={remove}>删除</button></div><p className="custom-bot-hint">核心参数影响平时的打法；身份顺序只影响开局抽到候选时更想选谁。</p><div className="custom-bot-sliders">{BOT_STRATEGY_FIELDS.map((field) => <label key={field.key}><span>{field.label}<b>{selected[field.key]}</b></span><input type="range" min="0" max="100" value={selected[field.key]} onChange={(event) => update({ [field.key]: Number(event.target.value) } as Partial<CustomBotProfile>)} /></label>)}</div><section className="custom-bot-priority"><header><div><strong>身份优先顺序</strong><small>排在前面的身份，抽到时更优先选择。</small></div></header><ol>{selected.identityPriority.map((identityId, index) => { const identity = getIdentityDefinition(identityId); return <li key={identityId}><b>{index + 1}</b><span>{identity.symbol}</span><strong>{identity.name}</strong><div><button aria-label={`上移${identity.name}`} disabled={index === 0} onClick={() => movePriority(identityId, -1)}>↑</button><button aria-label={`下移${identity.name}`} disabled={index === selected.identityPriority.length - 1} onClick={() => movePriority(identityId, 1)}>↓</button></div></li> })}</ol></section></main> : <main className="empty-state"><h3>还没有模板</h3><p>新建一个 Bot，再把它放到任意座位。</p></main>}</div><footer><button className="button button--primary" onClick={onClose}>完成</button></footer></section></div>
 }
 
 function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void }) {
@@ -398,13 +406,26 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     const now = new Date().toISOString()
     const profileIdMap = new Map<string, CustomBotProfile>()
     const importedProfiles = imported.customProfiles.map((profile, index) => {
-      const copy: CustomBotProfile = { ...profile, id: `custom-bot-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`, name: profile.name.slice(0, 20), createdAt: now, updatedAt: now, identityTactics: { ...profile.identityTactics } }
+      const copy: CustomBotProfile = { ...profile, id: `custom-bot-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`, name: profile.name.slice(0, 20), createdAt: now, updatedAt: now, identityPriority: [...profile.identityPriority] }
       profileIdMap.set(profile.id, copy)
       return copy
     })
     if (importedProfiles.length > 0) onSaveCustomBotProfiles([...customBotProfiles, ...importedProfiles].slice(-24))
     const importedSeats = imported.seats.map((seat) => seat.controller.kind === 'bot' && seat.controller.profileId === 'custom'
-      ? { ...seat, controller: { ...seat.controller, customProfile: seat.controller.customProfile ? { ...(profileIdMap.get(seat.controller.customProfile.id) ?? seat.controller.customProfile), identityTactics: { ...(profileIdMap.get(seat.controller.customProfile.id)?.identityTactics ?? seat.controller.customProfile.identityTactics) } } : undefined } }
+      ? {
+          ...seat,
+          controller: {
+            ...seat.controller,
+            ...(seat.controller.customProfile
+              ? {
+                  customProfile: {
+                    ...(profileIdMap.get(seat.controller.customProfile.id) ?? seat.controller.customProfile),
+                    identityPriority: [...(profileIdMap.get(seat.controller.customProfile.id)?.identityPriority ?? seat.controller.customProfile.identityPriority)],
+                  },
+                }
+              : {}),
+          },
+        }
       : seat)
     const next = createGamePreset(imported.name, importedSeats, imported.settings)
     onSavePresets([...presets, next])
@@ -440,7 +461,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                     const selected = event.target.value
                     if (selected.startsWith('custom:')) {
                       const template = customBotProfiles.find((profile) => profile.id === selected.slice('custom:'.length))
-                      return template ? { ...value, controller: { ...value.controller, profileId: 'custom', customProfile: { ...template, identityTactics: { ...template.identityTactics } } } } : value
+                      return template ? { ...value, controller: { ...value.controller, profileId: 'custom', customProfile: { ...template, identityPriority: [...template.identityPriority] } } } : value
                     }
                     return { ...value, controller: { ...value.controller, profileId: selected as BotProfileId, customProfile: undefined } }
                   }))}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.summary}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义模板">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`}>{profile.name} · 自定义</option>)}</optgroup>}</select><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></div>}

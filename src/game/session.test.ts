@@ -94,14 +94,17 @@ describe('再来一局', () => {
   })
 
   it('自定义 Bot 在开局时会写入策略快照，之后不受模板对象修改影响', () => {
-    const strategy = { ...defaultBotStrategy('adaptive'), collection: 91, identityTactics: { ...defaultBotStrategy('adaptive').identityTactics, investor: 88 } }
+    const defaults = defaultBotStrategy('adaptive')
+    const strategy = { ...defaults, collection: 91, identityPriority: ['investor' as const, ...defaults.identityPriority.filter((id) => id !== 'investor')] }
     const template = { id: 'template', name: '收藏投资', createdAt: '', updatedAt: '', ...strategy }
     const gameSeats = [{ name: 'Bot', controller: { kind: 'bot' as const, profileId: 'custom' as const, difficulty: 'expert' as const, customProfile: template } }, { name: '乙', controller: { kind: 'human' as const } }, { name: '丙', controller: { kind: 'human' as const } }]
     const session = createSession(gameSeats, createDefaultSettings(3))
     template.collection = 2
-    template.identityTactics.investor = 1
-    expect(session.players[0].botMemory?.strategy).toMatchObject({ collection: 91, identityTactics: { investor: 88 } })
-    expect(createRematchSession(session).players[0].botMemory?.strategy).toMatchObject({ collection: 91, identityTactics: { investor: 88 } })
+    template.identityPriority.reverse()
+    expect(session.players[0].botMemory?.strategy).toMatchObject({ collection: 91 })
+    expect(session.players[0].botMemory?.strategy.identityPriority[0]).toBe('investor')
+    expect(createRematchSession(session).players[0].botMemory?.strategy).toMatchObject({ collection: 91 })
+    expect(createRematchSession(session).players[0].botMemory?.strategy.identityPriority[0]).toBe('investor')
   })
 })
 

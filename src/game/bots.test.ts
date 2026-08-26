@@ -292,9 +292,10 @@ describe('Bot 信息边界与决策', () => {
     expect(offered).toContain(first)
   })
 
-  it('身份选取会把自定义专项偏好纳入二选一评分', () => {
+  it('身份选取会把自定义身份优先顺序纳入二选一评分', () => {
     const session = createSession(seats(), createDefaultSettings(3))
-    const strategy = { ...defaultBotStrategy('adaptive'), identityTactics: { ...defaultBotStrategy('adaptive').identityTactics, investor: 100, collector: 0 } }
+    const defaults = defaultBotStrategy('adaptive')
+    const strategy = { ...defaults, identityPriority: ['investor' as const, ...defaults.identityPriority.filter((id) => id !== 'investor')] }
     const player = { ...session.players[0], controller: { kind: 'bot' as const, profileId: 'custom' as const, difficulty: 'expert' as const, customProfile: { id: 'identity', name: '投资优先', createdAt: '', updatedAt: '', ...strategy } }, botMemory: emptyBotMemory('identity-custom', strategy) }
     expect(decideBotIdentity({ choices: ['collector', 'investor'], player, players: [player, ...session.players.slice(1)] }).identityId).toBe('investor')
   })
