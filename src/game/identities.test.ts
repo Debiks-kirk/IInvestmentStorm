@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { IDENTITY_DEFINITIONS, dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, randomLobbyistTask, routeCardAwards } from './identities'
+import { IDENTITY_DEFINITIONS, dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards } from './identities'
 import { coinsToUnits, rankFinalPlayers, settleRound } from './engine'
 import type { Item, Player, RoundTurn } from './types'
 
@@ -294,26 +294,35 @@ describe('身份结算', () => {
     expect(settled.identityContracts.map((contract) => contract.status)).toEqual(['success', 'failed'])
   })
 
-  it('绑匪盯上的玩家拿下拍品时，付费抢走拍品并赢得下回合奖励', () => {
+  it('绑匪名单命中唯一得标者时，暂停为公开赎金谈判', () => {
     const players = [player('assassin'), player('target'), player('third')]
     players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
     const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 4), identityAction: { type: 'kidnap', targetPlayerId: 'target' } }, turn('target', 8), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
     expect(settled.result.winnerId).toBe('target')
-    expect(settled.result.itemWinnerId).toBe('assassin')
-    expect(settled.players.find((entry) => entry.id === 'assassin')?.items).toEqual([{ item, roundIndex: 0 }])
-    expect(settled.players.find((entry) => entry.id === 'assassin')?.identity).toMatchObject({ pendingKidnapReward: true, kidnapFreeRoundIndex: 1 })
-    expect(settled.players.find((entry) => entry.id === 'target')?.items).toEqual([])
-    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫成功', deltaUnits: -coinsToUnits(3) })]))
-    expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ symbol: '⛓', description: '有人抢劫了本回合的藏品。' })]))
+    expect(settled.result.itemWinnerId).toBe('target')
+    expect(settled.players.find((entry) => entry.id === 'target')?.items).toEqual([{ item, roundIndex: 0 }])
+    expect(settled.result.kidnapAttempt).toMatchObject({ kidnapperId: 'assassin', targetPlayerIds: ['target'], ransomUnits: coinsToUnits(6), setupCostUnits: 0, status: 'pending', capturedPlayerId: 'target' })
   })
 
-  it('绑匪的连胜免费发动不扣费，并把免费资格续到下一回合', () => {
+  it('绑匪每回合都能发动，旧的免费标记不再影响谈判', () => {
     const players = [player('assassin'), player('target'), player('third')]
     players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null, kidnapFreeRoundIndex: 1 }
     const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 4), identityAction: { type: 'kidnap', targetPlayerId: 'target' } }, turn('target', 8), turn('third', 2)], item, roundIndex: 1, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
-    expect(settled.result.itemWinnerId).toBe('assassin')
-    expect(settled.players.find((entry) => entry.id === 'assassin')?.identity).toMatchObject({ pendingKidnapReward: true, kidnapFreeRoundIndex: 2 })
-    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫成功', deltaUnits: 0 })]))
+    expect(settled.result.itemWinnerId).toBe('target')
+    expect(settled.result.kidnapAttempt).toMatchObject({ status: 'pending', capturedPlayerId: 'target', setupCostUnits: 0 })
+  })
+
+  it('绑票名单上限默认按人数除以四向上取整，高档和多目标费用会在结算中扣除', () => {
+    const settings = defaultIdentitySettings(true)
+    expect(kidnapTargetCap(settings, 3)).toBe(1)
+    expect(kidnapTargetCap(settings, 10)).toBe(3)
+    settings.kidnapTargetLimit = 2
+    expect(kidnapTargetCap(settings, 10)).toBe(2)
+    const players = [player('assassin'), player('target'), player('other'), player('third')]
+    players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 1), identityAction: { type: 'kidnap', targetPlayerIds: ['target', 'other'], ransomUnits: coinsToUnits(12) } }, turn('target', 8), turn('other', 4), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: settings })
+    expect(settled.result.kidnapAttempt).toMatchObject({ targetPlayerIds: ['target', 'other'], ransomUnits: coinsToUnits(12), setupCostUnits: coinsToUnits(3), status: 'pending' })
+    expect(settled.result.deltas.find((entry) => entry.playerId === 'assassin')?.identityUnits).toBe(-coinsToUnits(3))
   })
 
   it('传奇夺宝令优先于绑匪抢劫最终藏品', () => {
@@ -324,7 +333,7 @@ describe('身份结算', () => {
     expect(settled.result.itemWinnerId).toBe('legend')
     expect(settled.players.find((entry) => entry.id === 'assassin')?.items).toEqual([])
     expect(settled.players.find((entry) => entry.id === 'legend')?.items).toEqual([{ item, roundIndex: 0 }])
-    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑匪抢劫失败' })]))
+    expect(settled.result.kidnapAttempt).toMatchObject({ status: 'missed' })
     expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'legendaryLoot' })]))
   })
 
@@ -334,7 +343,7 @@ describe('身份结算', () => {
     const settled = settleRound({ playersAfterBids: players, turns: [{ ...turn('assassin', 9), identityAction: { type: 'kidnap', targetPlayerId: 'target' } }, turn('target', 5), turn('third', 2)], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
     expect(settled.result.winnerId).toBe('assassin')
     expect(settled.result.itemWinnerId).toBe('assassin')
-    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', deltaUnits: -coinsToUnits(3) })]))
+    expect(settled.result.identityEvents).toEqual(expect.arrayContaining([expect.objectContaining({ playerId: 'assassin', title: '绑票谈判已布置' })]))
     expect(settled.result.cardEffects.some((effect) => effect.symbol === '⛓')).toBe(false)
   })
 

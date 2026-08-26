@@ -215,8 +215,8 @@ describe('Bot 信息边界与决策', () => {
       { playerId: session.players[2].id, lowUnits: 4, expectedUnits: 8, highUnits: 12, expectedBidUnits: 6, categoryWins: 0 },
     ]
     const decision = decideBotTurn(observation, 'identityBot', 'expert', emptyBotMemory())
-    expect(decision.identityAction).toEqual({ type: 'kidnap', targetPlayerId: session.players[1].id })
-    expect(decision.reason).toContain('盯上')
+    expect(decision.identityAction).toMatchObject({ type: 'kidnap', targetPlayerIds: [session.players[1].id] })
+    expect(decision.reason).toContain('绑票谈判')
   })
 
   it('身份与道具的特判计划在同一观察下保持稳定', () => {

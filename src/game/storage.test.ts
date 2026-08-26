@@ -24,8 +24,8 @@ describe('配置预设存储', () => {
   it('新局默认值包含更高小偷成功率与更低的指定任务加价', () => {
     expect(createDefaultSettings(3)).toMatchObject({ turnTimeLimitSeconds: 20, turnTimerEnabled: false })
     expect(createDefaultSettings(3)).toMatchObject({ wrongPredictionMultiplier: 1.5, identitySettings: { lobbyistFailurePaymentCoins: 5, lobbyistSpecifiedTaskFeeCoins: 3, thiefActivationCoins: 0, thiefSuccessProbability: 100, gamblerCorrectBonusMultiplier: .33, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, prophetDivinationCoins: 0, merchantAuctionLimit: 1, nightwalkerUseLimit: 2 } })
-    expect(createDefaultSettings(6)).toMatchObject({ wrongPredictionMultiplier: 1, identitySettings: { gamblerCorrectBonusMultiplier: .67, gamblerWrongPenaltyMultiplier: .33, gamblerSkipPenaltyMultiplier: .33, kidnapActivationCoins: 3, merchantAuctionLimit: 3, nightwalkerUseLimit: 2 } })
-    expect(createDefaultSettings(10)).toMatchObject({ wrongPredictionMultiplier: .5, identitySettings: { gamblerCorrectBonusMultiplier: 1, gamblerWrongPenaltyMultiplier: .2, gamblerSkipPenaltyMultiplier: .2, kidnapActivationCoins: 3, merchantAuctionLimit: 3, nightwalkerUseLimit: 3 } })
+    expect(createDefaultSettings(6)).toMatchObject({ wrongPredictionMultiplier: 1, identitySettings: { gamblerCorrectBonusMultiplier: .67, gamblerWrongPenaltyMultiplier: .33, gamblerSkipPenaltyMultiplier: .33, kidnapActivationCoins: 0, kidnapLowRansomCoins: 6, kidnapHighRansomCoins: 12, merchantAuctionLimit: 3, nightwalkerUseLimit: 2 } })
+    expect(createDefaultSettings(10)).toMatchObject({ wrongPredictionMultiplier: .5, identitySettings: { gamblerCorrectBonusMultiplier: 1, gamblerWrongPenaltyMultiplier: .2, gamblerSkipPenaltyMultiplier: .2, kidnapActivationCoins: 0, kidnapLowRansomCoins: 6, kidnapHighRansomCoins: 12, merchantAuctionLimit: 3, nightwalkerUseLimit: 3 } })
   })
 
   it('保存、加载与覆盖配置时保留姓名和全部高级设置', () => {
@@ -124,7 +124,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 24, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
+    expect(loadSession()).toMatchObject({ version: 25, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -141,7 +141,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(24)
+    expect(first?.version).toBe(25)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -159,7 +159,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(24)
+    expect(migrated?.version).toBe(25)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

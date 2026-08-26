@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig, fixedAssetCoins, itemFixedAssetCoins } from './game/assets'
 import { CARD_DEFINITIONS, CARD_RARITY_LABELS, cardInventoryCounts, cardTargetScope, drawCard, getCardDefinition, removeOneCard } from './game/cards'
 import { createAssetTrajectories, createGameHighlights, createRoundBulletin } from './game/highlights'
-import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
+import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replaceNextPrize, roundStartPlayerIndex, validateNames } from './game/session'
@@ -10,7 +10,7 @@ import { archiveGameHistory, clearSession, loadGameHistory, loadPresets, loadSes
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, hasReachedProphetIdentityMilestone, prophetModeLabel } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotIdentity, decideBotMerchantBid, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
-import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, CardId, CardUse, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
@@ -361,7 +361,7 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                   {settings.identitySettings.enabled && <><strong>启用身份</strong><div className="identity-toggle-grid">{IDENTITY_DEFINITIONS.map((identity) => <label key={identity.id}><input type="checkbox" checked={!settings.identitySettings.disabledIdentityIds.includes(identity.id)} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, disabledIdentityIds: event.target.checked ? settings.identitySettings.disabledIdentityIds.filter((id) => id !== identity.id) : [...settings.identitySettings.disabledIdentityIds, identity.id] } })} /><span>{identity.symbol} {identity.name}</span></label>)}</div><div className="identity-settings-fields">
                     <label>开局身份几选一<input type="number" min="2" max="5" step="1" value={settings.identitySettings.identityChoiceCount} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, identityChoiceCount: Number(event.target.value) } })} /></label>
                     <label>预言家推演次数<input type="number" min="1" max="12" step="1" value={settings.identitySettings.prophetDivinationLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, prophetDivinationLimit: Number(event.target.value) } })} /></label>
-                    <label>绑匪行动次数<input type="number" min="1" max="12" step="1" value={settings.identitySettings.kidnapActivationLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapActivationLimit: Number(event.target.value) } })} /></label>
+                    <label>绑票目标上限（0=按人数自动）<input type="number" min="0" max={Math.max(1, settings.playerCount - 1)} step="1" value={settings.identitySettings.kidnapTargetLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapTargetLimit: Number(event.target.value) } })} /></label>
                     <label>小偷偷卡上限<input type="number" min="0" max="12" step="1" value={settings.identitySettings.thiefMaxSteals ?? 2} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefMaxSteals: Number(event.target.value) } })} /></label>
                     <label>逆转者发动次数<input type="number" min="1" max="12" step="1" value={settings.identitySettings.reverserActivationLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, reverserActivationLimit: Number(event.target.value) } })} /></label>
                     <label>说客发布次数<input type="number" min="1" max="12" step="1" value={settings.identitySettings.lobbyistActivationLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, lobbyistActivationLimit: Number(event.target.value) } })} /></label>
@@ -369,7 +369,10 @@ function Setup({ onBack, onStart, presets, onSavePresets }: { onBack: () => void
                     <label>赌徒命中加成<input type="number" min="0" max="1" step="0.05" value={settings.identitySettings.gamblerCorrectBonusMultiplier} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, gamblerCorrectBonusMultiplier: Number(event.target.value) } })} /></label>
                     <label>赌徒猜错罚款<input type="number" min="0" max="1" step="0.05" value={settings.identitySettings.gamblerWrongPenaltyMultiplier} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, gamblerWrongPenaltyMultiplier: Number(event.target.value) } })} /></label>
                     <label>赌徒跳过罚款<input type="number" min="0" max="1" step="0.05" value={settings.identitySettings.gamblerSkipPenaltyMultiplier} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, gamblerSkipPenaltyMultiplier: Number(event.target.value) } })} /></label>
-                    <label>绑匪发动费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.kidnapActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapActivationCoins: Number(event.target.value) } })} /></label>
+                    <label>绑匪低档赎金<input type="number" min="0" max="50" step="0.5" value={settings.identitySettings.kidnapLowRansomCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapLowRansomCoins: Number(event.target.value) } })} /></label>
+                    <label>绑匪高档赎金<input type="number" min="0" max="50" step="0.5" value={settings.identitySettings.kidnapHighRansomCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapHighRansomCoins: Number(event.target.value) } })} /></label>
+                    <label>高档额外费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.kidnapHighRansomExtraCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapHighRansomExtraCoins: Number(event.target.value) } })} /></label>
+                    <label>每增加一名目标<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.kidnapExtraTargetCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, kidnapExtraTargetCoins: Number(event.target.value) } })} /></label>
                     <label>小偷成功率 %<input type="number" min="0" max="100" value={settings.identitySettings.thiefSuccessProbability} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefSuccessProbability: Number(event.target.value) } })} /></label>
                     <label>小偷发动费用<input type="number" min="0" max="20" step="0.5" value={settings.identitySettings.thiefActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, thiefActivationCoins: Number(event.target.value) } })} /></label>
                     <label>商人拍卖次数<input type="number" min="1" max="5" value={settings.identitySettings.merchantAuctionLimit} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, merchantAuctionLimit: Number(event.target.value) } })} /></label>
@@ -545,6 +548,36 @@ function PlayerTargetPicker({
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="target-picker-title"><section className="target-picker-sheet"><p className="eyebrow">选择对象</p><h2 id="target-picker-title">{title}</h2><p>{detail}</p><div className="target-picker-grid">{players.map((candidate) => <button key={candidate.id} className={cx(candidate.id === selectedPlayerId && 'is-selected')} onClick={() => onSelect(candidate.id)}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span><div><strong>{candidate.name}</strong><small>{candidate.id === selectedPlayerId ? '当前选择' : '点击选择此玩家'}</small></div><i>→</i></button>)}</div><button className="button button--paper" onClick={onClose}>取消</button></section></div>
 }
 
+function KidnapTargetPicker({
+  players,
+  selectedIds,
+  maximum,
+  ransomUnits,
+  onToggle,
+  onConfirm,
+  onClose,
+}: {
+  players: Player[]
+  selectedIds: string[]
+  maximum: number
+  ransomUnits: number
+  onToggle: (playerId: string) => void
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="kidnap-target-title"><section className="target-picker-sheet kidnap-picker">
+    <p className="eyebrow">绑匪 · 选择目标</p>
+    <h2 id="kidnap-target-title">本轮绑票名单</h2>
+    <p>最多选择 {maximum} 人。若唯一拍到藏品的人在名单内，他将公开决定：支付 <b>{formatCoins(ransomUnits)} 金币</b> 保住藏品，或放弃藏品给绑匪。</p>
+    <div className="target-picker-grid">{players.map((candidate) => {
+      const selected = selectedIds.includes(candidate.id)
+      const locked = !selected && selectedIds.length >= maximum
+      return <button key={candidate.id} disabled={locked} className={cx(selected && 'is-selected')} onClick={() => onToggle(candidate.id)}><span style={{ background: candidate.color }}>{candidate.name.slice(0, 1)}</span><div><strong>{candidate.name}</strong><small>{selected ? '已加入名单' : locked ? `最多选择 ${maximum} 人` : '点击加入名单'}</small></div><i>{selected ? '✓' : '+'}</i></button>
+    })}</div>
+    <div className="lobby-picker-actions"><button className="button button--paper" onClick={onClose}>取消</button><button className="button button--primary" disabled={selectedIds.length === 0} onClick={onConfirm}>确认名单（{selectedIds.length}/{maximum}）</button></div>
+  </section></div>
+}
+
 function LobbyistTaskPicker({ extraCost, onSelect, onClose }: { extraCost: number; onSelect: (taskType: LobbyistTaskType | null) => void; onClose: () => void }) {
   const [step, setStep] = useState<'mode' | 'specified'>('mode')
   const taskSymbol = (task: LobbyistTaskType) => {
@@ -628,7 +661,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const [nightwalkerBaseBidUnits, setNightwalkerBaseBidUnits] = useState(0)
   const [nightwalkerShadowBidUnits, setNightwalkerShadowBidUnits] = useState(1)
   const [nightwalkerPrioritizeItem, setNightwalkerPrioritizeItem] = useState(true)
-  const [targetPicker, setTargetPicker] = useState<'card' | 'kidnap' | 'invest' | 'lobbyTask' | 'lobbyTarget' | 'lobbyComparison' | null>(null)
+  const [targetPicker, setTargetPicker] = useState<'card' | 'kidnap' | 'kidnap-select' | 'invest' | 'lobbyTask' | 'lobbyTarget' | 'lobbyComparison' | null>(null)
+  const [kidnapTargetIds, setKidnapTargetIds] = useState<string[]>([])
+  const [kidnapRansomUnits, setKidnapRansomUnits] = useState(Math.round(session.settings.identitySettings.kidnapLowRansomCoins * 2))
   const [lobbyTargetId, setLobbyTargetId] = useState('')
   const [lobbySpecified, setLobbySpecified] = useState(false)
   const [lobbyTask, setLobbyTask] = useState<LobbyistTaskType>('avoidPrize')
@@ -642,7 +677,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
     if (identityAction?.type === 'nightwalkerDoubleBid') return
     const reservedIdentityUnits = identityAction?.type === 'reverserInvert'
       ? (player.identity?.reverserFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 4 : 2)))
-      : identityAction?.type === 'kidnap' ? (player.identity?.kidnapFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.kidnapActivationCoins * 2))
+      : identityAction?.type === 'kidnap' ? Math.max(0, (identityAction.targetPlayerIds?.length ?? (identityAction.targetPlayerId ? 1 : 0)) - 1) * Math.round(session.settings.identitySettings.kidnapExtraTargetCoins * 2) + (identityAction.ransomUnits === Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2) ? Math.round(session.settings.identitySettings.kidnapHighRansomExtraCoins * 2) : 0)
         : identityAction?.type === 'thiefSteal' ? Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
           : identityAction?.type === 'invest' ? identityAction.investmentUnits : 0
     const auctionReserve = Object.values(auctionBidByLotId).reduce((total, units) => total + units, 0)
@@ -728,8 +763,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const thiefCardsAtLimit = identity?.id === 'thief' && (identity.thiefSuccesses ?? 0) >= thiefCardStealLimit
   const activeSkillUses = identity?.activeSkillUses ?? 0
   const prophetUses = session.prophetDivinations.filter((entry) => entry.playerId === player.id && entry.mode !== 'identity').length
-  const activeSkillLimit = identity?.id === 'assassin' ? session.settings.identitySettings.kidnapActivationLimit
-    : identity?.id === 'reverser' ? session.settings.identitySettings.reverserActivationLimit
+  const activeSkillLimit = identity?.id === 'reverser' ? session.settings.identitySettings.reverserActivationLimit
         : identity?.id === 'lobbyist' ? session.settings.identitySettings.lobbyistActivationLimit
           : 0
   const activeSkillLimitReached = activeSkillLimit > 0 && activeSkillUses >= activeSkillLimit
@@ -751,8 +785,15 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const reverserCostUnits = Math.round(reverserCost * 2)
   const reverserShortfallUnits = Math.max(0, bidUnits + reverserCostUnits - player.balanceUnits)
   const reverserAffordable = reverserShortfallUnits === 0
-  const kidnapFreeThisRound = identity?.kidnapFreeRoundIndex === session.roundIndex
-  const kidnapCostUnits = kidnapFreeThisRound ? 0 : Math.round(session.settings.identitySettings.kidnapActivationCoins * 2)
+  const kidnapTargetLimit = kidnapTargetCap(session.settings.identitySettings, session.players.length)
+  const kidnapCostUnits = identityAction?.type === 'kidnap'
+    ? Math.max(0, (identityAction.targetPlayerIds?.length ?? (identityAction.targetPlayerId ? 1 : 0)) - 1) * Math.round(session.settings.identitySettings.kidnapExtraTargetCoins * 2)
+      + (identityAction.ransomUnits === Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2) ? Math.round(session.settings.identitySettings.kidnapHighRansomExtraCoins * 2) : 0)
+    : 0
+  const kidnapConfirmCostUnits = identityConfirming?.type === 'kidnap'
+    ? Math.max(0, (identityConfirming.targetPlayerIds?.length ?? 0) - 1) * Math.round(session.settings.identitySettings.kidnapExtraTargetCoins * 2)
+      + (identityConfirming.ransomUnits === Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2) ? Math.round(session.settings.identitySettings.kidnapHighRansomExtraCoins * 2) : 0)
+    : 0
   const kidnapShortfallUnits = Math.max(0, bidUnits + kidnapCostUnits - player.balanceUnits)
   const kidnapAffordable = kidnapShortfallUnits === 0
   const thiefCostUnits = Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
@@ -933,7 +974,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           <div className="identity-live-head"><span>{getIdentityDefinition(identity.id).symbol}</span><div><strong>{getIdentityDefinition(identity.id).name}</strong><small>{getIdentityDefinition(identity.id).summary}</small></div></div>
           <p className="identity-task">{identitySkillMode(identity.id) === 'active' ? '主动技能：请在这个区域完成选择，再点击对应按钮安排本轮发动。' : '被动技能：没有可点击的主动技能；系统会在符合条件时自动结算。'}</p>
           {identity.id === 'prophet' && <div className="prophet-skill"><p><strong>天机推演</strong>：每回合可免费使用一次<b className="status-token status-token--free">观财或观星</b>；另可免费观身份至多 <b className="status-token status-token--count">2 人</b>。每个目标只给你 6 个固定候选，猜错会排除，猜对获得道具。</p>{currentProphetDivination ? <ProphetResult divination={currentProphetDivination} session={session} /> : <button className="button button--prophet" disabled={prophetUses >= session.settings.identitySettings.prophetDivinationLimit} onClick={() => setProphetDialog('menu')}>{prophetUses >= session.settings.identitySettings.prophetDivinationLimit ? '观财/观星次数已用完' : '发动观财或观星'}</button>}{currentProphetIdentityDivination && <ProphetResult divination={currentProphetIdentityDivination} session={session} />}{<button className="button button--prophet" disabled={!canUseIdentityDivination} onClick={() => setProphetDialog('target')}>{canUseIdentityDivination ? `观身份（本轮还可猜 ${2 - prophetIdentityGuesses.length} 人）` : '本轮观身份已完成'}</button>}</div>}
-          {identity.id === 'assassin' && <><p>本局还可行动 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b>。{kidnapFreeThisRound ? <b className="status-token status-token--free">本回合免费发动</b> : <>花费 {session.settings.identitySettings.kidnapActivationCoins} 金币</>}选择一名玩家。若他拿下本轮拍品，你会抢走拍品；成功后，本人下一回合免费发动，并随机获得一张道具卡。</p><button className={cx('button', identityAction?.type === 'kidnap' && 'button--primary')} disabled={!identityAction && (!kidnapAffordable || activeSkillLimitReached)} onClick={() => identityAction?.type === 'kidnap' ? setIdentityAction(undefined) : setTargetPicker('kidnap')}>{identityAction?.type === 'kidnap' ? `已盯上 ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : activeSkillLimitReached ? `本局行动次数已用完（${activeSkillUses}/${activeSkillLimit}）` : kidnapAffordable ? (kidnapFreeThisRound ? '免费选择目标' : `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币选择目标`) : `余额不足，还差 ${formatCoins(kidnapShortfallUnits)} 金币`}</button></>}
+          {identity.id === 'assassin' && <><p><b className="status-token status-token--free">每回合免费发动</b>。选择至多 <b className="status-token status-token--count">{kidnapTargetLimit} 人</b>；名单中唯一拍到藏品的人将公开选择：支付赎金保住藏品，或放弃给绑匪。高档赎金与额外名单费用会在确认前写清。</p><button className={cx('button', identityAction?.type === 'kidnap' && 'button--primary')} disabled={!identityAction && !kidnapAffordable} onClick={() => { if (identityAction?.type === 'kidnap') { setIdentityAction(undefined); return } setKidnapTargetIds([]); setKidnapRansomUnits(Math.round(session.settings.identitySettings.kidnapLowRansomCoins * 2)); setTargetPicker('kidnap') }}>{identityAction?.type === 'kidnap' ? `已安排绑票名单 ${identityAction.targetPlayerIds?.length ?? 1} 人 · 点击撤销` : kidnapAffordable ? '发动绑票谈判' : `余额不足，还差 ${formatCoins(kidnapShortfallUnits)} 金币`}</button></>}
           {identity.id === 'collector' && <p>已为 <strong>{categoryConfig(identity.collectorCategory ?? 'leisure').name}</strong> 永久额外计入 1 件固定资产。</p>}
           {identity.id === 'thief' && <><p>每个非最后回合都可发动。{thiefIsFree ? <b className="status-token status-token--free">免费发动</b> : <>花费 {session.settings.identitySettings.thiefActivationCoins} 金币；</>}已偷到 <b className="status-token status-token--count">{identity.thiefSuccesses ?? 0}/{thiefCardStealLimit} 张</b>道具卡。达到上限后，技能会改为偷钱，极小概率偷走拍品。</p><button className={cx('button', identityAction?.type === 'thiefSteal' && 'button--primary')} disabled={!identityAction && (!thiefAffordable || session.roundIndex >= session.settings.rounds - 1)} onClick={() => identityAction?.type === 'thiefSteal' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'thiefSteal' })}>{identityAction?.type === 'thiefSteal' ? '已发动盗取 · 点击撤销' : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可发动' : thiefAffordable ? (thiefIsFree ? '免费发动盗取' : `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币发动`) : `余额不足，还差 ${formatCoins(thiefShortfallUnits)} 金币`}</button></>}
           {identity.id === 'reverser' && <><p>本局还可发动 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b>。{reverserFreeThisRound ? <b className="status-token">本回合免费发动</b> : <>花费 {reverserCost} 金币</>}，倒转本轮获奖区内的所有名次；最后两轮费用翻倍。若同时使用“逆转排名”道具卡，两次逆转会抵消。</p><button className={cx('button', identityAction?.type === 'reverserInvert' && 'button--primary')} disabled={!identityAction && (!reverserAffordable || activeSkillLimitReached)} onClick={() => identityAction?.type === 'reverserInvert' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'reverserInvert' })}>{identityAction?.type === 'reverserInvert' ? '已安排逆转排名 · 点击撤销' : activeSkillLimitReached ? `本局发动次数已用完（${activeSkillUses}/${activeSkillLimit}）` : reverserAffordable ? (reverserFreeThisRound ? '免费发动逆转' : `花费 ${reverserCost} 金币发动`) : `余额不足，还差 ${formatCoins(reverserShortfallUnits)} 金币`}</button></>}
@@ -990,12 +1031,13 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       {prophetDialog === 'target' && <PlayerTargetPicker title="选择要观测身份的玩家" detail={`本轮还可猜 ${Math.max(0, 2 - prophetIdentityGuesses.length)} 人；每位玩家只提供 6 个固定候选。猜错会排除该身份，猜对后不能再猜该玩家。`} players={session.players.filter((candidate) => candidate.id !== player.id && !prophetTargetAlreadySolved(candidate.id))} selectedPlayerId={prophetTargetId} onSelect={(id) => { setProphetTargetId(id); setProphetDialog('identity') }} onClose={() => setProphetDialog(null)} />}
       {prophetDialog === 'identity' && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="target-picker-sheet prophet-picker"><p className="eyebrow">预言家 · 观身份</p><h2>免费猜测 {playerName(session.players, prophetTargetId)} 的身份</h2><p>以下候选已在开局时锁定，其中包含真实身份。猜对会立即获得一张道具，且不能再猜这位玩家。</p><div className="identity-choice-grid prophet-identity-grid">{(session.prophetIdentityCandidates[player.id]?.[prophetTargetId] ?? []).filter((candidateId) => !prophetProgressFor(prophetTargetId).excludedIdentityIds.includes(candidateId)).map((candidateId) => { const definition = getIdentityDefinition(candidateId); const allowed = canMakeIdentityGuess(session.prophetDivinations, player.id, prophetTargetId, candidateId) && !prophetProgressFor(prophetTargetId).excludedIdentityIds.includes(candidateId); return <button key={candidateId} disabled={!allowed} className="identity-choice-card" onClick={() => { if (onUseProphetDivination(player.id, 'identity', prophetTargetId, candidateId)) setProphetDialog(null) }}><span>{definition.symbol}</span><h2>{definition.name}</h2><p>确认猜测此身份</p></button> })}</div><button className="button button--paper" onClick={() => setProphetDialog('target')}>返回选人</button></section></div>}
       {cardConfirming && targetPicker !== 'card' && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="card-confirm-title"><div className="confirm-sheet card-use-confirm"><p className="eyebrow">{cardConfirming.cardId === 'fateCoin' ? coinFlipStarted ? '命运硬币' : '准备使用道具' : '准备使用道具'}</p><h2 id="card-confirm-title">{getCardDefinition(cardConfirming.cardId).name} <CardRarityTag cardId={cardConfirming.cardId} /></h2>{cardConfirming.cardId === 'fateCoin' ? <div className="fate-coin-wrap"><div className={cx('fate-coin', coinFlipResult && 'is-settled')}><span>{coinFlipResult === 'heads' ? '正' : coinFlipResult === 'tails' ? '反' : '?'}</span></div><p>{!coinFlipStarted ? '确认后才会掷出硬币；结果出现后不能取消或重掷。' : coinFlipResult === null ? '硬币正在翻转…' : coinFlipResult === 'heads' ? '正面朝上：已立即获得 10 金币，可用余额已更新。' : '反面朝上：本次没有变化。'}</p></div> : cardConfirming.cardId === 'prizeReroll' ? <p>确认后将立刻抽出 6 张新拍品，供你私密选择下一轮拍品。抽取结果会立即锁定，不能取消或重抽。</p> : cardTargetScope(cardConfirming.cardId) !== 'none' ? <p>确认后会立刻弹出玩家卡片，请选择这张卡的生效对象；选择前随时可以取消。</p> : <p>确认后，这张卡会安排在本轮结算时使用。</p>}<div>{!(cardConfirming.cardId === 'fateCoin' && coinFlipStarted) && <button className="button button--paper" onClick={() => { setCardConfirming(null); setCoinFlipResult(null); setCoinFlipStarted(false) }}>取消</button>}<button className="button button--primary" disabled={cardConfirming.cardId === 'fateCoin' && coinFlipStarted && coinFlipResult === null} onClick={confirmCardUse}>{cardConfirming.cardId === 'fateCoin' ? !coinFlipStarted ? '确认并掷硬币' : coinFlipResult === null ? '正在掷硬币…' : '知道了' : cardConfirming.cardId === 'prizeReroll' ? '确认并抽取 6 张' : cardTargetScope(cardConfirming.cardId) !== 'none' ? '确认并选择玩家' : '确认使用'}</button></div></div></div>}
-      {identityConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-confirm-title"><div className="confirm-sheet identity-action-confirm"><p className="eyebrow">确认身份技能</p><h2 id="identity-confirm-title">{identityConfirming.type === 'kidnap' ? '锁定绑匪目标' : identityConfirming.type === 'thiefSteal' ? '发动盗取' : identityConfirming.type === 'reverserInvert' ? '发动逆转排名' : identityConfirming.type === 'merchantAuction' ? '发起下轮竞购' : '发布说客任务'}</h2><p>{identityConfirming.type === 'kidnap' ? `${kidnapFreeThisRound ? '本回合免费发动。' : `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币。`}盯上 ${playerName(session.players, identityConfirming.targetPlayerId)}；若对方拿下拍品，你会抢走拍品。成功后，本人下一回合免费发动，并随机获得一张道具卡。` : identityConfirming.type === 'thiefSteal' ? thiefCardsAtLimit ? `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币。你的偷卡额度已用完；所有人提交后，系统会从最富者处偷钱，极小概率偷走一件拍品。` : `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币。所有人提交后，系统会先尝试从其他玩家未使用的道具中偷走一张；若未偷到，则转为偷钱，极小概率偷走拍品。` : identityConfirming.type === 'reverserInvert' ? `花费 ${reverserCost} 金币，在本轮结算时倒转获奖区名次。` : identityConfirming.type === 'merchantAuction' ? `下一轮抽奖前公开一张道具，让其他玩家依次秘密竞购；本轮提交前仍可撤销。` : identityConfirming.type === 'lobbyistContract' ? `向 ${playerName(session.players, identityConfirming.targetPlayerId)} 发布${identityConfirming.specified && identityConfirming.taskType ? `指定任务「${taskLabel(identityConfirming.taskType)}」` : '随机任务'}，下一轮才会私密送达。` : ''}</p><div><button className="button button--paper" onClick={() => setIdentityConfirming(null)}>取消</button><button className="button button--primary" onClick={() => { setIdentityAction(identityConfirming); setIdentityConfirming(null); setToolPanel(null) }}>确认安排</button></div></div></div>}
+      {identityConfirming && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-confirm-title"><div className="confirm-sheet identity-action-confirm"><p className="eyebrow">确认身份技能</p><h2 id="identity-confirm-title">{identityConfirming.type === 'kidnap' ? '确认绑票谈判' : identityConfirming.type === 'thiefSteal' ? '发动盗取' : identityConfirming.type === 'reverserInvert' ? '发动逆转排名' : identityConfirming.type === 'merchantAuction' ? '发起下轮竞购' : '发布说客任务'}</h2><p>{identityConfirming.type === 'kidnap' ? `本回合免费发动。名单：${(identityConfirming.targetPlayerIds ?? []).map((id) => playerName(session.players, id)).join('、')}。若其中唯一得标者出现，他需公开选择支付 ${formatCoins(identityConfirming.ransomUnits ?? 0)} 金币保住藏品，或放弃藏品给绑匪。${kidnapConfirmCostUnits > 0 ? `本次额外支付 ${formatCoins(kidnapConfirmCostUnits)} 金币。` : '本次不需额外支付。'}` : identityConfirming.type === 'thiefSteal' ? thiefCardsAtLimit ? `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币。你的偷卡额度已用完；所有人提交后，系统会从最富者处偷钱，极小概率偷走一件拍品。` : `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币。所有人提交后，系统会先尝试从其他玩家未使用的道具中偷走一张；若未偷到，则转为偷钱，极小概率偷走拍品。` : identityConfirming.type === 'reverserInvert' ? `花费 ${reverserCost} 金币，在本轮结算时倒转获奖区名次。` : identityConfirming.type === 'merchantAuction' ? `下一轮抽奖前公开一张道具，让其他玩家依次秘密竞购；本轮提交前仍可撤销。` : identityConfirming.type === 'lobbyistContract' ? `向 ${playerName(session.players, identityConfirming.targetPlayerId)} 发布${identityConfirming.specified && identityConfirming.taskType ? `指定任务「${taskLabel(identityConfirming.taskType)}」` : '随机任务'}，下一轮才会私密送达。` : ''}</p><div><button className="button button--paper" onClick={() => setIdentityConfirming(null)}>取消</button><button className="button button--primary" onClick={() => { setIdentityAction(identityConfirming); setIdentityConfirming(null); setToolPanel(null) }}>确认安排</button></div></div></div>}
       {visibleGrant && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="grant-title"><div className="card-grant-sheet"><span>{getCardDefinition(visibleGrant.cardId).symbol}</span><p className="eyebrow">获得道具 · <CardRarityTag cardId={visibleGrant.cardId} /></p><h2 id="grant-title">{getCardDefinition(visibleGrant.cardId).name}</h2><p>{getCardDefinition(visibleGrant.cardId).description}</p><small>已放入背包。</small><button className="button button--primary" onClick={() => onAcknowledgeGrant(player.id)}>收下</button></div></div>}
       {activeNotice && <div key={activeNotice.id} className="modal-backdrop" role="dialog" aria-modal="true"><div className="card-grant-sheet notice-sheet"><span>{activeNotice.title.includes('任务') ? '✉' : activeNotice.title.includes('成功') ? '✓' : activeNotice.title.includes('失败') || activeNotice.title.includes('偷走') ? '!' : '✦'}</span><p className="eyebrow">{activeNotice.title.includes('任务') ? '任务邮箱' : '身份提示'}</p><h2>{activeNotice.title}</h2><p>{activeNotice.detail}</p><button className="button button--primary" onClick={() => onAcknowledgeNotice(activeNotice.id)}>知道了</button></div></div>}
       {targetPicker === 'card' && cardConfirming && <PlayerTargetPicker title={cardConfirming.cardId === 'peek' ? '选择要偷看的玩家' : cardConfirming.cardId === 'bananaPeel' ? '选择香蕉皮目标' : '选择换日对象'} detail={cardConfirming.cardId === 'peek' ? '仅可选择已经提交投资的玩家；查看后本轮使用会锁定。' : cardConfirming.cardId === 'bananaPeel' ? '对方本轮下注会作废，只损失一半费用。' : '所有人提交后，双方的排名用投资额会互换。'} players={targetPlayersForCard(cardConfirming.cardId)} onSelect={(id) => { const use = { ...cardConfirming, targetPlayerId: id }; lockCardUse(use); setTargetPicker(null); if (use.cardId === 'peek') setPeekResult(previousTurns.find((turn) => turn.playerId === id) ?? null) }} onClose={() => { setTargetPicker(null); setCardConfirming(null) }} />}
       {peekResult && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="peek-result-title"><div className="card-grant-sheet"><span>◉</span><p className="eyebrow">偷看结果</p><h2 id="peek-result-title">{playerName(session.players, peekResult.playerId)} 投了多少？</h2><p><CoinValue units={peekResult.bidUnits} /></p><small>偷看底牌已锁定为本轮使用。</small><button className="button button--primary" onClick={() => setPeekResult(null)}>知道了</button></div></div>}
-      {targetPicker === 'kidnap' && <PlayerTargetPicker title="选择要绑的人" detail={`${kidnapFreeThisRound ? '本回合免费发动。' : `花费 ${session.settings.identitySettings.kidnapActivationCoins} 金币。`}若目标拿下本轮拍品，你会抢走拍品。成功后，本人下一回合免费发动，并随机获得一张道具卡。`} players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={identityAction?.type === 'kidnap' ? identityAction.targetPlayerId : null} onSelect={(id) => { setIdentityConfirming({ type: 'kidnap', targetPlayerId: id }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
+      {targetPicker === 'kidnap' && <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="target-picker-sheet kidnap-ransom-picker"><p className="eyebrow">绑匪 · 第一步</p><h2>选择赎金档位</h2><p>低档不额外收费；高档赎金会额外支付 {session.settings.identitySettings.kidnapHighRansomExtraCoins} 金币。之后再选择本轮名单。</p><div className="prophet-option-grid"><button className={cx(kidnapRansomUnits === Math.round(session.settings.identitySettings.kidnapLowRansomCoins * 2) && 'is-selected')} onClick={() => setKidnapRansomUnits(Math.round(session.settings.identitySettings.kidnapLowRansomCoins * 2))}><strong>{session.settings.identitySettings.kidnapLowRansomCoins} 金币</strong><small>低档赎金 · 无额外费用</small></button><button className={cx(kidnapRansomUnits === Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2) && 'is-selected')} onClick={() => setKidnapRansomUnits(Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2))}><strong>{session.settings.identitySettings.kidnapHighRansomCoins} 金币</strong><small>高档赎金 · 额外 {session.settings.identitySettings.kidnapHighRansomExtraCoins} 金币</small></button></div><div className="lobby-picker-actions"><button className="button button--paper" onClick={() => setTargetPicker(null)}>取消</button><button className="button button--primary" onClick={() => setTargetPicker('kidnap-select')}>选择名单</button></div></section></div>}
+      {targetPicker === 'kidnap-select' && <KidnapTargetPicker players={session.players.filter((candidate) => candidate.id !== player.id)} selectedIds={kidnapTargetIds} maximum={kidnapTargetLimit} ransomUnits={kidnapRansomUnits} onToggle={(id) => setKidnapTargetIds((ids) => ids.includes(id) ? ids.filter((entry) => entry !== id) : ids.length >= kidnapTargetLimit ? ids : [...ids, id])} onConfirm={() => { setIdentityConfirming({ type: 'kidnap', targetPlayerIds: kidnapTargetIds, ransomUnits: kidnapRansomUnits }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'invest' && <PlayerTargetPicker title="选择投资对象" detail="你的金额会秘密加到对方的排名下注；对方不知道是谁投资。投资目标不能同时作为预测第一名对象。" players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={identityAction?.type === 'invest' ? identityAction.targetPlayerId : null} onSelect={(id) => { if (prediction === id) setPrediction(null); setIdentityAction({ type: 'invest', targetPlayerId: id, investmentUnits: 1 }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyTask' && <LobbyistTaskPicker extraCost={session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} onSelect={(taskType) => { setLobbySpecified(Boolean(taskType)); if (taskType) setLobbyTask(taskType); setLobbyTargetId(''); setLobbyCompareId(''); setIdentityAction(undefined); setTargetPicker('lobbyTarget') }} onClose={() => setTargetPicker(null)} />}
       {targetPicker === 'lobbyTarget' && <PlayerTargetPicker title="选择任务对象" detail={lobbySpecified ? `指定任务「${taskLabel(lobbyTask)}」；基础费用 ${lobbyFee} 金币 + 指定费用 ${session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币，合计 ${lobbyFee + session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币。任务会在下一轮私密送达。` : `随机任务；基础费用 ${lobbyFee} 金币。内容会在下一轮私密送达。`} players={session.players.filter((candidate) => candidate.id !== player.id)} selectedPlayerId={lobbyTargetId} onSelect={(id) => { setLobbyTargetId(id); setLobbyCompareId(''); if (lobbySpecified && taskRequiresComparison(lobbyTask)) { setTargetPicker('lobbyComparison'); return } setIdentityConfirming({ type: 'lobbyistContract', targetPlayerId: id, specified: lobbySpecified, ...(lobbySpecified ? { taskType: lobbyTask } : {}) }); setTargetPicker(null) }} onClose={() => setTargetPicker(null)} />}
@@ -1119,7 +1161,7 @@ function identityActionReview(action: IdentityAction, players: Player[], divinat
   }
   if (action.type === 'reverserInvert') return '逆转者发动了获奖区排名逆转'
   if (action.type === 'merchantAuction') return '道具商人发起了下一轮道具竞购'
-  if (action.type === 'kidnap') return `绑匪盯上了 ${playerName(players, action.targetPlayerId)}`
+  if (action.type === 'kidnap') return `绑匪发起绑票谈判：${(action.targetPlayerIds?.length ? action.targetPlayerIds : action.targetPlayerId ? [action.targetPlayerId] : []).map((id) => playerName(players, id)).join('、')}；赎金 ${formatCoins(action.ransomUnits ?? 0)} 金币`
   if (action.type === 'invest') return `投资者秘密投资了 ${playerName(players, action.targetPlayerId)} ${formatCoins(action.investmentUnits)} 金币`
   if (action.type === 'thiefSteal') return '小偷发动了回合末偷卡'
   if (action.type === 'nightwalkerDoubleBid') {
@@ -1242,6 +1284,24 @@ function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: Ga
       {fullyRevealed && <><RoundReview session={session} /><div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div><div className="final-actions"><button className="button button--paper button--large" onClick={onRematch}>原班再来一局</button><button className="button button--primary button--large" onClick={onRevenge}>复仇局 <span>⚡</span></button><button className="text-button" onClick={onNewGame}>重新设置</button></div><small className="rematch-note">复仇局沿用座位与规则，只继承 Bot 对公开事件形成的恩怨。</small></>}
     </section>
   )
+}
+
+function KidnapNegotiationPanel({ negotiation, onResolve }: { negotiation: KidnapNegotiation; onResolve: (payRansom: boolean) => void }) {
+  const captured = negotiation.players.find((player) => player.id === negotiation.capturedPlayerId)
+  const kidnapper = negotiation.players.find((player) => player.id === negotiation.kidnapperId)
+  if (!captured || !kidnapper) return null
+  const canPay = captured.balanceUnits >= negotiation.ransomUnits
+  return <section className="kidnap-negotiation" role="dialog" aria-modal="true" aria-labelledby="kidnap-negotiation-title">
+    <div className="kidnap-negotiation__frame">
+      <p className="eyebrow">⛓ 绑匪 · 公开谈判</p>
+      <h1 id="kidnap-negotiation-title">{captured.name} 拍下了 {negotiation.item.emoji} {negotiation.item.name}</h1>
+      <p>绑匪已发出赎金要求。现在由 <strong>{captured.name}</strong> 公开决定：保住本轮藏品，或将它交给绑匪 <strong>{kidnapper.name}</strong>。</p>
+      <div className="kidnap-negotiation__choices">
+        <button className="kidnap-choice kidnap-choice--pay" disabled={!canPay} onClick={() => onResolve(true)}><span>💰</span><strong>支付 {formatCoins(negotiation.ransomUnits)} 金币</strong><small>{canPay ? '保住藏品；赎金交给绑匪。' : '余额不足，无法支付赎金。'}</small></button>
+        <button className="kidnap-choice kidnap-choice--surrender" onClick={() => onResolve(false)}><span>⛓</span><strong>放弃藏品</strong><small>{negotiation.item.emoji} {negotiation.item.name} 将归绑匪所有。</small></button>
+      </div>
+    </div>
+  </section>
 }
 
 function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void; onRematch: () => void; onRevenge: () => void }) {
@@ -1466,9 +1526,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     }
     if (turn.identityAction?.type === 'kidnap') {
       const action = turn.identityAction
-      const costUnits = currentPlayer.identity?.kidnapFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.kidnapActivationCoins * 2)
-      const targetValid = action.targetPlayerId !== turn.playerId && session.players.some((player) => player.id === action.targetPlayerId)
-      if (currentPlayer.identity?.id !== 'assassin' || (currentPlayer.identity.activeSkillUses ?? 0) >= session.settings.identitySettings.kidnapActivationLimit || !targetValid || turn.bidUnits + auctionBidTotal + costUnits > currentPlayer.balanceUnits) return false
+      const targetIds = [...new Set(action.targetPlayerIds?.length ? action.targetPlayerIds : action.targetPlayerId ? [action.targetPlayerId] : [])]
+      const targetLimit = kidnapTargetCap(session.settings.identitySettings, session.players.length)
+      const highRansomUnits = Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2)
+      const lowRansomUnits = Math.round(session.settings.identitySettings.kidnapLowRansomCoins * 2)
+      const ransomUnits = action.ransomUnits
+      const targetValid = targetIds.length >= 1 && targetIds.length <= targetLimit && targetIds.every((id) => id !== turn.playerId && session.players.some((player) => player.id === id))
+      const costUnits = Math.max(0, targetIds.length - 1) * Math.round(session.settings.identitySettings.kidnapExtraTargetCoins * 2) + (ransomUnits === highRansomUnits ? Math.round(session.settings.identitySettings.kidnapHighRansomExtraCoins * 2) : 0)
+      if (currentPlayer.identity?.id !== 'assassin' || !targetValid || (ransomUnits !== lowRansomUnits && ransomUnits !== highRansomUnits) || turn.bidUnits + auctionBidTotal + costUnits > currentPlayer.balanceUnits) return false
     }
     if (turn.identityAction?.type === 'thiefSteal') {
       const costUnits = Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
@@ -1524,7 +1589,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       if (!nightwalker?.identity) return false
       nightwalker.identity = { ...nightwalker.identity, nightwalkerUses: (nightwalker.identity.nightwalkerUses ?? 0) + 1 }
     }
-    if (turn.identityAction?.type === 'reverserInvert' || turn.identityAction?.type === 'kidnap' || turn.identityAction?.type === 'thiefSteal') {
+    if (turn.identityAction?.type === 'reverserInvert' || turn.identityAction?.type === 'thiefSteal') {
       const actor = players.find((player) => player.id === turn.playerId)
       if (!actor?.identity) return false
       actor.identity = { ...actor.identity, activeSkillUses: (actor.identity.activeSkillUses ?? 0) + 1 }
@@ -1657,14 +1722,74 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const lines = cardAuctionFeedback.get(player.id) ?? []
       return lines.length ? [{ id: `round-auction-summary-${session.roundIndex}-${player.id}`, playerId: player.id, title: '本轮道具竞购', detail: lines.join('\n') }] : []
     })
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: [...auctionNotices, ...cardAuctionNotices, ...passivityNotices, ...feedbackNotices], identityEvents: [...auctionEvents, ...settled.identityEvents], results: [...session.results, settled.result], phase: 'roundResult' })
+    const notices = [...auctionNotices, ...cardAuctionNotices, ...passivityNotices, ...feedbackNotices]
+    const events = [...auctionEvents, ...settled.identityEvents]
+    const attempt = settled.result.kidnapAttempt
+    if (attempt?.status === 'pending' && attempt.capturedPlayerId) {
+      patch({
+        roundAuctions: [],
+        roundAssetAuctions: [],
+        pendingKidnapNegotiation: {
+          kidnapperId: attempt.kidnapperId,
+          capturedPlayerId: attempt.capturedPlayerId,
+          item: settled.result.item,
+          ransomUnits: attempt.ransomUnits,
+          players: updateBotGrudges(settled.players, settled.result),
+          result: settled.result,
+          identityContracts: settled.identityContracts,
+          identityEvents: events,
+          cardDeck: auctionDeck,
+          pendingIdentityNotices: notices,
+        },
+        phase: 'kidnapNegotiation',
+      })
+      return
+    }
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], phase: 'roundResult' })
+  }
+  const resolveKidnapNegotiation = (payRansom: boolean) => {
+    const negotiation = session.pendingKidnapNegotiation
+    if (!negotiation || session.phase !== 'kidnapNegotiation') return
+    const players = negotiation.players.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined }))
+    const captured = players.find((player) => player.id === negotiation.capturedPlayerId)
+    const kidnapper = players.find((player) => player.id === negotiation.kidnapperId)
+    if (!captured || !kidnapper || (payRansom && captured.balanceUnits < negotiation.ransomUnits)) return
+    const result: RoundResult = { ...negotiation.result, cardEffects: [...negotiation.result.cardEffects], identityEvents: [...negotiation.result.identityEvents], deltas: negotiation.result.deltas.map((delta) => ({ ...delta })), balancesAfter: { ...negotiation.result.balancesAfter }, totalAssetUnitsAfter: { ...negotiation.result.totalAssetUnitsAfter }, kidnapAttempt: negotiation.result.kidnapAttempt ? { ...negotiation.result.kidnapAttempt, status: payRansom ? 'paid' : 'surrendered' } : undefined }
+    const capturedDelta = result.deltas.find((delta) => delta.playerId === captured.id)
+    const kidnapperDelta = result.deltas.find((delta) => delta.playerId === kidnapper.id)
+    if (payRansom) {
+      captured.balanceUnits -= negotiation.ransomUnits
+      kidnapper.balanceUnits += negotiation.ransomUnits
+      if (capturedDelta) capturedDelta.identityUnits -= negotiation.ransomUnits
+      if (kidnapperDelta) kidnapperDelta.identityUnits += negotiation.ransomUnits
+      result.cardEffects.push({ symbol: '⛓', description: `${captured.name} 支付 ${formatCoins(negotiation.ransomUnits)} 金币赎金，保住了 ${negotiation.item.emoji}${negotiation.item.name}。` })
+      result.identityEvents.push({ playerId: captured.id, identityId: 'assassin', roundIndex: session.roundIndex, title: '支付绑票赎金', detail: `支付 ${formatCoins(negotiation.ransomUnits)} 金币，保住了 ${negotiation.item.emoji}${negotiation.item.name}。`, deltaUnits: -negotiation.ransomUnits })
+      result.identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex: session.roundIndex, title: '收到绑票赎金', detail: `收到 ${formatCoins(negotiation.ransomUnits)} 金币，${captured.name} 保住了本轮藏品。`, deltaUnits: negotiation.ransomUnits })
+    } else {
+      const itemIndex = captured.items.findIndex((won) => won.item.id === negotiation.item.id && won.roundIndex === session.roundIndex)
+      if (itemIndex >= 0) captured.items.splice(itemIndex, 1)
+      kidnapper.items.push({ item: negotiation.item, roundIndex: session.roundIndex })
+      const collectorBonusUnits = captured.identity?.id === 'collector' && captured.identity.collectorCategory === negotiation.item.category ? 10 : 0
+      if (collectorBonusUnits > 0) {
+        captured.balanceUnits = Math.max(0, captured.balanceUnits - collectorBonusUnits)
+        if (capturedDelta) capturedDelta.identityUnits -= collectorBonusUnits
+        result.identityEvents = result.identityEvents.filter((event) => !(event.playerId === captured.id && event.identityId === 'collector' && event.roundIndex === session.roundIndex && event.title === '收藏家奖励'))
+      }
+      result.itemWinnerId = kidnapper.id
+      result.investments = result.investments.map((investment) => ({ ...investment, receivedItem: false }))
+      result.cardEffects.push({ symbol: '⛓', description: `${captured.name} 放弃了 ${negotiation.item.emoji}${negotiation.item.name}，藏品已归绑匪 ${kidnapper.name}。` })
+      result.identityEvents.push({ playerId: captured.id, identityId: 'assassin', roundIndex: session.roundIndex, title: '放弃绑票藏品', detail: `未支付赎金，${negotiation.item.emoji}${negotiation.item.name} 已交给绑匪。${collectorBonusUnits > 0 ? '失去该藏品对应的收藏家奖励。' : ''}`, deltaUnits: collectorBonusUnits > 0 ? -collectorBonusUnits : 0 })
+      result.identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex: session.roundIndex, title: '绑票谈判成功', detail: `获得了 ${negotiation.item.emoji}${negotiation.item.name}。`, deltaUnits: 0 })
+    }
+    result.balancesAfter = Object.fromEntries(players.map((player) => [player.id, player.balanceUnits]))
+    result.totalAssetUnitsAfter = Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits]))
+    const events = [...negotiation.identityEvents.filter((event) => !( !payRansom && event.playerId === captured.id && event.identityId === 'collector' && event.roundIndex === session.roundIndex && event.title === '收藏家奖励')), ...result.identityEvents.slice(negotiation.result.identityEvents.length)]
+    const feedback = result.identityEvents.slice(negotiation.result.identityEvents.length).map(identityFeedbackNotice)
+    patch({ players, cardDeck: negotiation.cardDeck, identityContracts: negotiation.identityContracts, pendingIdentityNotices: [...negotiation.pendingIdentityNotices.filter((notice) => !( !payRansom && notice.playerId === captured.id && notice.title === '收藏家奖励')), ...feedback], identityEvents: events, results: [...session.results, result], pendingKidnapNegotiation: null, phase: 'roundResult' })
   }
   const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
-    const eligiblePlayers = basePlayers.map((entry) => entry.identity && (
-      (entry.identity.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex)
-      || (entry.identity.kidnapFreeRoundIndex !== undefined && entry.identity.kidnapFreeRoundIndex !== roundIndex)
-    )
-      ? { ...entry, identity: { ...entry.identity, ...(entry.identity.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex ? { reverserFreeRoundIndex: null } : {}), ...(entry.identity.kidnapFreeRoundIndex !== undefined && entry.identity.kidnapFreeRoundIndex !== roundIndex ? { kidnapFreeRoundIndex: null } : {}) } }
+    const eligiblePlayers = basePlayers.map((entry) => entry.identity && entry.identity.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex
+      ? { ...entry, identity: { ...entry.identity, reverserFreeRoundIndex: null } }
       : entry)
     const grants = roundIndex >= session.cardRulesStartRound ? prepareCardGrants({ players: eligiblePlayers, cardDeck: baseDeck, roundIndex, probability: session.settings.cardGrantProbability }) : { players: eligiblePlayers, cardDeck: baseDeck, pendingCardGrants: [] }
     let deck = [...grants.cardDeck]
@@ -1682,28 +1807,20 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       deck = draw.cardDeck
       reverserAwards.push({ playerId: reverser.id, cardId: draw.cardId })
     }
-    const kidnapAwards: Array<{ playerId: string; cardId: CardId }> = []
-    for (const kidnapper of grants.players.filter((entry) => entry.identity?.id === 'assassin' && entry.identity.pendingKidnapReward)) {
-      const draw = drawCard(deck, session.settings.disabledCardIds)
-      if (!draw.cardId) continue
-      deck = draw.cardDeck
-      kidnapAwards.push({ playerId: kidnapper.id, cardId: draw.cardId })
-    }
-    const directIdentityAwards = [...reverserAwards, ...kidnapAwards]
+    const directIdentityAwards = reverserAwards
     const grantedPlayers = grants.players.map((entry) => ({
       ...entry,
       cardInventory: [...entry.cardInventory, ...directIdentityAwards.filter((award) => award.playerId === entry.id).map((award) => award.cardId)],
-      identity: entry.identity?.pendingKidnapReward ? { ...entry.identity, pendingKidnapReward: false } : entry.identity,
+      identity: entry.identity,
     }))
     const pendingAwards = [...grants.pendingCardGrants, ...merchantAwards.map((award) => ({ ...award, announced: false }))]
     const awards = pendingAwards.map((grant) => ({ playerId: grant.playerId, cardId: grant.cardId }))
     const strippedPlayers = grantedPlayers.map((player) => ({ ...player, cardInventory: awards.filter((award) => award.playerId === player.id).reduce((inventory, award) => removeOneCard(inventory, award.cardId), player.cardInventory) }))
     const routed = routeCardAwards({ players: strippedPlayers, awards, settings: session.settings.identitySettings, fairnessOrderIds: session.fairnessOrderIds, roundIndex })
     const deliveredKeys = new Set(routed.delivered.map((award) => `${award.playerId}-${award.cardId}`))
-    const rewardNoticeTitles = new Set(['逆转者连胜奖励', '绑匪抢劫成功'])
+    const rewardNoticeTitles = new Set(['逆转者连胜奖励'])
     const identityRewardNotices = [
       ...reverserAwards.map((award) => ({ id: `reverser-reward-${roundIndex}-${award.playerId}`, playerId: award.playerId, title: '逆转者奖励', detail: `本轮发动逆转后拿下第一名。获得「${getCardDefinition(award.cardId).name}」道具卡；本回合可免费发动逆转排名。` })),
-      ...kidnapAwards.map((award) => ({ id: `kidnap-reward-${roundIndex}-${award.playerId}`, playerId: award.playerId, title: '绑匪成功奖励', detail: `上轮抢到拍品。获得「${getCardDefinition(award.cardId).name}」道具卡；本回合可免费发动绑匪技能。` })),
     ]
     const scheduled = [session.merchantAuction, ...session.auctionQueue].filter((auction): auction is NonNullable<GameSession['merchantAuction']> => Boolean(auction && auction.roundIndex === roundIndex))
     const isFinalRound = roundIndex >= session.settings.rounds - 1
@@ -1834,7 +1951,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         ? auctionBidder
         : session.phase === 'roundResult' || session.phase === 'roundIntro'
           ? session.players[0]
-          : currentPlayer
+          : session.phase === 'kidnapNegotiation'
+            ? session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
+            : currentPlayer
     if (!target || !isBot(target)) return
     patch({ players: session.players.map((player) => player.id === target.id ? { ...player, controller: { kind: 'human' } } : player) })
     setBotPaused(false)
@@ -1891,7 +2010,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const plannedIdentityCost = decision.identityAction?.type === 'reverserInvert'
           ? (currentPlayer.identity?.reverserFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 4 : 2)))
           : decision.identityAction?.type === 'kidnap'
-            ? (currentPlayer.identity?.kidnapFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.kidnapActivationCoins * 2))
+            ? Math.max(0, (decision.identityAction.targetPlayerIds?.length ?? (decision.identityAction.targetPlayerId ? 1 : 0)) - 1) * Math.round(session.settings.identitySettings.kidnapExtraTargetCoins * 2) + (decision.identityAction.ransomUnits === Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2) ? Math.round(session.settings.identitySettings.kidnapHighRansomExtraCoins * 2) : 0)
             : decision.identityAction?.type === 'thiefSteal'
               ? Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
               : decision.identityAction?.type === 'invest'
@@ -1925,6 +2044,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           ? { bidUnits: 0, mode: 'cards' as const, reason: '本次竞购由自己发起，按规则经过报价流程但只能报 0。' }
           : decideBotMerchantBid(auctionBidder as Player, session.merchantAuction.cardId)
         submitAuctionBid(decision.bidUnits, decision)
+      } else if (session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation) {
+        const captured = session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
+        if (isBot(captured)) resolveKidnapNegotiation(Boolean(captured && captured.balanceUnits >= session.pendingKidnapNegotiation.ransomUnits))
       } else if (allBots && session.phase === 'revealReady') {
         reveal()
       } else if (allBots && session.phase === 'roundResult') {
@@ -1957,6 +2079,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       {session.phase === 'handoff' && <Handoff session={session} onReady={() => patch({ phase: 'privateTurn' })} />}
       {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
       {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
+      {session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation && <KidnapNegotiationPanel negotiation={session.pendingKidnapNegotiation} onResolve={resolveKidnapNegotiation} />}
       {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
       {(session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') && <FinalReceipt session={session} onReady={() => patch({ phase: 'finalReceipt' })} onAcknowledge={acknowledgeFinalReceipt} />}
       {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}

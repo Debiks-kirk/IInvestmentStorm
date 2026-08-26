@@ -20,6 +20,7 @@ import type {
   NightwalkerOutcome,
   InvestmentRecord,
   PassivityFeePenalty,
+  KidnapAttempt,
 } from './types'
 
 export const COIN_UNIT = 2
@@ -444,24 +445,24 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     cardEffects.push(cardEffect('legendaryLoot', `一张传奇夺宝令夺走了本回合的最终藏品：${item.emoji}${item.name}。`))
   }
 
+  let kidnapAttempt: KidnapAttempt | undefined
   const kidnapTurn = turns.find((turn) => turn.identityAction?.type === 'kidnap' && playerById.get(turn.playerId)?.identity?.id === 'assassin')
   if (kidnapTurn?.identityAction?.type === 'kidnap') {
     const kidnapper = playerById.get(kidnapTurn.playerId)
     const kidnapDelta = deltaByPlayer.get(kidnapTurn.playerId)
-    const freeActivation = kidnapper?.identity?.kidnapFreeRoundIndex === roundIndex
-    const paid = freeActivation ? 0 : Math.min(kidnapper?.balanceUnits ?? 0, coinsToUnits(identitySettings.kidnapActivationCoins))
+    const action = kidnapTurn.identityAction
+    const targetPlayerIds = [...new Set(action.targetPlayerIds?.length ? action.targetPlayerIds : action.targetPlayerId ? [action.targetPlayerId] : [])]
+    const highRansomUnits = coinsToUnits(identitySettings.kidnapHighRansomCoins)
+    const lowRansomUnits = coinsToUnits(identitySettings.kidnapLowRansomCoins)
+    const ransomUnits = action.ransomUnits === highRansomUnits ? highRansomUnits : lowRansomUnits
+    const due = Math.max(0, targetPlayerIds.length - 1) * coinsToUnits(identitySettings.kidnapExtraTargetCoins)
+      + (ransomUnits === highRansomUnits ? coinsToUnits(identitySettings.kidnapHighRansomExtraCoins) : 0)
+    const paid = Math.min(kidnapper?.balanceUnits ?? 0, due)
     if (kidnapper && kidnapDelta) {
       kidnapper.balanceUnits -= paid
       kidnapDelta.identityUnits -= paid
-      kidnapper.identity = { ...kidnapper.identity!, kidnapFreeRoundIndex: null }
-      if (!legendaryLoot && itemWinnerId === kidnapTurn.identityAction.targetPlayerId) {
-        itemWinnerId = kidnapper.id
-        kidnapper.identity = { ...kidnapper.identity!, pendingKidnapReward: true, kidnapFreeRoundIndex: roundIndex + 1 }
-        cardEffects.push(identityEffect('⛓', '有人抢劫了本回合的藏品。'))
-        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫成功', detail: `抢走了 ${item.emoji}${item.name}。已赢得下回合的免费发动资格与道具奖励。`, deltaUnits: paid === 0 ? 0 : -paid })
-      } else {
-        identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑匪抢劫失败', detail: freeActivation ? '使用了上一回合赢得的免费发动，但目标没有拿下本轮拍品。' : `上回合花费了 ${formatCoins(paid)} 金币，但目标没有拿下本轮拍品。`, deltaUnits: paid === 0 ? 0 : -paid })
-      }
+      identityEvents.push({ playerId: kidnapper.id, identityId: 'assassin', roundIndex, title: '绑票谈判已布置', detail: `选择 ${targetPlayerIds.length} 名目标；若其中有人获得本轮藏品，将公开决定是否支付 ${formatCoins(ransomUnits)} 金币赎金。`, deltaUnits: paid === 0 ? 0 : -paid })
+      kidnapAttempt = { kidnapperId: kidnapper.id, targetPlayerIds, ransomUnits, setupCostUnits: paid, status: 'missed' }
     }
   }
 
@@ -506,6 +507,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     }
   }
   if (itemWinnerId) playerById.get(itemWinnerId)?.items.push({ item, roundIndex })
+  if (kidnapAttempt && itemWinnerId && kidnapAttempt.targetPlayerIds.includes(itemWinnerId) && itemWinnerId !== kidnapAttempt.kidnapperId) {
+    kidnapAttempt = { ...kidnapAttempt, status: 'pending', capturedPlayerId: itemWinnerId }
+  }
   if (winnerId && investments.some((investment) => investment.targetPlayerId === winnerId)) {
     identityEvents.push({ playerId: winnerId, identityId: 'investor', roundIndex, title: '获得投资回执', detail: itemWinnerId === winnerId ? `你获得了本轮拍品 ${item.emoji}${item.name}。` : `你拿下第一名，但拍品 ${item.emoji}${item.name} 因投资贡献归属他人。`, deltaUnits: 0 })
     if (itemWinnerId && itemWinnerId !== winnerId) identityEvents.push({ playerId: itemWinnerId, identityId: 'investor', roundIndex, title: '价值投资拍品', detail: `你的单笔投资贡献最高，获得了 ${item.emoji}${item.name}。`, deltaUnits: 0 })
@@ -798,6 +802,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     assetAuctionResults: [],
     passivityFeePlayerCount: passivityFeePenalties.length,
     passivityFeePenalties,
+    kidnapAttempt,
     totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
   return { players, result, identityContracts, identityEvents }

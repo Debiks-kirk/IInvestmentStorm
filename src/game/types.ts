@@ -8,6 +8,7 @@ export type GamePhase =
   | 'handoff'
   | 'privateTurn'
   | 'revealReady'
+  | 'kidnapNegotiation'
   | 'roundResult'
   | 'finalReceiptHandoff'
   | 'finalReceipt'
@@ -129,7 +130,14 @@ export interface IdentitySettings {
   gamblerSkipPenaltyMultiplier: number
   prophetDivinationCoins: number
   reverserActivationCoins: number
+  /** Legacy field kept only so imported v24 settings remain readable. */
   kidnapActivationCoins: number
+  /** 0 means use ceil(player count / 4). */
+  kidnapTargetLimit: number
+  kidnapLowRansomCoins: number
+  kidnapHighRansomCoins: number
+  kidnapHighRansomExtraCoins: number
+  kidnapExtraTargetCoins: number
   thiefActivationCoins: number
   thiefSuccessProbability: number
   /** Retained only so legacy saves can be read; active thieves no longer use a success cap. */
@@ -271,7 +279,8 @@ export type IdentityAction =
   | { type: 'merchantAuction' }
   | { type: 'reverserInvert' }
   | { type: 'thiefSteal' }
-  | { type: 'kidnap'; targetPlayerId: string }
+  /** targetPlayerId is retained for an already-submitted pre-v25 turn. */
+  | { type: 'kidnap'; targetPlayerIds?: string[]; targetPlayerId?: string; ransomUnits?: number }
   | { type: 'nightwalkerDoubleBid'; shadowBidUnits: number; prioritizeItem?: boolean }
   | { type: 'invest'; targetPlayerId: string; investmentUnits: number }
   | { type: 'lobbyistContract'; targetPlayerId: string; specified?: boolean; taskType?: LobbyistTaskType; comparisonPlayerId?: string }
@@ -384,6 +393,29 @@ export interface PassivityFeePenalty {
   removedCardIds: CardId[]
 }
 
+export interface KidnapAttempt {
+  kidnapperId: string
+  targetPlayerIds: string[]
+  ransomUnits: number
+  setupCostUnits: number
+  status: 'missed' | 'pending' | 'paid' | 'surrendered'
+  capturedPlayerId?: string
+}
+
+/** A public decision that must be completed before the round result is revealed. */
+export interface KidnapNegotiation {
+  kidnapperId: string
+  capturedPlayerId: string
+  item: Item
+  ransomUnits: number
+  players: Player[]
+  result: RoundResult
+  identityContracts: LobbyistContract[]
+  identityEvents: IdentityEvent[]
+  cardDeck: CardId[]
+  pendingIdentityNotices: IdentityNotice[]
+}
+
 export interface RoundResult {
   roundIndex: number
   item: Item
@@ -412,12 +444,13 @@ export interface RoundResult {
   /** The public result exposes only this count, never the affected identities. */
   passivityFeePlayerCount: number
   passivityFeePenalties: PassivityFeePenalty[]
+  kidnapAttempt?: KidnapAttempt
   /** Cash plus fixed assets after this round, used for comparable end-game trajectories. */
   totalAssetUnitsAfter: Record<string, number>
 }
 
 export interface GameSession {
-  version: 24
+  version: 25
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -463,6 +496,8 @@ export interface GameSession {
   pendingProphetCardOffers: Array<{ playerId: string; offeredCardIds: CardId[]; chosenCardIds: CardId[] }>
   /** Kidnap success reward. Candidates are removed from the deck before this is shown. */
   pendingKidnapCardOffers: Array<{ playerId: string; offeredCardIds: CardId[] }>
+  /** Settlement is paused here while the captured player publicly chooses a ransom. */
+  pendingKidnapNegotiation: KidnapNegotiation | null
   /** Final round receipts are shown seat by seat before the public leaderboard. */
   finalReceiptIndex: number | null
   /** 已进入私密竞拍/竞购后的绝对截止时间；刷新降级为传递页时保留。 */
