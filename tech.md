@@ -290,3 +290,4 @@
 
 - `decideBotKidnapResponse` 只读取被绑 Bot 自己的库存、余额、拍品和稳定行为参数，比较赎金与实际资产损失后决定保住或放弃拍品。
 - `decideBotAssetAuctionOffer` 仅依据自己的藏品与公开各轮拍品类别赢家记录发起下一轮竞购；它避开收藏家目标类，并把起拍价设在自身资产损失之上，以减少低价资敌。
+- `CollectionBook` 复用 `IDENTITY_DEFINITIONS`、`CARD_DEFINITIONS`、`ITEM_POOL` 与 `ASSET_CATEGORY_CONFIGS` 作为图鉴唯一数据源；图鉴不读取对局存档，也不影响任何游戏状态。
