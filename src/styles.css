@@ -445,7 +445,7 @@ em { color: var(--red); font-style: normal; }
   .asset-category-summary { min-width: 0; padding: 7px 8px; }
 }
 
- .collection-item-group header p { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.collection-bonus-table { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); width: min(360px,100%); margin-top: 10px; overflow: hidden; border: 1px solid rgba(41,43,41,.1); border-radius: 9px; background: rgba(255,255,255,.48); }.collection-bonus-table span { display: grid; justify-items: center; gap: 1px; min-width: 0; padding: 5px 3px; border-right: 1px solid rgba(41,43,41,.08); }.collection-bonus-table span:last-child { border-right: 0; background: rgba(159,81,74,.06); }.collection-bonus-table small { color: var(--muted) !important; font-size: 9px !important; font-weight: 600 !important; }.collection-bonus-table b { color: var(--red-dark); font-size: 11px; line-height: 1.15; }
 
 @media (prefers-reduced-motion: reduce) {
   .focus-sheet, .focus-sheet--backpack .card-list, .prediction-picker-grid > button, .backpack-title__icon { animation-delay: 0ms !important; }
