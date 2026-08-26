@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "simulate:bots": "set \"BOT_ARENA_RUN=1\"&& vitest run tools/bot-arena.sim.test.ts --reporter=verbose --testTimeout=0",
     "test:smoke": "node tools/smoke.mjs",
     "preview": "vite preview"
   },
