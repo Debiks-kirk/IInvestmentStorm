@@ -1577,7 +1577,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const unresolvedChange = session.pendingPrizeChanges.some((change) => change.playerId === playerId && change.roundIndex === session.roundIndex && !change.confirmedItemId)
     if (session.phase !== 'privateTurn' || currentPlayer?.id !== playerId || alreadyLocked || unresolvedChange || (cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1) || !currentPlayer.cardInventory.includes(cardId)) return
     const originalItem = session.itemDeck[targetRoundIndex]
-    const offeredItems = drawPrizeRerollOffers(session.itemDeck)
+    const offeredItems = drawPrizeRerollOffers(session.itemDeck, 6, originalItem)
     if (!originalItem || offeredItems.length !== 6) return
     patch({
       players: session.players.map((player) => player.id === playerId ? { ...player, cardInventory: removeOneCard(player.cardInventory, cardId) } : player),

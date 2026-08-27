@@ -209,10 +209,10 @@ export function createRematchSession(previous: GameSession, keepBotGrudges = fal
   }
 }
 
-/** Draw fresh candidates outside the scheduled deck, preventing duplicate prizes after replacement. */
-export function drawPrizeRerollOffers(itemDeck: Item[], count = 6): Item[] {
+/** Draw fresh candidates outside the scheduled deck and never offer the item being replaced. */
+export function drawPrizeRerollOffers(itemDeck: Item[], count = 6, replacingItem?: Item): Item[] {
   const scheduledIds = new Set(itemDeck.map((item) => item.id))
-  return shuffle(ITEM_POOL.filter((item) => !scheduledIds.has(item.id))).slice(0, count).map((item) => ({ ...item }))
+  return shuffle(ITEM_POOL.filter((item) => !scheduledIds.has(item.id) && item.id !== replacingItem?.id && item.name !== replacingItem?.name)).slice(0, count).map((item) => ({ ...item }))
 }
 
 export function replaceNextPrize(itemDeck: Item[], roundIndex: number, chosenItem: Item): Item[] {

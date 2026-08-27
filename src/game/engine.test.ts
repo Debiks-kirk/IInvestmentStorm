@@ -377,6 +377,14 @@ describe('道具发放', () => {
     expect(replaced[1]).toEqual(scheduled[1])
   })
 
+  it('改拍候选绝不会包含正被替换的原拍品', () => {
+    const scheduled = ITEM_POOL.slice(0, 6)
+    const original = ITEM_POOL[12]
+    const offers = drawPrizeRerollOffers(scheduled, 6, original)
+    expect(offers).toHaveLength(6)
+    expect(offers.some((entry) => entry.id === original.id || entry.name === original.name)).toBe(false)
+  })
+
   it('调包令替换本轮拍品，并在结算影响中留下揭晓记录', () => {
     const scheduled = ITEM_POOL.slice(0, 6)
     const offers = drawPrizeRerollOffers(scheduled)
