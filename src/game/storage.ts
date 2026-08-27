@@ -26,14 +26,14 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
           : migrated
-    if (parsed.version !== 30 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || (parsed.pendingPrizeReroll && !('confirmedItemId' in parsed.pendingPrizeReroll)) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 31 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -58,7 +58,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     turnTimeLimitSeconds: Math.min(120, Math.max(5, oldSettings.turnTimeLimitSeconds ?? 20)),
     turnTimerEnabled: oldSettings.turnTimerEnabled ?? false,
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 || session.version === 13 || session.version === 14 || session.version === 15 || session.version === 16 || session.version === 17 || session.version === 18 || session.version === 19 || session.version === 20 || session.version === 21 || session.version === 22 || session.version === 23 || session.version === 24 || session.version === 25 || session.version === 26 || session.version === 27 || session.version === 28 || session.version === 29 || session.version === 30 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 || session.version === 13 || session.version === 14 || session.version === 15 || session.version === 16 || session.version === 17 || session.version === 18 || session.version === 19 || session.version === 20 || session.version === 21 || session.version === 22 || session.version === 23 || session.version === 24 || session.version === 25 || session.version === 26 || session.version === 27 || session.version === 28 || session.version === 29 || session.version === 30 || session.version === 31 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -117,22 +117,27 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     const itemIndex = seller?.items.findIndex((won) => won.item.id === lot.item.id && won.roundIndex === lot.itemRoundIndex) ?? -1
     if (seller && itemIndex >= 0) seller.items.splice(itemIndex, 1)
   }
+  const normalizePendingPrizeChange = (pending: NonNullable<GameSession['pendingPrizeReroll']>) => ({
+    ...pending,
+    cardId: pending.cardId ?? 'prizeReroll',
+    targetRoundIndex: pending.targetRoundIndex ?? pending.roundIndex + 1,
+    confirmedItemId: pending.confirmedItemId ?? pending.chosenItemId,
+    originalItem: normalizeItem(pending.originalItem),
+    offeredItems: pending.offeredItems.map((item) => normalizeItem(item)),
+  })
+  const pendingPrizeChanges = Array.isArray(session.pendingPrizeChanges)
+    ? session.pendingPrizeChanges.map(normalizePendingPrizeChange)
+    : session.pendingPrizeReroll ? [normalizePendingPrizeChange(session.pendingPrizeReroll)] : []
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 30,
+    version: 31,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
     prophecyDeck: (session.prophecyDeck ?? session.itemDeck ?? []).map((item) => normalizeItem(item)),
     roundStartBalanceUnits: { ...(session.roundStartBalanceUnits ?? Object.fromEntries(players.map((player) => [player.id, player.balanceUnits + (session.turns ?? []).filter((turn) => turn.playerId === player.id).reduce((sum, turn) => sum + turn.bidUnits, 0)]))) },
-    pendingPrizeReroll: session.pendingPrizeReroll ? {
-      ...session.pendingPrizeReroll,
-      cardId: session.pendingPrizeReroll.cardId ?? 'prizeReroll',
-      targetRoundIndex: session.pendingPrizeReroll.targetRoundIndex ?? session.pendingPrizeReroll.roundIndex + 1,
-      confirmedItemId: session.pendingPrizeReroll.confirmedItemId ?? session.pendingPrizeReroll.chosenItemId,
-      originalItem: normalizeItem(session.pendingPrizeReroll.originalItem),
-      offeredItems: session.pendingPrizeReroll.offeredItems.map((item) => normalizeItem(item)),
-    } : null,
+    pendingPrizeReroll: null,
+    pendingPrizeChanges,
     pendingFateCoinUse: session.pendingFateCoinUse && session.pendingFateCoinUse.use?.cardId === 'fateCoin'
       ? { ...session.pendingFateCoinUse, use: { ...session.pendingFateCoinUse.use } }
       : null,

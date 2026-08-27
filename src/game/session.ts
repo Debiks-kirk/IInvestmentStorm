@@ -108,7 +108,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 30,
+    version: 31,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -117,6 +117,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     prophecyDeck: initialItemDeck.map((item) => ({ ...item })),
     roundStartBalanceUnits: Object.fromEntries(players.map((player) => [player.id, player.balanceUnits])),
     pendingPrizeReroll: null,
+    pendingPrizeChanges: [],
     pendingFateCoinUse: null,
     cardDeck,
     pendingCardGrants: [],

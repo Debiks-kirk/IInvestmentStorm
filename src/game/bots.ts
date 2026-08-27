@@ -231,7 +231,7 @@ export interface BotObservation {
 export function buildBotObservation(session: GameSession, playerId: string): BotObservation {
   const player = session.players.find((entry) => entry.id === playerId) as Player
   const prior = session.turns.map((turn) => turn.playerId).filter((id) => id !== playerId)
-  const pendingPrizeChange = session.pendingPrizeReroll
+  const pendingPrizeChange = session.pendingPrizeChanges.find((change) => change.cardId === 'prizeSwap' && change.roundIndex === session.roundIndex)
   const concealedPrizeSwap = pendingPrizeChange?.cardId === 'prizeSwap'
     && pendingPrizeChange.roundIndex === session.roundIndex
     && pendingPrizeChange.playerId !== playerId
@@ -529,7 +529,8 @@ function cardUseVariants(observation: BotObservation): CardUse[][] {
   const variants: CardUse[][] = [[]]
   for (const candidate of candidates) variants.push([candidate])
   for (let left = 0; left < candidates.length; left += 1) for (let right = left + 1; right < candidates.length; right += 1) {
-    if (['prizeReroll', 'prizeSwap'].includes(candidates[left].cardId) || ['prizeReroll', 'prizeSwap'].includes(candidates[right].cardId)) continue
+    const prizePair = [candidates[left].cardId, candidates[right].cardId].sort().join('|') === 'prizeReroll|prizeSwap'
+    if ((['prizeReroll', 'prizeSwap'].includes(candidates[left].cardId) || ['prizeReroll', 'prizeSwap'].includes(candidates[right].cardId)) && !prizePair) continue
     if (candidates[left].cardId !== candidates[right].cardId) variants.push([candidates[left], candidates[right]])
   }
   // The player-facing rule has no per-round card cap. Keep planning bounded, but

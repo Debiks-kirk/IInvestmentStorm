@@ -480,7 +480,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 30
+  version: 31
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -490,19 +490,10 @@ export interface GameSession {
   prophecyDeck: Item[]
   /** Round-start balances are frozen before any player submits, preventing seat-order leakage. */
   roundStartBalanceUnits: Record<string, number>
-  /** A confirmed prize-changing draw survives a handoff/refresh until its owner submits. */
-  pendingPrizeReroll: {
-    playerId: string
-    roundIndex: number
-    cardId: 'prizeReroll' | 'prizeSwap'
-    targetRoundIndex: number
-    originalItem: Item
-    offeredItems: Item[]
-    /** Currently highlighted candidate. It remains editable until confirmed. */
-    chosenItemId?: string
-    /** The irrevocably confirmed candidate used by settlement. */
-    confirmedItemId?: string
-  } | null
+  /** @deprecated v31 keeps this only so old persisted sessions can be migrated safely. */
+  pendingPrizeReroll: PendingPrizeChange | null
+  /** Each prize-changing card owns an independent locked draw for the current turn. */
+  pendingPrizeChanges: PendingPrizeChange[]
   /** 命运硬币翻面后立即扣/加余额；在本次提交前保留，防止刷新后重掷。 */
   pendingFateCoinUse: { playerId: string; roundIndex: number; use: CardUse } | null
   cardDeck: CardId[]
@@ -547,6 +538,19 @@ export interface GameSession {
   tutorial?: { kind: 'firstGame' }
   createdAt: string
   updatedAt: string
+}
+
+export interface PendingPrizeChange {
+  playerId: string
+  roundIndex: number
+  cardId: 'prizeReroll' | 'prizeSwap'
+  targetRoundIndex: number
+  originalItem: Item
+  offeredItems: Item[]
+  /** Currently highlighted candidate. It remains editable until confirmed. */
+  chosenItemId?: string
+  /** The irrevocably confirmed candidate used by settlement. */
+  confirmedItemId?: string
 }
 
 export interface FinalStanding {

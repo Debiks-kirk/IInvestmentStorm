@@ -777,9 +777,9 @@ function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], 
   </section>
 }
 
-function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll, onConfirmPrizeReroll, onStartMerchantOffer, onChooseMerchantOffer, onChooseProphetOffer, onUseProphetDivination, onResolveFateCoin, onArmDeadline }: { session: GameSession; onSubmit: (turn: RoundTurn, timedOut?: boolean) => boolean; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string, cardId: 'prizeReroll' | 'prizeSwap') => void; onChoosePrizeReroll: (itemId: string) => void; onConfirmPrizeReroll: () => void; onStartMerchantOffer: (playerId: string) => void; onChooseMerchantOffer: (cardId: CardId) => void; onChooseProphetOffer: (playerId: string, cardId: CardId) => void; onUseProphetDivination: (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId) => boolean; onResolveFateCoin: (playerId: string, result: 'heads' | 'tails') => CardUse | null; onArmDeadline: () => void }) {
+function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll, onConfirmPrizeReroll, onStartMerchantOffer, onChooseMerchantOffer, onChooseProphetOffer, onUseProphetDivination, onResolveFateCoin, onArmDeadline }: { session: GameSession; onSubmit: (turn: RoundTurn, timedOut?: boolean) => boolean; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string, cardId: 'prizeReroll' | 'prizeSwap') => void; onChoosePrizeReroll: (cardId: 'prizeReroll' | 'prizeSwap', itemId: string) => void; onConfirmPrizeReroll: (cardId: 'prizeReroll' | 'prizeSwap') => void; onStartMerchantOffer: (playerId: string) => void; onChooseMerchantOffer: (cardId: CardId) => void; onChooseProphetOffer: (playerId: string, cardId: CardId) => void; onUseProphetDivination: (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId) => boolean; onResolveFateCoin: (playerId: string, result: 'heads' | 'tails') => CardUse | null; onArmDeadline: () => void }) {
   const player = session.players[session.currentTurnIndex]
-  const concealedPrizeSwap = session.pendingPrizeReroll?.cardId === 'prizeSwap' && session.pendingPrizeReroll.roundIndex === session.roundIndex ? session.pendingPrizeReroll : null
+  const concealedPrizeSwap = session.pendingPrizeChanges.find((change) => change.cardId === 'prizeSwap' && change.roundIndex === session.roundIndex) ?? null
   const item = concealedPrizeSwap && concealedPrizeSwap.playerId !== player.id ? concealedPrizeSwap.originalItem : session.itemDeck[session.roundIndex]
   const tutorial = session.tutorial?.kind === 'firstGame'
   const predictionUnlocked = !tutorial || session.roundIndex >= 1
@@ -829,10 +829,12 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
     ? session.players.filter((candidate) => candidate.id !== player.id)
     : cardTargetScope(cardId) === 'previous' ? targetPlayers : []
   const grant = session.pendingCardGrants.find((entry) => entry.playerId === player.id && !entry.announced)
-  const lockedPrizeReroll = session.pendingPrizeReroll?.playerId === player.id && session.pendingPrizeReroll.roundIndex === session.roundIndex ? session.pendingPrizeReroll : null
+  const lockedPrizeRerolls = session.pendingPrizeChanges.filter((change) => change.playerId === player.id && change.roundIndex === session.roundIndex)
+  const lockedPrizeReroll = lockedPrizeRerolls.find((change) => !change.confirmedItemId) ?? null
   const lockedFateCoinUse = session.pendingFateCoinUse?.playerId === player.id && session.pendingFateCoinUse.roundIndex === session.roundIndex ? session.pendingFateCoinUse.use : null
-  const allConfirmedCardUses = [...confirmedCardUses.filter((use) => use.cardId !== 'fateCoin'), ...(lockedFateCoinUse ? [lockedFateCoinUse] : [])]
-  const canSubmitCards = !cardConfirming && targetPicker !== 'card' && (!lockedPrizeReroll || Boolean(lockedPrizeReroll.confirmedItemId))
+  const prizeChangeUses: CardUse[] = lockedPrizeRerolls.filter((change) => Boolean(change.confirmedItemId)).map((change) => ({ cardId: change.cardId, prizeReroll: { originalItemId: change.originalItem.id, offeredItemIds: change.offeredItems.map((item) => item.id), chosenItemId: change.confirmedItemId as string, targetRoundIndex: change.targetRoundIndex } }))
+  const allConfirmedCardUses = [...confirmedCardUses.filter((use) => use.cardId !== 'fateCoin'), ...prizeChangeUses, ...(lockedFateCoinUse ? [lockedFateCoinUse] : [])]
+  const canSubmitCards = !cardConfirming && targetPicker !== 'card' && !lockedPrizeRerolls.some((change) => !change.confirmedItemId)
   const openCardConfirmation = (use: CardUse) => {
     setCardConfirming(use)
     setCoinFlipResult(use.cardId === 'fateCoin' ? null : 'heads')
@@ -970,7 +972,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const lobbyUnavailableReason = identity?.id !== 'lobbyist' ? null : activeSkillLimitReached ? `本局发布次数已用完（${activeSkillUses}/${activeSkillLimit}）` : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮无法发布任务' : identity.lobbyistLastIssuedRound === session.roundIndex ? '本轮任务已发布' : null
   const lobbyActionValid = identityAction?.type !== 'lobbyistContract' || Boolean(lobbyTargetId) && (!identityAction.specified || (!taskRequiresComparison(lobbyTask) || Boolean(lobbyCompareId) && lobbyCompareId !== lobbyTargetId))
   const submitBlockReason = !canSubmitCards
-    ? lockedPrizeReroll && !lockedPrizeReroll.confirmedItemId ? '请先在改拍道具弹窗中选定拍品并确认使用。' : '请先完成或关闭正在进行的道具操作。'
+    ? lockedPrizeReroll ? '请先在改拍道具弹窗中选定拍品并确认使用。' : '请先完成或关闭正在进行的道具操作。'
     : !lobbyActionValid ? '说客任务尚未选择完整目标。'
       : identityAction?.type === 'lobbyistContract' && lobbyShortfallUnits > 0 ? '余额不足以支付本次说客任务费用。'
         : null
@@ -1154,24 +1156,24 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {identity.id === 'lobbyist' && <>{lobbyUnavailableReason ? <><p>{lobbyUnavailableReason}。</p><button className="button" disabled>{lobbyUnavailableReason}</button></> : <div className="lobbyist-form"><strong>本局还可发布 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b> · 发布下一轮任务 {lobbyFee === 0 ? <b className="status-token status-token--free">本轮免费</b> : <>· 基础费用 {lobbyFee} 金币</>}</strong><p>下回合向指定玩家发布一项任务，若对方未完成任务，则向你支付一定金币。指定任务额外支付 {session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币。</p><button className={cx('button', identityAction?.type === 'lobbyistContract' && 'button--primary')} disabled={identityAction?.type !== 'lobbyistContract' && lobbyOpeningShortfallUnits > 0} onClick={() => identityAction?.type === 'lobbyistContract' ? setIdentityAction(undefined) : setTargetPicker('lobbyTask')}>{identityAction?.type === 'lobbyistContract' ? lobbyShortfallUnits > 0 ? `任务已选，但余额还差 ${formatCoins(lobbyShortfallUnits)} 金币` : `已安排：${identityAction.specified && identityAction.taskType ? taskLabel(identityAction.taskType) : '随机任务'} → ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : lobbyOpeningShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(lobbyOpeningShortfallUnits)} 金币` : '发动技能'}</button></div>}</>}</div>}
       </section></div>}
       {toolPanel === 'backpack' && !focusFlowActive && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-labelledby="backpack-tool-title"><section className="focus-sheet focus-sheet--backpack card-inventory">
-        <header className="focus-sheet__head"><div className="backpack-title"><span className="backpack-title__icon" aria-hidden="true"><i /><b>▥</b></span><div><p className="eyebrow">道具背包</p><h2 id="backpack-tool-title">选择一张卡</h2><small>{visibleCardInventory.length} 张库存 · 本轮已安排 {allConfirmedCardUses.length + (lockedPrizeReroll ? 1 : 0)} 张</small></div></div><button className="icon-button" aria-label="关闭背包" onClick={() => setToolPanel(null)}>×</button></header>
+        <header className="focus-sheet__head"><div className="backpack-title"><span className="backpack-title__icon" aria-hidden="true"><i /><b>▥</b></span><div><p className="eyebrow">道具背包</p><h2 id="backpack-tool-title">选择一张卡</h2><small>{visibleCardInventory.length} 张库存 · 本轮已安排 {allConfirmedCardUses.length} 张</small></div></div><button className="icon-button" aria-label="关闭背包" onClick={() => setToolPanel(null)}>×</button></header>
         {visibleCardInventory.length === 0 ? <p className="empty-cards">{tutorial && !advancedToolsUnlocked ? '第 3 轮会解锁一张简单道具卡；先专注这一轮的新选择。' : '暂时没有道具卡。落后时，下一轮可能得到秘密支援。'}</p> : <div className="card-list">{cardInventoryCounts(visibleCardInventory).map(({ cardId, count }) => {
           const card = getCardDefinition(cardId)
           const unavailable = cardTargetScope(cardId) !== 'none' && targetPlayersForCard(cardId).length === 0
           const confirmed = allConfirmedCardUses.find((use) => use.cardId === cardId)
           const prizeRerollUnavailable = cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1
-          const prizeChangeLocked = (cardId === 'prizeReroll' || cardId === 'prizeSwap') && Boolean(lockedPrizeReroll)
+          const prizeChangeLocked = (cardId === 'prizeReroll' || cardId === 'prizeSwap') && lockedPrizeRerolls.some((change) => change.cardId === cardId)
           const prizeRerollBusy = cardId === lockedPrizeReroll?.cardId
           const passiveShield = cardId === 'reflectShield'
           const nonCancelable = cardId === 'fateCoin' || cardId === 'peek'
           return <button key={cardId} className={cx('card-choice', `card-choice--${card.rarity}`, (confirmed || prizeRerollBusy) && 'is-selected')} disabled={passiveShield || (nonCancelable && Boolean(confirmed)) || (!confirmed && (unavailable || prizeRerollUnavailable || prizeChangeLocked || (nightwalkerActive && rankChangingCardIds.includes(cardId))))} onClick={() => { if (confirmed) { setConfirmedCardUses((uses) => uses.filter((use) => use.cardId !== cardId)); return } openCardConfirmation({ cardId }) }}><span>{card.symbol}</span><div><strong>{card.name} <CardRarityTag cardId={cardId} />{count > 1 && <b className="card-choice__count">×{count}</b>}</strong><small>{passiveShield ? '自动防御：受到香蕉皮或偷天换日影响时自动反弹并消耗。' : confirmed ? cardId === 'fateCoin' ? '硬币结果已锁定，本轮不能重掷。' : cardId === 'peek' ? '已查看投资额，本轮使用已锁定。' : '本轮已安排，点击取消。' : nightwalkerActive && rankChangingCardIds.includes(cardId) ? '已发动双影下注，本轮不能搭配改变排名下注的效果。' : prizeRerollUnavailable ? '最后一轮没有下一轮拍品，无法使用。' : prizeChangeLocked ? '已锁定一张改拍道具，选择后才能继续。' : unavailable ? '本轮尚无可选目标，可留到后续回合使用。' : card.description}</small></div><i>{(confirmed || prizeRerollBusy) ? '✓' : ''}</i></button>
         })}</div>}
       </section></div>}
-      {lockedPrizeReroll && !lockedPrizeReroll.confirmedItemId && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-label={`${lockedPrizeReroll.cardId === 'prizeSwap' ? '调包令' : '改拍令'}选择`}><section className="focus-sheet focus-sheet--backpack prize-reroll-picker">
+      {lockedPrizeReroll && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-label={`${lockedPrizeReroll.cardId === 'prizeSwap' ? '调包令' : '改拍令'}选择`}><section className="focus-sheet focus-sheet--backpack prize-reroll-picker">
         <header className="focus-sheet__head"><div><p className="eyebrow">候选已锁定</p><h2>{lockedPrizeReroll.cardId === 'prizeSwap' ? '调包令：选择本轮拍品' : '改拍令：选择下一轮拍品'}</h2><small>{lockedPrizeReroll.chosenItemId ? '已选中一件；确认前仍可更换。' : '六张候选已经锁定，请选择一件。'}</small></div></header>
         <p>{lockedPrizeReroll.cardId === 'prizeSwap' ? '选定后，本轮实际拍品会被替换；其他玩家仍会看到原拍品，直到回合结算。' : '选定后会替换下一轮拍品；预言家仍看到原预设拍品。'} 抽取和选择都不能取消或重抽。</p>
-        <div className="prize-reroll-options">{lockedPrizeReroll.offeredItems.map((candidate) => <button key={candidate.id} className={cx('prize-reroll-option', lockedPrizeReroll.chosenItemId === candidate.id && 'is-selected')} onClick={() => onChoosePrizeReroll(candidate.id)}><span>{candidate.emoji}</span><strong>{candidate.name}</strong><small>{categoryConfig(candidate.category).name} · 价值 {candidate.value}</small></button>)}</div>
-        <footer className="prize-reroll-picker__actions"><small>{lockedPrizeReroll.chosenItemId ? '确认后不可更换，且会记入本轮道具。' : '请先选中一件拍品。'}</small><button className="button button--primary" disabled={!lockedPrizeReroll.chosenItemId} onClick={onConfirmPrizeReroll}>确认使用</button></footer>
+        <div className="prize-reroll-options">{lockedPrizeReroll.offeredItems.map((candidate) => <button key={candidate.id} className={cx('prize-reroll-option', lockedPrizeReroll.chosenItemId === candidate.id && 'is-selected')} onClick={() => onChoosePrizeReroll(lockedPrizeReroll.cardId, candidate.id)}><span>{candidate.emoji}</span><strong>{candidate.name}</strong><small>{categoryConfig(candidate.category).name} · 价值 {candidate.value}</small></button>)}</div>
+        <footer className="prize-reroll-picker__actions"><small>{lockedPrizeReroll.chosenItemId ? '确认后不可更换，且会记入本轮道具。' : '请先选中一件拍品。'}</small><button className="button button--primary" disabled={!lockedPrizeReroll.chosenItemId} onClick={() => onConfirmPrizeReroll(lockedPrizeReroll.cardId)}>确认使用</button></footer>
       </section></div>}
       {toolPanel === 'prediction' && !focusFlowActive && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-labelledby="prediction-tool-title"><section className="focus-sheet focus-sheet--prediction">
         <header className="focus-sheet__head"><div><p className="eyebrow">预测第一</p><h2 id="prediction-tool-title">你看好谁？</h2><small>选中人物卡后立即返回操作页</small></div><button className="icon-button" aria-label="关闭预测选择" onClick={() => setToolPanel(null)}>×</button></header>
@@ -1570,30 +1572,32 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   const startPrizeReroll = (playerId: string, cardId: 'prizeReroll' | 'prizeSwap') => {
     const currentPlayer = session.players[session.currentTurnIndex]
     const targetRoundIndex = cardId === 'prizeSwap' ? session.roundIndex : session.roundIndex + 1
-    if (session.phase !== 'privateTurn' || currentPlayer?.id !== playerId || session.pendingPrizeReroll || (cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1) || !currentPlayer.cardInventory.includes(cardId)) return
+    const alreadyLocked = session.pendingPrizeChanges.some((change) => change.playerId === playerId && change.roundIndex === session.roundIndex && change.cardId === cardId)
+    const unresolvedChange = session.pendingPrizeChanges.some((change) => change.playerId === playerId && change.roundIndex === session.roundIndex && !change.confirmedItemId)
+    if (session.phase !== 'privateTurn' || currentPlayer?.id !== playerId || alreadyLocked || unresolvedChange || (cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1) || !currentPlayer.cardInventory.includes(cardId)) return
     const originalItem = session.itemDeck[targetRoundIndex]
     const offeredItems = drawPrizeRerollOffers(session.itemDeck)
     if (!originalItem || offeredItems.length !== 6) return
     patch({
       players: session.players.map((player) => player.id === playerId ? { ...player, cardInventory: removeOneCard(player.cardInventory, cardId) } : player),
-      pendingPrizeReroll: { playerId, roundIndex: session.roundIndex, cardId, targetRoundIndex, originalItem: { ...originalItem }, offeredItems },
+      pendingPrizeChanges: [...session.pendingPrizeChanges, { playerId, roundIndex: session.roundIndex, cardId, targetRoundIndex, originalItem: { ...originalItem }, offeredItems }],
     })
   }
-  const choosePrizeReroll = (itemId: string) => {
-    const pending = session.pendingPrizeReroll
+  const choosePrizeReroll = (cardId: 'prizeReroll' | 'prizeSwap', itemId: string) => {
+    const pending = session.pendingPrizeChanges.find((change) => change.cardId === cardId && !change.confirmedItemId)
     const currentPlayer = session.players[session.currentTurnIndex]
     if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex) return
     const chosenItem = pending.offeredItems.find((item) => item.id === itemId)
     if (!chosenItem) return
-    patch({ pendingPrizeReroll: { ...pending, chosenItemId: chosenItem.id } })
+    patch({ pendingPrizeChanges: session.pendingPrizeChanges.map((change) => change === pending ? { ...change, chosenItemId: chosenItem.id } : change) })
   }
-  const confirmPrizeReroll = () => {
-    const pending = session.pendingPrizeReroll
+  const confirmPrizeReroll = (cardId: 'prizeReroll' | 'prizeSwap') => {
+    const pending = session.pendingPrizeChanges.find((change) => change.cardId === cardId && !change.confirmedItemId)
     const currentPlayer = session.players[session.currentTurnIndex]
     if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex || !pending.chosenItemId) return
     const chosenItem = pending.offeredItems.find((item) => item.id === pending.chosenItemId)
     if (!chosenItem) return
-    patch({ itemDeck: replacePrizeAt(session.itemDeck, pending.targetRoundIndex, chosenItem), pendingPrizeReroll: { ...pending, confirmedItemId: chosenItem.id } })
+    patch({ itemDeck: replacePrizeAt(session.itemDeck, pending.targetRoundIndex, chosenItem), pendingPrizeChanges: session.pendingPrizeChanges.map((change) => change === pending ? { ...change, confirmedItemId: chosenItem.id } : change) })
   }
   const useProphetDivination = (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId): boolean => {
     const player = session.players[session.currentTurnIndex]
@@ -1752,24 +1756,24 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const hasRankChangingCard = turnCardUses(turn).some((use) => ['doubleBid', 'swap', 'bananaPeel', 'reverseRank'].includes(use.cardId))
       if (currentPlayer.identity?.id !== 'nightwalker' || (currentPlayer.identity.nightwalkerUses ?? 0) >= session.settings.identitySettings.nightwalkerUseLimit || (prioritizeItem !== undefined && typeof prioritizeItem !== 'boolean') || !Number.isInteger(shadowBidUnits) || shadowBidUnits <= turn.bidUnits || shadowBidUnits > currentPlayer.balanceUnits || hasRankChangingCard) return false
     }
-    const pendingPrizeReroll = session.pendingPrizeReroll?.playerId === turn.playerId && session.pendingPrizeReroll.roundIndex === session.roundIndex ? session.pendingPrizeReroll : null
-    const lockedPrizeReroll = pendingPrizeReroll && !pendingPrizeReroll.confirmedItemId && timedOut
-      ? { ...pendingPrizeReroll, chosenItemId: pendingPrizeReroll.offeredItems[0]?.id, confirmedItemId: pendingPrizeReroll.offeredItems[0]?.id }
-      : pendingPrizeReroll
-    if (lockedPrizeReroll && !lockedPrizeReroll.confirmedItemId) return false
-    const cardUses = [...turnCardUses(turn), ...(lockedPrizeReroll ? [{
-      cardId: lockedPrizeReroll.cardId,
+    const pendingPrizeChanges = session.pendingPrizeChanges.filter((change) => change.playerId === turn.playerId && change.roundIndex === session.roundIndex)
+    const lockedPrizeChanges = pendingPrizeChanges.map((change) => !change.confirmedItemId && timedOut
+      ? { ...change, chosenItemId: change.offeredItems[0]?.id, confirmedItemId: change.offeredItems[0]?.id }
+      : change)
+    if (lockedPrizeChanges.some((change) => !change.confirmedItemId)) return false
+    const cardUses: CardUse[] = [...turnCardUses(turn), ...lockedPrizeChanges.map((change) => ({
+      cardId: change.cardId,
       prizeReroll: {
-        originalItemId: lockedPrizeReroll.originalItem.id,
-        offeredItemIds: lockedPrizeReroll.offeredItems.map((item) => item.id),
-        chosenItemId: lockedPrizeReroll.confirmedItemId as string,
-        targetRoundIndex: lockedPrizeReroll.targetRoundIndex,
+        originalItemId: change.originalItem.id,
+        offeredItemIds: change.offeredItems.map((item) => item.id),
+        chosenItemId: change.confirmedItemId as string,
+        targetRoundIndex: change.targetRoundIndex,
       },
-    }] : [])]
+    }))]
     if (new Set(cardUses.map((use) => use.cardId)).size !== cardUses.length) return false
     for (const use of cardUses) {
       if (use.cardId === 'reflectShield') return false
-      const isLockedPrizeReroll = use.cardId === lockedPrizeReroll?.cardId && Boolean(lockedPrizeReroll)
+      const isLockedPrizeReroll = lockedPrizeChanges.some((change) => use.cardId === change.cardId)
       const isLockedFateCoin = use.cardId === 'fateCoin' && Boolean(pendingFateCoin || isBot(currentPlayer))
       if (!isLockedPrizeReroll && !isLockedFateCoin && !currentPlayer.cardInventory.includes(use.cardId)) return false
       const targetScope = cardTargetScope(use.cardId)
@@ -1784,7 +1788,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       const updated = {
         ...player,
         balanceUnits: player.balanceUnits - turn.bidUnits - (turn.identityAction?.type === 'invest' ? turn.identityAction.investmentUnits : 0),
-        cardInventory: cardUses.reduce((inventory, use) => removeOneCard(inventory, use.cardId), player.cardInventory),
+        cardInventory: cardUses.filter((use) => !lockedPrizeChanges.some((change) => change.cardId === use.cardId)).reduce((inventory, use) => removeOneCard(inventory, use.cardId), player.cardInventory),
       }
       return botRecord ? appendBotRecord(updated, { stage: 'turn', roundIndex: session.roundIndex, mode: botRecord.mode, reason: botRecord.reason, intel: botRecord.intel, bidUnits: turn.bidUnits }) : updated
     })
@@ -1844,7 +1848,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const turns = [...session.turns, resolvedTurn]
     const isLast = turns.length >= session.players.length
     const nextTurnIndex = session.players.length > 0 ? (session.currentTurnIndex + 1) % session.players.length : 0
-    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: lockedPrizeReroll ? null : session.pendingPrizeReroll, ...(lockedPrizeReroll?.confirmedItemId && !pendingPrizeReroll?.confirmedItemId ? { itemDeck: replacePrizeAt(session.itemDeck, lockedPrizeReroll.targetRoundIndex, lockedPrizeReroll.offeredItems.find((item) => item.id === lockedPrizeReroll.confirmedItemId) ?? lockedPrizeReroll.offeredItems[0]) } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
+    const autoConfirmedPrizeChanges = lockedPrizeChanges.filter((change) => !pendingPrizeChanges.find((pending) => pending.cardId === change.cardId)?.confirmedItemId)
+    const timedOutItemDeck = autoConfirmedPrizeChanges.reduce((deck, change) => replacePrizeAt(deck, change.targetRoundIndex, change.offeredItems.find((item) => item.id === change.confirmedItemId) ?? change.offeredItems[0]), session.itemDeck)
+    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => !(change.playerId === turn.playerId && change.roundIndex === session.roundIndex)), ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
   }
   const reveal = () => {
@@ -2198,12 +2204,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       } else if (session.phase === 'privateTurn' && isBot(currentPlayer)) {
         const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
         const observation = buildBotObservation(session, currentPlayer.id)
-        if (session.pendingPrizeReroll?.playerId === currentPlayer.id && session.pendingPrizeReroll.roundIndex === session.roundIndex && !session.pendingPrizeReroll.confirmedItemId) {
-          if (!session.pendingPrizeReroll.chosenItemId) {
-            const choice = decideBotPrizeReroll(currentPlayer, session.pendingPrizeReroll.offeredItems, session.roundIndex, session.id)
-            if (choice) choosePrizeReroll(choice.id)
+        const pendingPrizeChange = session.pendingPrizeChanges.find((change) => change.playerId === currentPlayer.id && change.roundIndex === session.roundIndex && !change.confirmedItemId)
+        if (pendingPrizeChange) {
+          if (!pendingPrizeChange.chosenItemId) {
+            const choice = decideBotPrizeReroll(currentPlayer, pendingPrizeChange.offeredItems, session.roundIndex, session.id)
+            if (choice) choosePrizeReroll(pendingPrizeChange.cardId, choice.id)
           } else {
-            confirmPrizeReroll()
+            confirmPrizeReroll(pendingPrizeChange.cardId)
           }
           return
         }
@@ -2238,7 +2245,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           return
         }
         const prizeChangeCard = decision.cardUses.map((use) => use.cardId).find((cardId): cardId is 'prizeReroll' | 'prizeSwap' => cardId === 'prizeReroll' || cardId === 'prizeSwap')
-        if (prizeChangeCard && !session.pendingPrizeReroll) {
+        if (prizeChangeCard && !session.pendingPrizeChanges.some((change) => change.playerId === currentPlayer.id && change.roundIndex === session.roundIndex && change.cardId === prizeChangeCard)) {
           startPrizeReroll(currentPlayer.id, prizeChangeCard)
           return
         }

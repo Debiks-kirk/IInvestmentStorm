@@ -136,7 +136,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 30, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
+    expect(loadSession()).toMatchObject({ version: 31, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -153,7 +153,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(30)
+    expect(first?.version).toBe(31)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -174,7 +174,7 @@ describe('对局存档迁移', () => {
     delete strategy.identityPriority
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(30)
+    expect(migrated?.version).toBe(31)
     expect(migrated?.players[0].botMemory?.strategy.identityPriority[0]).toBe(legacy.players[0].botMemory.strategy.identityTactics ? Object.keys(legacy.players[0].botMemory.strategy.identityTactics).find((identityId) => legacy.players[0].botMemory.strategy.identityTactics[identityId] === 100) : undefined)
   })
 
@@ -188,7 +188,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(30)
+    expect(migrated?.version).toBe(31)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)
@@ -224,6 +224,26 @@ describe('对局存档迁移', () => {
     const migrated = loadSession()
     expect(migrated?.prophecyDeck).toEqual(migrated?.itemDeck)
     expect(migrated?.cardDeck).toContain('prizeReroll')
+  })
+
+  it('旧的单张改拍记录会迁移为独立的拍品变更列表', () => {
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    const playerId = session.players[0].id
+    const legacy = JSON.parse(JSON.stringify(session))
+    legacy.version = 30
+    delete legacy.pendingPrizeChanges
+    legacy.pendingPrizeReroll = {
+      playerId,
+      roundIndex: 0,
+      cardId: 'prizeReroll',
+      targetRoundIndex: 1,
+      originalItem: legacy.itemDeck[1],
+      offeredItems: legacy.itemDeck.slice(2, 8),
+      chosenItemId: legacy.itemDeck[2].id,
+      confirmedItemId: legacy.itemDeck[2].id,
+    }
+    values.set('who-is-raising:session:v1', JSON.stringify(legacy))
+    expect(loadSession()?.pendingPrizeChanges).toMatchObject([{ playerId, cardId: 'prizeReroll', targetRoundIndex: 1, confirmedItemId: legacy.itemDeck[2].id }])
   })
 
   it('旧单卡回合会迁移为可容纳多卡的记录', () => {
