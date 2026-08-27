@@ -366,7 +366,8 @@ function opponentCompetitiveWeight(observation: Pick<BotObservation, 'humanOppon
 }
 
 /**
- * Experts occasionally turn a public human lead into an attack opportunity.
+ * Experts already have a higher appetite for contesting human players. A
+ * public human lead then makes that attack opportunity more likely and bolder.
  * It is a seeded probability event, so it remains stable on refresh but varies
  * across games. The input is deliberately limited to public wins and the
  * Bot's legal cash estimate; no private balance or inventory is consulted.
@@ -379,9 +380,9 @@ function expertHumanAttackWeight(observation: BotObservation, difficulty: BotDif
   const cashLead = clamp(((estimate?.expectedUnits ?? averageCash) - averageCash) / Math.max(coinsToUnits(4), averageCash), 0, 1)
   const publicWins = observation.publicRounds.filter((round) => (round.itemWinnerId ?? round.winnerId) === playerId).length
   const assetLead = clamp(publicWins / Math.max(2, observation.roundIndex + 1), 0, 1)
-  const chance = clamp(.09 + cashLead * .17 + assetLead * .1, .09, .34)
+  const chance = clamp(.18 + cashLead * .15 + assetLead * .1, .18, .43)
   const triggers = unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${playerId}:expert-human-attack:${channel}`) < chance
-  return triggers ? 1.08 + cashLead * .08 + assetLead * .05 : 1
+  return triggers ? 1.07 + cashLead * .09 + assetLead * .06 : 1
 }
 
 function preferredOpponent(observation: BotObservation, memory: BotMemory): string | undefined {
