@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { IDENTITY_DEFINITIONS, dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards } from './identities'
+import { IDENTITY_DEFINITIONS, dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, kidnapTargetCap, normalizeIdentitySettings, randomLobbyistTask, routeCardAwards } from './identities'
 import { coinsToUnits, rankFinalPlayers, settleRound } from './engine'
 import type { Item, Player, RoundTurn } from './types'
 
@@ -17,9 +17,17 @@ describe('身份选角与私密卡牌', () => {
     ], item, roundIndex: 0, rewardMultipliers: [2, 1], correctPredictionMultiplier: 1, wrongPredictionMultiplier: 1.5, fairnessOrderIds: players.map((entry) => entry.id), identitySettings: defaultIdentitySettings(true) })
     expect(settled.result.rankings[0]).toMatchObject({ playerId: 'target', bidUnits: coinsToUnits(15) })
     expect(settled.players.find((entry) => entry.id === 'target')?.balanceUnits).toBe(coinsToUnits(10 + 20 / 3))
-    expect(settled.players.find((entry) => entry.id === 'investor')?.balanceUnits).toBe(coinsToUnits(15 + 10 / 3))
+    expect(settled.players.find((entry) => entry.id === 'investor')?.balanceUnits).toBe(coinsToUnits(19))
+    expect(settled.result.investments[0]?.rewardShareUnits).toBe(coinsToUnits(4))
     expect(settled.result.itemWinnerId).toBe('target')
     expect(settled.result.investments[0]).toMatchObject({ investorId: 'investor', targetPlayerId: 'target', investmentUnits: coinsToUnits(5) })
+  })
+
+  it('投资者默认获得 1.25× 奖金分红，倍率会按 0.05 归一化', () => {
+    expect(defaultIdentitySettings(true).investorDividendMultiplier).toBe(1.25)
+    expect(normalizeIdentitySettings({}, true).investorDividendMultiplier).toBe(1.25)
+    expect(normalizeIdentitySettings({ investorDividendMultiplier: 1.237 }, true).investorDividendMultiplier).toBe(1.25)
+    expect(normalizeIdentitySettings({ investorDividendMultiplier: 99 }, true).investorDividendMultiplier).toBe(3)
   })
   it('投资者接受最低 0.5 金币的真实投资，不隐含 5 金币下限', () => {
     const players = [player('investor', 3), player('target', 2), player('other', 4)]

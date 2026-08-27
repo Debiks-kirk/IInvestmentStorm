@@ -182,6 +182,8 @@ export interface IdentitySettings {
   lobbyistFeeCoins: number
   lobbyistSpecifiedTaskFeeCoins: number
   lobbyistFailurePaymentCoins: number
+  /** Extra multiplier applied only to an investor's proportional ranking-reward dividend. */
+  investorDividendMultiplier: number
 }
 
 export interface AuctionLot {

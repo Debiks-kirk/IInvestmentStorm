@@ -481,11 +481,12 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     delta.rewardUnits += ranking.publicRewardUnits
     for (const investment of targetInvestments) {
       const investor = playerById.get(investment.investorId)
-      const share = shares.get(investment.investorId) ?? 0
+      const proportionalShare = shares.get(investment.investorId) ?? 0
+      const share = floorToHalfUnits(proportionalShare * identitySettings.investorDividendMultiplier)
       if (investor) investor.balanceUnits += share
       const record = investmentRecords.find((entry) => entry.investorId === investment.investorId && entry.targetPlayerId === investment.targetPlayerId && entry.investmentUnits === investment.investmentUnits && entry.rewardShareUnits === 0)
       if (record) { record.targetOwnBidUnits = ranking.actualBidUnits; record.finalBidUnits = ranking.bidUnits; record.rewardShareUnits = share }
-      identityEvents.push({ playerId: investment.investorId, identityId: 'investor', roundIndex, title: '价值投资结算', detail: `目标获得第 ${ranking.place} 名奖励；你按出资比例分得 ${formatCoins(share)} 金币。`, deltaUnits: share })
+      identityEvents.push({ playerId: investment.investorId, identityId: 'investor', roundIndex, title: '价值投资结算', detail: `目标获得第 ${ranking.place} 名奖励；你的比例分红经 ${identitySettings.investorDividendMultiplier}× 投资倍率后获得 ${formatCoins(share)} 金币。`, deltaUnits: share })
     }
     if (targetInvestments.length > 0) identityEvents.push({ playerId: player.id, identityId: 'investor', roundIndex, title: '获得投资回执', detail: `本轮获得 ${formatCoins(ranking.rewardUnits)} 金币排名奖励，其中你实际保留 ${formatCoins(targetShare)} 金币。`, deltaUnits: 0 })
   }

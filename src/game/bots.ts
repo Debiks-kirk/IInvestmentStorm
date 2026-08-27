@@ -180,6 +180,7 @@ export interface BotObservation {
   wrongPredictionMultiplier: number
   gamblerWrongPenaltyMultiplier: number
   gamblerSkipPenaltyMultiplier: number
+  investorDividendMultiplier: number
   prophetIdentityCostUnits: number
   prophetDivinationLimit: number
   merchantAuctionLimit: number
@@ -233,6 +234,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     wrongPredictionMultiplier: session.settings.wrongPredictionMultiplier,
     gamblerWrongPenaltyMultiplier: session.settings.identitySettings.gamblerWrongPenaltyMultiplier,
     gamblerSkipPenaltyMultiplier: session.settings.identitySettings.gamblerSkipPenaltyMultiplier,
+    investorDividendMultiplier: session.settings.identitySettings.investorDividendMultiplier,
     prophetIdentityCostUnits: coinsToUnits(session.settings.identitySettings.prophetDivinationCoins),
     prophetDivinationLimit: session.settings.identitySettings.prophetDivinationLimit,
     merchantAuctionLimit: session.settings.identitySettings.merchantAuctionLimit,
@@ -832,7 +834,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         const share = plan.identityAction.investmentUnits / Math.max(1, targetBid)
         const reward = valueUnits * (observation.rewardMultipliers[targetPlace - 1] ?? 0)
         const categoryUpside = targetPlace === 1 ? assetUnits * (.35 + profile.collect * .35) : 0
-        return targetChance * share * (reward + categoryUpside) * tactic('investor')
+        return targetChance * (share * reward * observation.investorDividendMultiplier + share * categoryUpside) * tactic('investor')
       })() : 0
       const reverserFutureValue = plan.identityAction?.type === 'reverserInvert' && effectivePlace === 1
         ? coinsToUnits(.8 + profile.identity * .6)

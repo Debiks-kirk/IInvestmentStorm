@@ -21,7 +21,7 @@ export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
   { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
   { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。', repeatable: true },
-  { id: 'investor', name: '投资者', symbol: '◈', summary: '秘密跟投一名玩家；其获奖后按出资比例分享奖金与拍品。', repeatable: true },
+  { id: 'investor', name: '投资者', symbol: '◈', summary: '秘密跟投一名玩家；其获奖后按比例分红，并享受投资倍率。', repeatable: true },
 ]
 
 export function getIdentityDefinition(id: IdentityId): IdentityDefinition {
@@ -63,13 +63,18 @@ export function defaultIdentitySettings(enabled = true): IdentitySettings {
     lobbyistFeeCoins: 2,
     lobbyistSpecifiedTaskFeeCoins: 3,
     lobbyistFailurePaymentCoins: 5,
+    investorDividendMultiplier: 1.25,
   }
 }
 
 export function normalizeIdentitySettings(value: Partial<IdentitySettings> | undefined, enabled = false): IdentitySettings {
   const defaults = defaultIdentitySettings(enabled)
   const legacyPenalty = value?.gamblerSkipPenaltyMultiplier ?? defaults.gamblerSkipPenaltyMultiplier
-  return { ...defaults, ...value, identityChoiceCount: value?.identityChoiceCount ?? defaults.identityChoiceCount, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, prophetDivinationCoins: value?.prophetDivinationCoins ?? defaults.prophetDivinationCoins, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, prophetDivinationLimit: value?.prophetDivinationLimit ?? defaults.prophetDivinationLimit, kidnapActivationLimit: value?.kidnapActivationLimit ?? defaults.kidnapActivationLimit, kidnapTargetLimit: value?.kidnapTargetLimit ?? defaults.kidnapTargetLimit, kidnapLowRansomCoins: value?.kidnapLowRansomCoins ?? defaults.kidnapLowRansomCoins, kidnapHighRansomCoins: value?.kidnapHighRansomCoins ?? defaults.kidnapHighRansomCoins, kidnapHighRansomExtraCoins: value?.kidnapHighRansomExtraCoins ?? defaults.kidnapHighRansomExtraCoins, kidnapExtraTargetCoins: value?.kidnapExtraTargetCoins ?? defaults.kidnapExtraTargetCoins, thiefActivationLimit: value?.thiefActivationLimit ?? defaults.thiefActivationLimit, reverserActivationLimit: value?.reverserActivationLimit ?? defaults.reverserActivationLimit, lobbyistActivationLimit: value?.lobbyistActivationLimit ?? defaults.lobbyistActivationLimit, nightwalkerUseLimit: value?.nightwalkerUseLimit ?? defaults.nightwalkerUseLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
+  const rawInvestorDividendMultiplier = value?.investorDividendMultiplier ?? defaults.investorDividendMultiplier
+  const investorDividendMultiplier = Number.isFinite(rawInvestorDividendMultiplier)
+    ? Math.round(Math.max(1, Math.min(3, rawInvestorDividendMultiplier)) * 20) / 20
+    : defaults.investorDividendMultiplier
+  return { ...defaults, ...value, identityChoiceCount: value?.identityChoiceCount ?? defaults.identityChoiceCount, gamblerWrongPenaltyMultiplier: value?.gamblerWrongPenaltyMultiplier ?? legacyPenalty, gamblerSkipPenaltyMultiplier: legacyPenalty, prophetDivinationCoins: value?.prophetDivinationCoins ?? defaults.prophetDivinationCoins, merchantAuctionLimit: value?.merchantAuctionLimit ?? defaults.merchantAuctionLimit, prophetDivinationLimit: value?.prophetDivinationLimit ?? defaults.prophetDivinationLimit, kidnapActivationLimit: value?.kidnapActivationLimit ?? defaults.kidnapActivationLimit, kidnapTargetLimit: value?.kidnapTargetLimit ?? defaults.kidnapTargetLimit, kidnapLowRansomCoins: value?.kidnapLowRansomCoins ?? defaults.kidnapLowRansomCoins, kidnapHighRansomCoins: value?.kidnapHighRansomCoins ?? defaults.kidnapHighRansomCoins, kidnapHighRansomExtraCoins: value?.kidnapHighRansomExtraCoins ?? defaults.kidnapHighRansomExtraCoins, kidnapExtraTargetCoins: value?.kidnapExtraTargetCoins ?? defaults.kidnapExtraTargetCoins, thiefActivationLimit: value?.thiefActivationLimit ?? defaults.thiefActivationLimit, reverserActivationLimit: value?.reverserActivationLimit ?? defaults.reverserActivationLimit, lobbyistActivationLimit: value?.lobbyistActivationLimit ?? defaults.lobbyistActivationLimit, nightwalkerUseLimit: value?.nightwalkerUseLimit ?? defaults.nightwalkerUseLimit, reverserActivationCoins: value?.reverserActivationCoins ?? defaults.reverserActivationCoins, lobbyistSpecifiedTaskFeeCoins: value?.lobbyistSpecifiedTaskFeeCoins ?? defaults.lobbyistSpecifiedTaskFeeCoins, investorDividendMultiplier, disabledIdentityIds: [...(value?.disabledIdentityIds ?? defaults.disabledIdentityIds)] }
 }
 
 export function enabledIdentityIds(settings: IdentitySettings): IdentityId[] {
@@ -125,6 +130,8 @@ export function identityValidationErrors(settings: IdentitySettings, playerCount
   if (!Number.isInteger(settings.kidnapTargetLimit) || settings.kidnapTargetLimit < 0 || settings.kidnapTargetLimit > Math.max(1, playerCount - 1)) errors.push('绑票目标上限应为 0 到玩家数减 1（0 为自动）')
   if (enabledIdentityIds(settings).includes('prophet') && enabled.length < 6) errors.push('启用预言家时至少需要启用 6 个身份')
   if (settings.merchantAuctionLimit < 1 || settings.merchantAuctionLimit > 5) errors.push('商人拍卖次数应为 1–5 次')
+  const investorMultiplierSteps = settings.investorDividendMultiplier * 20
+  if (!Number.isFinite(settings.investorDividendMultiplier) || settings.investorDividendMultiplier < 1 || settings.investorDividendMultiplier > 3 || Math.abs(investorMultiplierSteps - Math.round(investorMultiplierSteps)) > 1e-8) errors.push('投资者分红倍率应为 1–3，且按 0.05 递增')
   const limits = [settings.prophetDivinationLimit, settings.reverserActivationLimit, settings.lobbyistActivationLimit, settings.nightwalkerUseLimit]
   if (limits.some((limit) => !Number.isInteger(limit) || limit < 1 || limit > 12)) errors.push('主动身份技能次数应为 1–12 次')
   if (!Number.isInteger(settings.thiefMaxSteals) || (settings.thiefMaxSteals ?? 0) < 0 || (settings.thiefMaxSteals ?? 0) > 12) errors.push('小偷偷卡上限应为 0–12 张')
