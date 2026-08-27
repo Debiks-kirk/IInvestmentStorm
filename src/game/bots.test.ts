@@ -24,6 +24,7 @@ describe('Bot 信息边界与决策', () => {
     expect(observation).not.toHaveProperty('turns')
     expect(JSON.stringify(observation)).not.toContain('"bidUnits":33')
     expect(observation.opponents[0]).not.toHaveProperty('cardInventory')
+    expect(observation.humanOpponentIds).toEqual([session.players[1].id, session.players[2].id])
   })
 
   it('高手每轮只得到一条已提交对手的模糊投资区间', () => {

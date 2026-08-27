@@ -355,8 +355,25 @@ function modeFor(observation: BotObservation, profile: BotProfile, memory: BotMe
   return 'value'
 }
 
+/**
+ * Controller kind is visible from the seating plan, but it must never become a
+ * "focus the human" switch. This is only a gentle tiebreaker: when public
+ * strength is similar, Bots treat a human rival as a little more likely to
+ * contest a key item, while their Bot-vs-Bot pressure is slightly softer.
+ */
+function opponentCompetitiveWeight(observation: Pick<BotObservation, 'humanOpponentIds'>, playerId: string): number {
+  return observation.humanOpponentIds.includes(playerId) ? 1.1 : .97
+}
+
 function preferredOpponent(observation: BotObservation, memory: BotMemory): string | undefined {
-  return [...observation.opponents].sort((left, right) => (memory.grudgeByPlayerId[right.id] ?? 0) - (memory.grudgeByPlayerId[left.id] ?? 0))[0]?.id
+  const publicWins = (playerId: string) => observation.publicRounds.filter((round) => (round.itemWinnerId ?? round.winnerId) === playerId).length
+  const threat = (playerId: string) => {
+    const estimate = estimateFor(observation, playerId)
+    const cashAndBid = (estimate?.expectedUnits ?? 0) * .12 + expectedCurrentBid(observation, playerId) * .45
+    const grudge = (memory.grudgeByPlayerId[playerId] ?? 0) * coinsToUnits(.08)
+    return (cashAndBid + publicWins(playerId) * coinsToUnits(.8) + grudge) * opponentCompetitiveWeight(observation, playerId)
+  }
+  return [...observation.opponents].sort((left, right) => threat(right.id) - threat(left.id) || left.id.localeCompare(right.id))[0]?.id
 }
 
 function marginalAssetUnits(observation: BotObservation): number {
@@ -445,9 +462,10 @@ function estimatePlaceAndChance(observation: BotObservation, rankingBidUnits: nu
       : [rivalBidOverrides[opponent.id]]
     const above = samples.filter((bid) => bid > rankingBidUnits).length / samples.length
     const equal = samples.filter((bid) => bid === rankingBidUnits).length / samples.length
-    expectedAbove += above + equal * .5
-    firstChance *= 1 - above - equal
-    uniqueChance *= 1 - equal
+    const threatWeight = opponentCompetitiveWeight(observation, opponent.id)
+    expectedAbove += (above + equal * .5) * threatWeight
+    firstChance *= Math.max(0, 1 - (above + equal) * threatWeight)
+    uniqueChance *= Math.max(0, 1 - equal * threatWeight)
   }
   const tieChance = Math.max(0, 1 - uniqueChance)
   return { place: Math.max(1, Math.min(observation.rewardMultipliers.length + 1, 1 + Math.round(expectedAbove))), uniqueChance: Math.max(.01, uniqueChance), firstChance: Math.max(.001, firstChance * uniqueChance), tieChance }
@@ -584,8 +602,9 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:merchant`, identityAction: { type: 'merchantAuction' as const }, specialReason: '发起下轮道具竞购，争取将循环道具转化为现金。' })))
   }
   if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
-    const comparator = [...observation.opponents].sort((left, right) => expectedCurrentBid(observation, right.id) - expectedCurrentBid(observation, left.id))[0]
-    const targets = [...observation.opponents].sort((left, right) => expectedCurrentBid(observation, right.id) - expectedCurrentBid(observation, left.id)).slice(0, Math.min(3, observation.opponents.length))
+    const publicPressure = (playerId: string) => expectedCurrentBid(observation, playerId) * opponentCompetitiveWeight(observation, playerId)
+    const comparator = [...observation.opponents].sort((left, right) => publicPressure(right.id) - publicPressure(left.id))[0]
+    const targets = [...observation.opponents].sort((left, right) => publicPressure(right.id) - publicPressure(left.id)).slice(0, Math.min(3, observation.opponents.length))
     for (const opponent of targets) {
       plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:lobby:${opponent.id}`, identityAction: { type: 'lobbyistContract' as const, targetPlayerId: opponent.id }, specialReason: `向 ${opponent.name} 发布随机任务，争取下轮获得违约收益。` })))
       if (comparator && comparator.id !== opponent.id) {
@@ -784,15 +803,19 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         : action?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits + (action.specified ? observation.lobbyistSpecifiedFeeUnits : 0)
           : action?.type === 'invest' ? action.investmentUnits : 0
   const cardUtility = (uses: CardUse[]): number => uses.reduce((total, use) => {
+    const targetWeight = use.targetPlayerId ? opponentCompetitiveWeight(observation, use.targetPlayerId) : 1
+    const targetBidPressure = use.targetPlayerId
+      ? clamp(.72 + expectedCurrentBid(observation, use.targetPlayerId) / coinsToUnits(16), .72, 1.35)
+      : 1
     if (use.cardId === 'red') return total + coinsToUnits((observation.item?.value ?? 0) >= 8 ? 1.5 : .25) * (1 + behavior.cardBias * .25)
     if (use.cardId === 'black') return total - coinsToUnits(.35)
     if (use.cardId === 'doubleBid') return total + coinsToUnits(.6)
-    if (use.cardId === 'bananaPeel') return total + coinsToUnits(1 + behavior.antiLeaderBias * .35)
-    if (use.cardId === 'swap') return total + coinsToUnits(1.4)
+    if (use.cardId === 'bananaPeel') return total + coinsToUnits(1 + behavior.antiLeaderBias * .35) * targetWeight * targetBidPressure
+    if (use.cardId === 'swap') return total + coinsToUnits(1.4) * targetWeight * targetBidPressure
     if (use.cardId === 'reverseRank') return total + coinsToUnits(.45)
     if (use.cardId === 'redistribute') return total + (mode === 'conserve' ? coinsToUnits(1.4) : coinsToUnits(.15))
     if (use.cardId === 'fateCoin') return total + coinsToUnits(1) * (1 + behavior.riskBias * .5)
-    if (use.cardId === 'peek') return total + coinsToUnits(.35)
+    if (use.cardId === 'peek') return total + coinsToUnits(.35) * targetWeight
     if (use.cardId === 'prizeReroll') return total + Math.max(coinsToUnits(.25), assetUnits * .35)
     if (use.cardId === 'prizeSwap') return total + Math.max(coinsToUnits(1.5), assetUnits * .75)
     if (use.cardId === 'legendaryLoot') return total + coinsToUnits((observation.item?.value ?? 0) * (.72 + profile.collect * .28)) + assetUnits * (1 + profile.collect)
@@ -864,7 +887,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const categoryMomentum = categoryItems > 0 ? estimate.uniqueChance * coinsToUnits(Math.min(1.6, categoryItems * (.28 + profile.collect * .18))) * (collectorTarget ? 1.6 : 1) : 0
       const boldness = (mode === 'pressure' || mode === 'comeback' || mode === 'finalSprint') ? estimate.firstChance * coinsToUnits(1.25) : 0
       const blockTarget = preferredOpponent(observation, memory)
-      const blockValue = blockTarget && rankingBidUnits > (overrides[blockTarget] ?? expectedCurrentBid(observation, blockTarget)) ? coinsToUnits(profile.revenge * 1.4) : 0
+      const blockValue = blockTarget && rankingBidUnits > (overrides[blockTarget] ?? expectedCurrentBid(observation, blockTarget))
+        ? coinsToUnits(profile.revenge * 1.4) * opponentCompetitiveWeight(observation, blockTarget)
+        : 0
       const inversionSetup = plan.identityAction?.type === 'reverserInvert' && estimate.place > 1 ? coinsToUnits((estimate.place - 1) * .4) : 0
       const grudgeKidnapBonus = kidnappedTarget && kidnappedTarget === preferredOpponent(observation, memory) ? coinsToUnits(profile.revenge * .7) * kidnapChance : 0
       const tiePenalty = estimate.tieChance * coinsToUnits(2.2 + Math.max(0, behavior.edgeBias) * .8)
@@ -987,7 +1012,7 @@ interface PublicCategoryPressure {
 }
 
 /** Uses only public collections and the Bot's legal balance estimates. */
-function publicCategoryPressures(observation: Pick<BotObservation, 'publicRounds' | 'balanceEstimates'> | undefined, excludedPlayerId: string, item: Item): PublicCategoryPressure[] {
+function publicCategoryPressures(observation: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds'> | undefined, excludedPlayerId: string, item: Item): PublicCategoryPressure[] {
   if (!observation) return []
   const counts = publicCategoryCounts(observation.publicRounds)
   return observation.balanceEstimates
@@ -1016,7 +1041,7 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
   totalRounds: number
   sessionSeed: string
   /** Public category history lets a Bot recognise that a category is heating up. */
-  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates'>
+  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds'>
 }): Array<{ lotId: string; bidUnits: number }> {
   const controller = player.controller?.kind === 'bot' ? player.controller : undefined
   const profile = effectiveProfile(controller, player.botMemory)
@@ -1045,8 +1070,12 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       // to cash in the final standings. Earlier versions discounted it so hard
       // that Bots routinely donated 12–30 coin jumps for a token reserve.
       const rivalPressures = publicCategoryPressures(observation, player.id, lot.item)
-      const strongestRivalPressure = [...rivalPressures].sort((left, right) => right.marginalUnits - left.marginalUnits || right.cashHighUnits - left.cashHighUnits)[0]
-      const rivalThreatUnits = strongestRivalPressure?.marginalUnits ?? 0
+      const rivalWeight = (playerId: string) => observation ? opponentCompetitiveWeight(observation, playerId) : .97
+      const strongestRivalPressure = [...rivalPressures].sort((left, right) => (
+        right.marginalUnits * rivalWeight(right.playerId) - left.marginalUnits * rivalWeight(left.playerId)
+        || right.cashHighUnits - left.cashHighUnits
+      ))[0]
+      const rivalThreatUnits = strongestRivalPressure ? Math.round(strongestRivalPressure.marginalUnits * rivalWeight(strongestRivalPressure.playerId)) : 0
       const rivalCashCeiling = strongestRivalPressure?.cashHighUnits ?? 0
       const meaningfulThreat = rivalThreatUnits >= coinsToUnits(10) && (rivalCashCeiling === 0 || rivalCashCeiling >= lot.minimumBidUnits)
       const denialChance = clamp(.06 + strategy.interference / 260 + profile.revenge * .2 + (controller?.profileId === 'blocker' ? .24 : 0) + Math.max(0, behavior.antiLeaderBias) * .16 + (meaningfulThreat ? .08 : 0), .05, .66)
@@ -1165,10 +1194,14 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
     const rivalBreakpoints = publicCategoryPressures(observation, player.id, won.item)
       .filter((entry) => entry.count > 0 || entry.setJumpUnits > 0)
-    const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.marginalUnits))
-    const largestRivalSetJumpUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.setJumpUnits))
+    const rivalWeight = (playerId: string) => opponentCompetitiveWeight(observation, playerId)
+    const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => Math.round(entry.marginalUnits * rivalWeight(entry.playerId))))
+    const largestRivalSetJumpUnits = Math.max(0, ...rivalBreakpoints.map((entry) => Math.round(entry.setJumpUnits * rivalWeight(entry.playerId))))
     const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.setJumpUnits >= coinsToUnits(10)).length
-    const strongestRival = [...rivalBreakpoints].sort((left, right) => right.marginalUnits - left.marginalUnits || right.cashHighUnits - left.cashHighUnits)[0]
+    const strongestRival = [...rivalBreakpoints].sort((left, right) => (
+      right.marginalUnits * rivalWeight(right.playerId) - left.marginalUnits * rivalWeight(left.playerId)
+      || right.cashHighUnits - left.cashHighUnits
+    ))[0]
     const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + breakpointBuyerCount * 2.4 + Math.max(0, likelyBuyerCount - 1) * .35
     const denyWeight = .45 + profile.revenge * .34 + (controller?.profileId === 'blocker' ? .3 : 0) + Math.max(0, behavior.antiLeaderBias) * .16
     const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + categoryHeat * .26 + likelyBuyerCount * .25
