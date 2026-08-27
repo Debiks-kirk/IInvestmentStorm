@@ -365,6 +365,25 @@ function opponentCompetitiveWeight(observation: Pick<BotObservation, 'humanOppon
   return observation.humanOpponentIds.includes(playerId) ? 1.1 : .97
 }
 
+/**
+ * Experts occasionally turn a public human lead into an attack opportunity.
+ * It is a seeded probability event, so it remains stable on refresh but varies
+ * across games. The input is deliberately limited to public wins and the
+ * Bot's legal cash estimate; no private balance or inventory is consulted.
+ */
+function expertHumanAttackWeight(observation: BotObservation, difficulty: BotDifficulty, playerId: string, channel: string): number {
+  if (difficulty !== 'expert' || !observation.humanOpponentIds.includes(playerId)) return 1
+  const estimate = estimateFor(observation, playerId)
+  const visibleEstimates = observation.balanceEstimates.filter((entry) => entry.playerId !== observation.playerId)
+  const averageCash = visibleEstimates.reduce((total, entry) => total + entry.expectedUnits, 0) / Math.max(1, visibleEstimates.length)
+  const cashLead = clamp(((estimate?.expectedUnits ?? averageCash) - averageCash) / Math.max(coinsToUnits(4), averageCash), 0, 1)
+  const publicWins = observation.publicRounds.filter((round) => (round.itemWinnerId ?? round.winnerId) === playerId).length
+  const assetLead = clamp(publicWins / Math.max(2, observation.roundIndex + 1), 0, 1)
+  const chance = clamp(.09 + cashLead * .17 + assetLead * .1, .09, .34)
+  const triggers = unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${playerId}:expert-human-attack:${channel}`) < chance
+  return triggers ? 1.08 + cashLead * .08 + assetLead * .05 : 1
+}
+
 function preferredOpponent(observation: BotObservation, memory: BotMemory): string | undefined {
   const publicWins = (playerId: string) => observation.publicRounds.filter((round) => (round.itemWinnerId ?? round.winnerId) === playerId).length
   const threat = (playerId: string) => {
@@ -578,16 +597,10 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
     plans.push(...plans.filter((plan) => !plan.cardUses.some((use) => use.cardId === 'reverseRank')).map((plan) => ({ ...plan, id: `${plan.id}:reverser`, identityAction: { type: 'reverserInvert' as const }, reversalCount: plan.reversalCount + 1, specialReason: `发动逆转排名，支付 ${observation.reverserActivationUnits * multiplier / 2} 金币后将获奖区倒序。` })))
   }
   if (observation.self.identity?.id === 'assassin') {
-    // Expert Bots occasionally lean toward one randomly selected human seat. This
-    // is deliberately a tiny nudge, never privileged information or a fixed grudge.
-    const favouredHumanId = difficulty === 'expert'
-      && unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:expert-human-pressure`) < .38
-      ? choose(observation.humanOpponentIds, `${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:expert-human-target`)
-      : undefined
     const targetScore = (targetId: string) => kidnapSuccessChance(observation, targetId)
       * (.7 + memory.strategy.interference / 330)
       + normalRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${targetId}:kidnap-target`) * .026
-      + (targetId === favouredHumanId ? .038 : 0)
+      + (expertHumanAttackWeight(observation, difficulty, targetId, 'kidnap') - 1) * .45
     const orderedTargets = [...observation.opponents].sort((left, right) => targetScore(right.id) - targetScore(left.id))
     const lowTargets = orderedTargets.slice(0, 1)
     const broadTargets = orderedTargets.slice(0, observation.kidnapTargetCap)
@@ -602,7 +615,9 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:merchant`, identityAction: { type: 'merchantAuction' as const }, specialReason: '发起下轮道具竞购，争取将循环道具转化为现金。' })))
   }
   if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {
-    const publicPressure = (playerId: string) => expectedCurrentBid(observation, playerId) * opponentCompetitiveWeight(observation, playerId)
+    const publicPressure = (playerId: string) => expectedCurrentBid(observation, playerId)
+      * opponentCompetitiveWeight(observation, playerId)
+      * expertHumanAttackWeight(observation, difficulty, playerId, 'lobby')
     const comparator = [...observation.opponents].sort((left, right) => publicPressure(right.id) - publicPressure(left.id))[0]
     const targets = [...observation.opponents].sort((left, right) => publicPressure(right.id) - publicPressure(left.id)).slice(0, Math.min(3, observation.opponents.length))
     for (const opponent of targets) {
@@ -803,7 +818,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         : action?.type === 'lobbyistContract' ? observation.lobbyistFeeUnits + (action.specified ? observation.lobbyistSpecifiedFeeUnits : 0)
           : action?.type === 'invest' ? action.investmentUnits : 0
   const cardUtility = (uses: CardUse[]): number => uses.reduce((total, use) => {
-    const targetWeight = use.targetPlayerId ? opponentCompetitiveWeight(observation, use.targetPlayerId) : 1
+    const targetWeight = use.targetPlayerId
+      ? opponentCompetitiveWeight(observation, use.targetPlayerId) * expertHumanAttackWeight(observation, difficulty, use.targetPlayerId, `card:${use.cardId}`)
+      : 1
     const targetBidPressure = use.targetPlayerId
       ? clamp(.72 + expectedCurrentBid(observation, use.targetPlayerId) / coinsToUnits(16), .72, 1.35)
       : 1
@@ -888,8 +905,11 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const boldness = (mode === 'pressure' || mode === 'comeback' || mode === 'finalSprint') ? estimate.firstChance * coinsToUnits(1.25) : 0
       const blockTarget = preferredOpponent(observation, memory)
       const blockValue = blockTarget && rankingBidUnits > (overrides[blockTarget] ?? expectedCurrentBid(observation, blockTarget))
-        ? coinsToUnits(profile.revenge * 1.4) * opponentCompetitiveWeight(observation, blockTarget)
+        ? coinsToUnits(profile.revenge * 1.4) * opponentCompetitiveWeight(observation, blockTarget) * expertHumanAttackWeight(observation, difficulty, blockTarget, 'bid-block')
         : 0
+      const expertHumanChallenge = observation.humanOpponentIds
+        .filter((playerId) => rankingBidUnits > (overrides[playerId] ?? expectedCurrentBid(observation, playerId)))
+        .reduce((total, playerId) => total + coinsToUnits(.26 + profile.risk * .22) * (expertHumanAttackWeight(observation, difficulty, playerId, 'bid-challenge') - 1) * 6, 0)
       const inversionSetup = plan.identityAction?.type === 'reverserInvert' && estimate.place > 1 ? coinsToUnits((estimate.place - 1) * .4) : 0
       const grudgeKidnapBonus = kidnappedTarget && kidnappedTarget === preferredOpponent(observation, memory) ? coinsToUnits(profile.revenge * .7) * kidnapChance : 0
       const tiePenalty = estimate.tieChance * coinsToUnits(2.2 + Math.max(0, behavior.edgeBias) * .8)
@@ -918,7 +938,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
           : plan.identityAction?.type === 'lobbyistContract' ? coinsToUnits(.7 + behavior.antiLeaderBias * .35 + (plan.identityAction.specified ? .8 : 0)) * tactic('lobbyist')
             : plan.identityAction?.type === 'reverserInvert' ? (inversionSetup + reverserFutureValue) * tactic('reverser')
               : investmentValue
-      const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty - reversalUncertainty - latentCardRisk + categoryMomentum + kidnapValue + boldness + blockValue + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) + identityValue + fingerprintBonus + reverserMisdirection - tiePenalty
+      const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty - reversalUncertainty - latentCardRisk + categoryMomentum + kidnapValue + boldness + blockValue + expertHumanChallenge + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) + identityValue + fingerprintBonus + reverserMisdirection - tiePenalty
       scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
@@ -1044,6 +1064,7 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
   observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds'>
 }): Array<{ lotId: string; bidUnits: number }> {
   const controller = player.controller?.kind === 'bot' ? player.controller : undefined
+  const difficulty = controller?.difficulty ?? 'standard'
   const profile = effectiveProfile(controller, player.botMemory)
   const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
   const strategy = player.botMemory?.strategy ?? defaultBotStrategy('adaptive')
@@ -1070,7 +1091,9 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       // to cash in the final standings. Earlier versions discounted it so hard
       // that Bots routinely donated 12–30 coin jumps for a token reserve.
       const rivalPressures = publicCategoryPressures(observation, player.id, lot.item)
-      const rivalWeight = (playerId: string) => observation ? opponentCompetitiveWeight(observation, playerId) : .97
+      const rivalWeight = (playerId: string) => observation
+        ? opponentCompetitiveWeight(observation, playerId) * expertHumanAttackWeight(observation as BotObservation, difficulty, playerId, 'asset-bid')
+        : .97
       const strongestRivalPressure = [...rivalPressures].sort((left, right) => (
         right.marginalUnits * rivalWeight(right.playerId) - left.marginalUnits * rivalWeight(left.playerId)
         || right.cashHighUnits - left.cashHighUnits
@@ -1177,6 +1200,7 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
 }): { itemId: string; itemRoundIndex: number; minimumBidUnits: number } | undefined {
   if (roundIndex >= totalRounds - 1 || player.items.length === 0) return undefined
   const controller = player.controller?.kind === 'bot' ? player.controller : undefined
+  const difficulty = controller?.difficulty ?? 'standard'
   const profile = effectiveProfile(controller, player.botMemory)
   const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
   const strategy = player.botMemory?.strategy ?? defaultBotStrategy('adaptive')
@@ -1194,7 +1218,7 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
     const rivalBreakpoints = publicCategoryPressures(observation, player.id, won.item)
       .filter((entry) => entry.count > 0 || entry.setJumpUnits > 0)
-    const rivalWeight = (playerId: string) => opponentCompetitiveWeight(observation, playerId)
+    const rivalWeight = (playerId: string) => opponentCompetitiveWeight(observation, playerId) * expertHumanAttackWeight(observation, difficulty, playerId, 'asset-offer')
     const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => Math.round(entry.marginalUnits * rivalWeight(entry.playerId))))
     const largestRivalSetJumpUnits = Math.max(0, ...rivalBreakpoints.map((entry) => Math.round(entry.setJumpUnits * rivalWeight(entry.playerId))))
     const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.setJumpUnits >= coinsToUnits(10)).length
