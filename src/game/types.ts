@@ -480,7 +480,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 29
+  version: 30
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -498,7 +498,10 @@ export interface GameSession {
     targetRoundIndex: number
     originalItem: Item
     offeredItems: Item[]
+    /** Currently highlighted candidate. It remains editable until confirmed. */
     chosenItemId?: string
+    /** The irrevocably confirmed candidate used by settlement. */
+    confirmedItemId?: string
   } | null
   /** 命运硬币翻面后立即扣/加余额；在本次提交前保留，防止刷新后重掷。 */
   pendingFateCoinUse: { playerId: string; roundIndex: number; use: CardUse } | null

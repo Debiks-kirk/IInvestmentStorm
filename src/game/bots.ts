@@ -1115,7 +1115,9 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     return candidate.minimumBidUnits > candidate.ownLossUnits && (candidate.publicRivalWins > 0 || candidate.proactiveSale)
   }).sort((left, right) => right.score - left.score || left.won.item.id.localeCompare(right.won.item.id))
   const best = candidates[0]
-  if (!best || best.score < .6 + Math.max(0, behavior.reserveBias) * .8 - Math.max(0, behavior.assetMarketBias) * .65) return undefined
+  // The reserve already protects a rival's set payoff. Do not additionally
+  // suppress a strategically priced sale just because the buyer interest is high.
+  if (!best || best.score < -1.2 + Math.max(0, behavior.reserveBias) * .8 - Math.max(0, behavior.assetMarketBias) * .65) return undefined
   return { itemId: best.won.item.id, itemRoundIndex: best.won.roundIndex, minimumBidUnits: best.minimumBidUnits }
 }
 
