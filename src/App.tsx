@@ -955,10 +955,13 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const merchantAuctionCount = identity?.merchantAuctionCount ?? (identity?.merchantAuctionUsed ? 1 : 0)
   const pendingMerchantOffer = session.pendingMerchantOffers.find((offer) => offer.playerId === player.id && offer.roundIndex === session.roundIndex)
   const merchantShop = session.merchantShops.find((shop) => shop.playerId === player.id && shop.roundIndex === session.roundIndex)
-  const merchantShopWindow = identity?.id === 'merchant' && session.roundIndex >= session.settings.rounds - 2
-  const merchantShopAvailable = Boolean(merchantShopWindow && !merchantShop && player.balanceUnits >= MERCHANT_SHOP_ENTRY_FEE_UNITS && Array.from(new Set(session.cardDeck)).length >= 3)
+  const merchantShopWindow = identity?.id === 'merchant'
+  const merchantAuctionWindow = merchantShopWindow && session.roundIndex < session.settings.rounds - 2
+  // 本轮商店与商人竞购是二选一：一旦已经锁定竞购候选，不能再开店；反之亦然。
+  const merchantShopAvailable = Boolean(merchantShopWindow && !merchantShop && !pendingMerchantOffer && player.balanceUnits >= MERCHANT_SHOP_ENTRY_FEE_UNITS && Array.from(new Set(session.cardDeck)).length >= 3)
   const pendingProphetOffer = session.pendingProphetCardOffers.find((offer) => offer.playerId === player.id && offer.chosenCardIds.length < 2)
   const merchantUnavailableReason = identity?.id !== 'merchant' ? null : merchantAuctionCount >= session.settings.identitySettings.merchantAuctionLimit ? `本局竞购已用完（${merchantAuctionCount}/${session.settings.identitySettings.merchantAuctionLimit}）` : identity.merchantLastAuctionRound === session.roundIndex ? '同一回合只能发起一次竞购' : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮无法发起下轮竞购' : session.cardDeck.length === 0 ? '卡池为空，无法发起竞购' : null
+  const merchantActionChoiceAvailable = Boolean(merchantShopWindow && !merchantShop && !pendingMerchantOffer && (merchantShopAvailable || (merchantAuctionWindow && !merchantUnavailableReason)))
   const auctionLots = session.roundAuctions ?? []
   const assetAuctionLots = session.roundAssetAuctions ?? []
   const auctionBidTotal = Object.values(auctionBidByLotId).reduce((total, units) => total + units, 0)
@@ -1003,8 +1006,8 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const visibleGrant = !activeNotice ? grant : undefined
   const operationReady = !activeNotice && !visibleGrant
   useEffect(() => {
-    if (operationReady && merchantShopAvailable && !merchantShopPrompt && !merchantShopPromptDismissed) setMerchantShopPrompt(true)
-  }, [merchantShopAvailable, merchantShopPrompt, merchantShopPromptDismissed, operationReady])
+    if (operationReady && merchantActionChoiceAvailable && !merchantShopPrompt && !merchantShopPromptDismissed) setMerchantShopPrompt(true)
+  }, [merchantActionChoiceAvailable, merchantShopPrompt, merchantShopPromptDismissed, operationReady])
   const focusFlowActive = Boolean(cardConfirming || targetPicker || identityConfirming || nightwalkerDialog || prophetDialog || confirming || peekResult || merchantShopPrompt || (pendingMerchantOffer && !pendingMerchantOffer.chosenCardId) || pendingProphetOffer || visibleGrant || activeNotice)
   const identityDockStatus = !identity ? '身份关闭'
     : identitySkillMode(identity.id) === 'passive' ? '被动生效'
@@ -1171,15 +1174,14 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {identity.id === 'reverser' && <><p>本局还可发动 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b>。{reverserFreeThisRound ? <b className="status-token">本回合免费发动</b> : <>花费 {reverserCost} 金币</>}，倒转本轮获奖区内的所有名次；最后两轮费用翻倍。若同时使用“逆转排名”道具卡，两次逆转会抵消。</p><button className={cx('button', identityAction?.type === 'reverserInvert' && 'button--primary')} disabled={!identityAction && (!reverserAffordable || activeSkillLimitReached)} onClick={() => identityAction?.type === 'reverserInvert' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'reverserInvert' })}>{identityAction?.type === 'reverserInvert' ? '已安排逆转排名 · 点击撤销' : activeSkillLimitReached ? `本局发动次数已用完（${activeSkillUses}/${activeSkillLimit}）` : reverserAffordable ? (reverserFreeThisRound ? '免费发动逆转' : `花费 ${reverserCost} 金币发动`) : `余额不足，还差 ${formatCoins(reverserShortfallUnits)} 金币`}</button></>}
           {identity.id === 'investor' && <><p>秘密投资一名其他玩家，金额可从 0.5 金币起。目标获奖后，按出资比例分享排名奖励；你的投入会计入其排名金额。</p>{identityAction?.type === 'invest' ? <div className="identity-config"><strong>已投资 {playerName(session.players, identityAction.targetPlayerId)}</strong><input className="range" type="range" min="1" max={Math.max(1, player.balanceUnits - bidUnits - auctionBidTotal)} step="1" value={identityAction.investmentUnits} onChange={(event) => setIdentityAction({ ...identityAction, investmentUnits: Math.max(1, Math.min(player.balanceUnits - bidUnits - auctionBidTotal, Number(event.target.value))) })} /><b>投资 {formatCoins(identityAction.investmentUnits)} 金币</b><button className="button" onClick={() => setIdentityAction(undefined)}>取消投资</button></div> : <button className="button" disabled={player.balanceUnits - bidUnits - auctionBidTotal < 1} onClick={() => setTargetPicker('invest')}>{player.balanceUnits - bidUnits - auctionBidTotal < 1 ? '余额不足 0.5 金币，无法投资' : '选择投资对象'}</button>}</>}
           {identity.id === 'nightwalker' && <div className="nightwalker-skill"><p><strong>双影下注</strong>是主动技能：本局还可使用 <b className="status-token status-token--count">{Math.max(0, session.settings.identitySettings.nightwalkerUseLimit - nightwalkerUses)} 次</b>。设定明面 A 与更高的夜行影价 B；所有人提交后，系统会比较“排名奖励 − 实际下注”。可选 <b>优先拿藏品</b>：仅一档能拿到拍品时优先选它；绑匪抢夺仍无法预知。</p><button className={cx('button', nightwalkerActive && 'button--primary')} disabled={Boolean(nightwalkerUnavailableReason)} onClick={() => { if (nightwalkerActive) { setIdentityAction(undefined); return } setNightwalkerBaseBidUnits(Math.min(bidUnits, Math.max(0, player.balanceUnits - 1))); setNightwalkerShadowBidUnits(Math.max(1, Math.min(player.balanceUnits, bidUnits + 1))); setNightwalkerPrioritizeItem(true); setNightwalkerDialog(true) }}>{nightwalkerActive ? `已设双影：A ${formatCoins(bidUnits)} / B ${formatCoins(identityAction.shadowBidUnits)} · 点击撤销` : nightwalkerUnavailableReason ?? '设定双影下注（免费）'}</button></div>}
-          {identity.id === 'merchant' && merchantShopWindow && <><p>最后两轮可进入道具商店；入场费 <b className="status-token status-token--count">2 金币</b>。商店会锁定三张带价道具，可任选购买。</p><button className="button button--primary" disabled={!merchantShop && (!merchantShopAvailable || !merchantShopOpenAffordable)} onClick={() => { if (merchantShop) { setToolPanel('merchantShop'); return } if (onOpenMerchantShop(player.id)) { setMerchantShopPrompt(false); setToolPanel('merchantShop') } }}>{merchantShop ? merchantShop.cards.length > 0 ? `道具商店 · 剩余 ${merchantShop.cards.length} 张` : '道具商店已售罄' : merchantShopAvailable && merchantShopOpenAffordable ? '进入道具商店 · 支付 2 金币' : '需先为本轮下注保留金币'}</button></>}
-          {identity.id === 'merchant' && !merchantShopWindow && <><p>{merchantUnavailableReason ?? <>还可发起 <b className="status-token status-token--count">{session.settings.identitySettings.merchantAuctionLimit - merchantAuctionCount} 次</b>：锁定三张不同道具后，选择一张安排到下一轮竞购。</>}</p><button className={cx('button', pendingMerchantOffer && 'button--primary')} disabled={Boolean(merchantUnavailableReason) || Boolean(pendingMerchantOffer)} onClick={() => onStartMerchantOffer(player.id)}>{pendingMerchantOffer?.chosenCardId ? `已安排 ${getCardDefinition(pendingMerchantOffer.chosenCardId).name} · 提交后生效` : pendingMerchantOffer ? '正在选择下轮竞购卡' : merchantUnavailableReason ?? '发动商人竞购'}</button></>}
+          {identity.id === 'merchant' && <><p>{merchantShop ? '本轮已选择道具商店；未购买的道具会在提交后回到卡池。' : pendingMerchantOffer?.chosenCardId ? `本轮已安排「${getCardDefinition(pendingMerchantOffer.chosenCardId).name}」进入下轮竞购。` : merchantAuctionWindow ? <>本轮可二选一：发起下轮道具竞购，或支付 <b className="status-token status-token--count">2 金币</b> 进入道具商店。</> : <>最后两轮仅开放道具商店；入场费 <b className="status-token status-token--count">2 金币</b>。</>}</p>{merchantShop ? <button className="button button--primary" onClick={() => setToolPanel('merchantShop')}>{merchantShop.cards.length > 0 ? `道具商店 · 剩余 ${merchantShop.cards.length} 张` : '道具商店已售罄'}</button> : pendingMerchantOffer ? <button className="button button--primary" disabled>{pendingMerchantOffer.chosenCardId ? `已安排 ${getCardDefinition(pendingMerchantOffer.chosenCardId).name}` : '正在选择下轮竞购卡'}</button> : <div className="merchant-action-buttons">{merchantAuctionWindow && <button className="button" disabled={Boolean(merchantUnavailableReason)} onClick={() => onStartMerchantOffer(player.id)}>{merchantUnavailableReason ?? '发起道具竞购'}</button>}<button className="button button--primary" disabled={!merchantShopAvailable || !merchantShopOpenAffordable} onClick={() => { if (onOpenMerchantShop(player.id)) { setMerchantShopPrompt(false); setToolPanel('merchantShop') } }}>{merchantShopAvailable && merchantShopOpenAffordable ? '进入道具商店 · 2 金币' : '需先为本轮下注保留金币'}</button></div>}</>}
           {identity.id === 'lobbyist' && <>{lobbyUnavailableReason ? <><p>{lobbyUnavailableReason}。</p><button className="button" disabled>{lobbyUnavailableReason}</button></> : <div className="lobbyist-form"><strong>本局还可发布 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b> · 发布下一轮任务 {lobbyFee === 0 ? <b className="status-token status-token--free">本轮免费</b> : <>· 基础费用 {lobbyFee} 金币</>}</strong><p>下回合向指定玩家发布一项任务，若对方未完成任务，则向你支付一定金币。指定任务额外支付 {session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} 金币。</p><button className={cx('button', identityAction?.type === 'lobbyistContract' && 'button--primary')} disabled={identityAction?.type !== 'lobbyistContract' && lobbyOpeningShortfallUnits > 0} onClick={() => identityAction?.type === 'lobbyistContract' ? setIdentityAction(undefined) : setTargetPicker('lobbyTask')}>{identityAction?.type === 'lobbyistContract' ? lobbyShortfallUnits > 0 ? `任务已选，但余额还差 ${formatCoins(lobbyShortfallUnits)} 金币` : `已安排：${identityAction.specified && identityAction.taskType ? taskLabel(identityAction.taskType) : '随机任务'} → ${playerName(session.players, identityAction.targetPlayerId)} · 点击撤销` : lobbyOpeningShortfallUnits > 0 ? `余额不足，还差 ${formatCoins(lobbyOpeningShortfallUnits)} 金币` : '发动技能'}</button></div>}</>}</div>}
       </section></div>}
       {merchantShopPrompt && !merchantShop && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-labelledby="merchant-shop-open-title"><section className="focus-sheet focus-sheet--backpack merchant-shop-prompt">
-        <header className="focus-sheet__head"><div><p className="eyebrow">道具商人 · 最后两轮</p><h2 id="merchant-shop-open-title">道具商店已开放</h2><small>进入后会固定抽出三张道具；刷新或关闭都不会换货。</small></div></header>
+        <header className="focus-sheet__head"><div><p className="eyebrow">道具商人 · 本轮选择</p><h2 id="merchant-shop-open-title">{merchantAuctionWindow ? '竞拍支持与道具商店已开放' : '道具商店已开放'}</h2><small>{merchantAuctionWindow ? '本轮只能选择其中一项；安排竞购后不能再进商店。' : '最后两轮不能再安排下轮竞购。'}</small></div></header>
         <div className="merchant-shop-prompt__coin">◆ <strong>2 金币</strong><small>一次性入场费</small></div>
-        <p>可购买任意多张，未购买的卡会在你提交本回合后回到卡池。</p>
-        <footer><button className="button button--paper" onClick={() => { setMerchantShopPrompt(false); setMerchantShopPromptDismissed(true) }}>暂不进入</button><button className="button button--primary" disabled={!merchantShopOpenAffordable} onClick={() => { if (onOpenMerchantShop(player.id)) { setMerchantShopPrompt(false); setToolPanel('merchantShop') } }}>{merchantShopOpenAffordable ? '进入商店' : '本轮已预留的金币不足'}</button></footer>
+        <p>{merchantAuctionWindow ? '发起竞购会锁定三张候选，从中挑一张安排到下一轮；进入商店后可买任意多张，未购买的卡会在提交时回池。' : '商店会锁定三张带价道具；可买任意多张，未购买的卡会在提交时回池。'}</p>
+        <footer><button className="button button--paper" onClick={() => { setMerchantShopPrompt(false); setMerchantShopPromptDismissed(true) }}>稍后决定</button>{merchantAuctionWindow && <button className="button" disabled={Boolean(merchantUnavailableReason)} onClick={() => { onStartMerchantOffer(player.id); setMerchantShopPrompt(false); setMerchantShopPromptDismissed(true) }}>{merchantUnavailableReason ?? '发起道具竞购'}</button>}<button className="button button--primary" disabled={!merchantShopOpenAffordable} onClick={() => { if (onOpenMerchantShop(player.id)) { setMerchantShopPrompt(false); setToolPanel('merchantShop') } }}>{merchantShopOpenAffordable ? '进入商店' : '本轮已预留的金币不足'}</button></footer>
       </section></div>}
       {toolPanel === 'merchantShop' && merchantShop && !focusFlowActive && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-labelledby="merchant-shop-title"><section className="focus-sheet focus-sheet--backpack merchant-shop">
         <header className="focus-sheet__head"><div><p className="eyebrow">道具商人 · 私密商店</p><h2 id="merchant-shop-title">挑选你的道具</h2><small>剩余金币 {formatCoins(player.balanceUnits)}；每张价格已锁定。</small></div><button className="icon-button" aria-label="关闭道具商店" onClick={() => setToolPanel(null)}>×</button></header>
@@ -1545,7 +1547,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   }
   const startMerchantOffer = (playerId: string) => {
     const player = session.players[session.currentTurnIndex]
-    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'merchant' || session.roundIndex >= session.settings.rounds - 2 || session.pendingMerchantOffers.some((offer) => offer.playerId === playerId && offer.roundIndex === session.roundIndex)) return
+    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'merchant' || session.roundIndex >= session.settings.rounds - 2 || session.pendingMerchantOffers.some((offer) => offer.playerId === playerId && offer.roundIndex === session.roundIndex) || session.merchantShops.some((shop) => shop.playerId === playerId && shop.roundIndex === session.roundIndex)) return
     const distinct = Array.from(new Set(session.cardDeck)).filter((cardId) => !session.settings.disabledCardIds.includes(cardId)).slice(0, 3)
     if (distinct.length < 3) return
     const deck = [...session.cardDeck]
@@ -1560,8 +1562,8 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   }
   const openMerchantShop = (playerId: string): boolean => {
     const player = session.players[session.currentTurnIndex]
-    const isLateRound = session.roundIndex >= session.settings.rounds - 2
-    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'merchant' || !isLateRound || player.balanceUnits < MERCHANT_SHOP_ENTRY_FEE_UNITS || session.merchantShops.some((shop) => shop.playerId === playerId && shop.roundIndex === session.roundIndex)) return false
+    const hasMerchantOffer = session.pendingMerchantOffers.some((offer) => offer.playerId === playerId && offer.roundIndex === session.roundIndex)
+    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'merchant' || hasMerchantOffer || player.balanceUnits < MERCHANT_SHOP_ENTRY_FEE_UNITS || session.merchantShops.some((shop) => shop.playerId === playerId && shop.roundIndex === session.roundIndex)) return false
     const offeredCardIds = Array.from(new Set(session.cardDeck)).filter((cardId) => !session.settings.disabledCardIds.includes(cardId)).slice(0, 3)
     if (offeredCardIds.length !== 3) return false
     const cardDeck = [...session.cardDeck]
@@ -1923,6 +1925,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   }
   const reveal = () => {
     if (session.phase !== 'revealReady') return
+    // 调包令的已确认选择会同时写入牌堆和回合记录。结算以回合记录为准，避免
+    // Bot 的连续自动操作遇到状态刷新时，展示仍回读到旧的预设拍品。
+    const swapUse = session.turns.flatMap((turn) => turnCardUses(turn)).find((use) => use.cardId === 'prizeSwap' && use.prizeReroll?.targetRoundIndex === session.roundIndex)
+    const swappedItem = swapUse?.prizeReroll?.chosenItemId
+      ? ITEM_POOL.find((item) => item.id === swapUse.prizeReroll?.chosenItemId)
+      : undefined
+    const roundItem = swappedItem ?? session.itemDeck[session.roundIndex]
+    const resolvedItemDeck = swappedItem ? replacePrizeAt(session.itemDeck, session.roundIndex, swappedItem) : session.itemDeck
     let auctionPlayers = session.players.map((player) => ({ ...player, cardInventory: [...player.cardInventory] }))
     let auctionDeck = [...session.cardDeck]
     const auctionNotices = [...session.pendingIdentityNotices]
@@ -1982,7 +1992,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const settled = settleRound({
       playersAfterBids: auctionPlayers,
       turns: session.turns,
-      item: session.itemDeck[session.roundIndex],
+      item: roundItem,
       roundIndex: session.roundIndex,
       rewardMultipliers: session.settings.rewardMultipliers,
       correctPredictionMultiplier: session.settings.correctPredictionMultiplier,
@@ -2019,11 +2029,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           cardDeck: auctionDeck,
           pendingIdentityNotices: notices,
         },
+        itemDeck: resolvedItemDeck,
         phase: 'kidnapNegotiation',
       })
       return
     }
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], phase: 'roundResult' })
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], phase: 'roundResult' })
   }
   const resolveKidnapNegotiation = (payRansom: boolean) => {
     const negotiation = session.pendingKidnapNegotiation
@@ -2273,8 +2284,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
         const observation = buildBotObservation(session, currentPlayer.id)
         const merchantShop = session.merchantShops.find((shop) => shop.playerId === currentPlayer.id && shop.roundIndex === session.roundIndex)
-        const merchantShopWindow = currentPlayer.identity?.id === 'merchant' && session.roundIndex >= session.settings.rounds - 2
-        if (merchantShopWindow && !merchantShop && currentPlayer.balanceUnits >= MERCHANT_SHOP_ENTRY_FEE_UNITS) {
+        const merchantShopWindow = currentPlayer.identity?.id === 'merchant'
+        const merchantAuctionWindow = merchantShopWindow && session.roundIndex < session.settings.rounds - 2
+        const merchantShopRoll = [...`${session.id}:${currentPlayer.id}:${session.roundIndex}`].reduce((total, character) => (total * 31 + character.charCodeAt(0)) % 100, 0)
+        const merchantShopThreshold = 18 + Math.round((currentPlayer.botMemory?.strategy.cards ?? 50) * .14) + Math.max(0, Math.round((currentPlayer.botMemory?.behavior.cardBias ?? 0) * 8))
+        const botChoosesShop = !merchantAuctionWindow || merchantShopRoll < merchantShopThreshold
+        if (merchantShopWindow && botChoosesShop && !merchantShop && currentPlayer.balanceUnits >= MERCHANT_SHOP_ENTRY_FEE_UNITS) {
           if (openMerchantShop(currentPlayer.id)) return
         }
         if (merchantShopWindow && merchantShop?.cards.length) {
