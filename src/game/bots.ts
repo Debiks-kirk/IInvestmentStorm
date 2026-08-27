@@ -365,24 +365,37 @@ function opponentCompetitiveWeight(observation: Pick<BotObservation, 'humanOppon
   return observation.humanOpponentIds.includes(playerId) ? 1.1 : .97
 }
 
-/**
- * Experts already have a higher appetite for contesting human players. A
- * public human lead then makes that attack opportunity more likely and bolder.
- * It is a seeded probability event, so it remains stable on refresh but varies
- * across games. The input is deliberately limited to public wins and the
- * Bot's legal cash estimate; no private balance or inventory is consulted.
- */
-function expertHumanAttackWeight(observation: BotObservation, difficulty: BotDifficulty, playerId: string, channel: string): number {
-  if (difficulty !== 'expert' || !observation.humanOpponentIds.includes(playerId)) return 1
+/** Public-only threat estimate for a seated human. It intentionally sees only
+ * the balance range inferred from recaps plus public item wins. A short stack
+ * with no public momentum is not a worthwhile target. */
+function humanThreatProfile(observation: BotObservation, playerId: string): { viable: boolean; pressure: number } {
   const estimate = estimateFor(observation, playerId)
   const visibleEstimates = observation.balanceEstimates.filter((entry) => entry.playerId !== observation.playerId)
   const averageCash = visibleEstimates.reduce((total, entry) => total + entry.expectedUnits, 0) / Math.max(1, visibleEstimates.length)
-  const cashLead = clamp(((estimate?.expectedUnits ?? averageCash) - averageCash) / Math.max(coinsToUnits(4), averageCash), 0, 1)
   const publicWins = observation.publicRounds.filter((round) => (round.itemWinnerId ?? round.winnerId) === playerId).length
+  const expectedCash = estimate?.expectedUnits ?? averageCash
+  const highCash = estimate?.highUnits ?? expectedCash
+  const cashLead = clamp((expectedCash - averageCash) / Math.max(coinsToUnits(3), averageCash), -.8, 1.25)
+  const cashHealth = clamp((highCash - coinsToUnits(3.5)) / Math.max(coinsToUnits(7), averageCash), 0, 1)
   const assetLead = clamp(publicWins / Math.max(2, observation.roundIndex + 1), 0, 1)
-  const chance = clamp(.18 + cashLead * .15 + assetLead * .1, .18, .43)
+  // Do not dogpile a visibly struggling person unless their public collection
+  // already makes them a material late-game threat.
+  const viable = highCash >= coinsToUnits(5) || publicWins >= 2
+  return { viable, pressure: clamp(.3 + cashHealth * .42 + Math.max(0, cashLead) * .35 + assetLead * .46, 0, 1.45) }
+}
+
+/**
+ * Expert Bots deliberately contest viable human leaders more often than
+ * Bot-vs-Bot rivals. The outcome stays seeded, so it varies between games and
+ * never becomes a deterministic "always hit the human" rule.
+ */
+function expertHumanAttackWeight(observation: BotObservation, difficulty: BotDifficulty, playerId: string, channel: string): number {
+  if (difficulty !== 'expert' || !observation.humanOpponentIds.includes(playerId)) return 1
+  const threat = humanThreatProfile(observation, playerId)
+  if (!threat.viable) return 1
+  const chance = clamp(.42 + threat.pressure * .34, .42, .82)
   const triggers = unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${playerId}:expert-human-attack:${channel}`) < chance
-  return triggers ? 1.07 + cashLead * .09 + assetLead * .06 : 1
+  return triggers ? 1.18 + threat.pressure * .24 : 1
 }
 
 function preferredOpponent(observation: BotObservation, memory: BotMemory): string | undefined {
@@ -556,7 +569,7 @@ interface ScoredPlan extends TurnPlan {
   firstChance: number
 }
 
-function cardUseVariants(observation: BotObservation): CardUse[][] {
+function cardUseVariants(observation: BotObservation, difficulty: BotDifficulty): CardUse[][] {
   const candidates: CardUse[] = []
   for (const cardId of [...new Set(observation.self.cardInventory)]) {
     if (cardId === 'reflectShield' || (cardId === 'prizeReroll' && observation.roundIndex >= observation.totalRounds - 1)) continue
@@ -582,12 +595,24 @@ function cardUseVariants(observation: BotObservation): CardUse[][] {
     seen.add(key)
     return true
   })
-  return [unique[0], ...unique.slice(1).sort((left, right) => hash(`${observation.sessionSeed}:${observation.playerId}:${left.map((use) => use.cardId).join('')}`) - hash(`${observation.sessionSeed}:${observation.playerId}:${right.map((use) => use.cardId).join('')}`)).slice(0, 17)].filter(Boolean) as CardUse[][]
+  const isExpertHumanDisruption = (variant: CardUse[]) => variant.some((use) => (
+    (use.cardId === 'bananaPeel' || use.cardId === 'swap')
+    && Boolean(use.targetPlayerId)
+    && expertHumanAttackWeight(observation, difficulty, use.targetPlayerId!, `candidate:${use.cardId}`) > 1
+  ))
+  // Planning is intentionally capped for 10-player games. Reserve some of the
+  // cap for high-confidence disruption plans, otherwise a crowded backpack can
+  // randomly prune them before their utility is even scored.
+  const base = unique[0]
+  const targeted = unique.slice(1).filter(isExpertHumanDisruption)
+  const rest = unique.slice(1).filter((variant) => !isExpertHumanDisruption(variant))
+    .sort((left, right) => hash(`${observation.sessionSeed}:${observation.playerId}:${left.map((use) => use.cardId).join('')}`) - hash(`${observation.sessionSeed}:${observation.playerId}:${right.map((use) => use.cardId).join('')}`))
+  return [base, ...targeted, ...rest].filter(Boolean).slice(0, 18) as CardUse[][]
 }
 
 function planCandidates(observation: BotObservation, difficulty: BotDifficulty, memory: BotMemory): TurnPlan[] {
   const plans: TurnPlan[] = []
-  const cardVariants = cardUseVariants(observation)
+  const cardVariants = cardUseVariants(observation, difficulty)
   for (const cardUses of cardVariants) {
     const swap = cardUses.find((use) => use.cardId === 'swap')
     const rankingMultiplier = cardUses.some((use) => use.cardId === 'doubleBid') ? 2 : 1

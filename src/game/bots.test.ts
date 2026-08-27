@@ -222,6 +222,26 @@ describe('Bot 信息边界与决策', () => {
     expect(decision.cardUses.some((use) => use.cardId === 'doubleBid')).toBe(false)
   })
 
+  it('expert bots prioritize disruptive cards against a solvent human leader, not a visibly short rival', () => {
+    const session = createSession([
+      { name: 'Expert Bot', controller: { kind: 'bot', profileId: 'blocker', difficulty: 'expert' } },
+      { name: 'Human leader', controller: { kind: 'human' } },
+      { name: 'Short Bot', controller: { kind: 'bot', profileId: 'steady', difficulty: 'standard' } },
+    ], createDefaultSettings(3))
+    session.players[0].cardInventory = ['bananaPeel']
+    session.itemDeck[0] = { ...session.itemDeck[0], value: 18, category: 'luxury' }
+    const observation = buildBotObservation(session, session.players[0].id)
+    observation.balanceEstimates = [
+      { playerId: session.players[0].id, lowUnits: 60, expectedUnits: 60, highUnits: 60, expectedBidUnits: 10, categoryWins: 0 },
+      { playerId: session.players[1].id, lowUnits: 88, expectedUnits: 100, highUnits: 112, expectedBidUnits: 54, categoryWins: 3 },
+      { playerId: session.players[2].id, lowUnits: 2, expectedUnits: 5, highUnits: 8, expectedBidUnits: 4, categoryWins: 0 },
+    ]
+    observation.publicRounds = Array.from({ length: 3 }, () => ({ winnerId: session.players[1].id, itemWinnerId: session.players[1].id, totalBidUnits: 45, minWinningBidUnits: 20, tiedPlayerIds: [], itemCategory: 'luxury' as const, rankings: [], publicDeltaByPlayerId: {} }))
+    const decision = decideBotTurn(observation, 'blocker', 'expert', emptyBotMemory('expert-human-pressure'))
+    expect(decision.cardUses).toContainEqual({ cardId: 'bananaPeel', targetPlayerId: session.players[1].id })
+    expect(decision.cardUses).not.toContainEqual({ cardId: 'bananaPeel', targetPlayerId: session.players[2].id })
+  })
+
   it('绑匪会把目标胜率、同类固定资产与失败成本一起纳入抢劫决策', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     session.itemDeck[0] = { ...session.itemDeck[0], value: 20, category: 'leisure' }
