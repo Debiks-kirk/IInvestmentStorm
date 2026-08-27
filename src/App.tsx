@@ -1823,7 +1823,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       ? { ...change, chosenItemId: change.offeredItems[0]?.id, confirmedItemId: change.offeredItems[0]?.id }
       : change)
     if (lockedPrizeChanges.some((change) => !change.confirmedItemId)) return false
-    const cardUses: CardUse[] = [...turnCardUses(turn), ...lockedPrizeChanges.map((change) => ({
+    // 改拍令／调包令在选择拍品时已经以 pendingPrizeChanges 锁定；私密页为了
+    // 展示摘要也会把它放进 turn.cardUses。提交时只保留锁定记录这一份，避免被
+    // 误判成“同一回合重复使用同名道具”。
+    const lockedPrizeCardIds = new Set<CardId>(lockedPrizeChanges.map((change) => change.cardId))
+    const cardUses: CardUse[] = [...turnCardUses(turn).filter((use) => !lockedPrizeCardIds.has(use.cardId)), ...lockedPrizeChanges.map((change) => ({
       cardId: change.cardId,
       prizeReroll: {
         originalItemId: change.originalItem.id,
