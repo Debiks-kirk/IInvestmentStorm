@@ -159,6 +159,10 @@ export interface PublicRoundObservation {
   itemCategory: AssetCategory
   rankings: Array<{ playerId: string; place: number; rewardUnits: number }>
   publicDeltaByPlayerId: Record<string, number>
+  /** Public result data: used to judge whether ranking reversals are becoming a pattern. */
+  rankingReversalCount?: number
+  /** Public effect labels only; never exposes unplayed private inventories. */
+  publicCardEffectIds?: CardId[]
   /** Public asset-auction transfers, which keep collection estimates up to date. */
   assetAuctionResults?: Array<{ sellerId: string; winnerId: string | null; itemCategory: AssetCategory }>
 }
@@ -270,7 +274,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
     humanOpponentIds: session.players.filter((entry) => entry.id !== playerId && entry.controller?.kind !== 'bot').map((entry) => entry.id),
     previousSubmitterIds: prior,
-    publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, itemWinnerId: result.itemWinnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])), assetAuctionResults: result.assetAuctionResults.map((entry) => ({ sellerId: entry.sellerId, winnerId: entry.winnerId, itemCategory: entry.item.category })) })),
+    publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, itemWinnerId: result.itemWinnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])), rankingReversalCount: result.rankingReversalCount, publicCardEffectIds: result.cardEffects.map((effect) => effect.cardId).filter((cardId): cardId is CardId => Boolean(cardId)), assetAuctionResults: result.assetAuctionResults.map((entry) => ({ sellerId: entry.sellerId, winnerId: entry.winnerId, itemCategory: entry.item.category })) })),
     balanceEstimates: [],
     cardDeckSize: session.cardDeck.length,
     activeTask: session.identityContracts.find((contract) => contract.targetPlayerId === playerId && contract.status === 'pending' && contract.executeRoundIndex === session.roundIndex) ? (() => { const contract = session.identityContracts.find((entry) => entry.targetPlayerId === playerId && entry.status === 'pending' && entry.executeRoundIndex === session.roundIndex)!; return { type: contract.taskType, comparisonPlayerId: contract.comparisonPlayerId } })() : undefined,
@@ -382,6 +386,21 @@ function reserveForPlan(observation: BotObservation, profile: BotProfile, mode: 
   const ratio = clamp(.10 + strategy.bankroll / 100 * .2 + (1 - profile.risk) * .12 + behavior.bankrollBias * .08, .06, .42)
   // Low stacks still need a chance to recover; a reserve cannot consume most of a short stack.
   return Math.max(0, Math.min(desired, Math.round(observation.self.balanceUnits * ratio)))
+}
+
+/** Public reversals do not prove another reversal is coming. They only make a
+ * subset of personalities hedge their ranking bets instead of repeating the
+ * same bid pattern every round. */
+function publicReversalPressure(observation: BotObservation): number {
+  return observation.publicRounds.slice(-3).reduce((total, round, index) => total + (round.rankingReversalCount ?? 0) * (index === 2 ? 1 : .65), 0)
+}
+
+/** Cards shown in previous public results are remembered as part of the game's
+ * volatile card economy. This is deliberately an uncertainty signal, not an
+ * attempt to inspect any opponent's hidden backpack. */
+function publicCardVolatility(observation: BotObservation): number {
+  return observation.publicRounds.slice(-4).flatMap((round) => round.publicCardEffectIds ?? [])
+    .filter((cardId) => ['red', 'black', 'doubleBid', 'bananaPeel', 'swap', 'reverseRank'].includes(cardId)).length
 }
 
 function sigmoid(value: number): number {
@@ -751,6 +770,11 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const quoteCache = new Map(observation.opponents.map((opponent) => [opponent.id, opponentQuoteSamples(observation, opponent.id, observation.playerId)]))
   const collectorTarget = observation.self.identity?.id === 'collector' && observation.self.identity.collectorCategory === observation.item?.category
   const categoryItems = observation.item ? observation.self.items.filter((won) => won.item.category === observation.item?.category).length : 0
+  const reversalPressure = publicReversalPressure(observation)
+  const cardVolatility = publicCardVolatility(observation)
+  const hedgesReversals = reversalPressure > 0 && unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:reversal-hedge`) < clamp(.18 + profile.risk * .16 + Math.max(0, behavior.reserveBias) * .18 + reversalPressure * .09, .12, .62)
+  const playsReversalMindGame = observation.self.identity?.id === 'reverser' && reversalPressure > 0
+    && unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:reverser-mind-game`) < clamp(.25 + profile.identity * .3 + Math.max(0, behavior.edgeBias) * .16, .16, .7)
   const scored: ScoredPlan[] = []
   const identityCost = (action: IdentityAction | undefined): number => action?.type === 'reverserInvert'
     ? observation.reverserActivationUnits * (observation.roundIndex >= observation.totalRounds - 2 ? 2 : 1)
@@ -799,6 +823,14 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       // bonus) and can cross a later set threshold, so it is scored separately from V.
       const categorySetValue = assetUnits * (1 + Math.min(1.1, categoryItems * .16) + (collectorTarget ? .45 : 0))
       const expectedReward = estimate.uniqueChance * (valueUnits * rewardMultiplier + categorySetValue * assetWeight)
+      const invertedPlace = estimate.place <= observation.rewardMultipliers.length ? observation.rewardMultipliers.length - estimate.place + 1 : estimate.place
+      const invertedReward = estimate.uniqueChance * (valueUnits * (observation.rewardMultipliers[invertedPlace - 1] ?? 0) + categorySetValue * assetWeight)
+      const reversalUncertainty = hedgesReversals && plan.identityAction?.type !== 'reverserInvert'
+        ? Math.abs(expectedReward - invertedReward) * Math.min(.28, .07 + reversalPressure * .045)
+        : 0
+      const reverserMisdirection = playsReversalMindGame
+        ? (plan.identityAction?.type === 'reverserInvert' ? -coinsToUnits(.22 + Math.max(0, behavior.edgeBias) * .12) : coinsToUnits(.16 + profile.identity * .18))
+        : 0
       const kidnappedTarget = plan.identityAction?.type === 'kidnap' ? (plan.identityAction.targetPlayerIds?.[0] ?? plan.identityAction.targetPlayerId) : undefined
       const kidnapChance = kidnappedTarget ? kidnapSuccessChance(observation, kidnappedTarget) : 0
       const kidnapAssetValue = kidnappedTarget ? marginalAssetUnits(observation) + coinsToUnits((observation.item?.value ?? 0) * .28) : 0
@@ -836,6 +868,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const grudgeKidnapBonus = kidnappedTarget && kidnappedTarget === preferredOpponent(observation, memory) ? coinsToUnits(profile.revenge * .7) * kidnapChance : 0
       const tiePenalty = estimate.tieChance * coinsToUnits(2.2 + Math.max(0, behavior.edgeBias) * .8)
       const fingerprintBonus = ((bidUnits + behavior.quoteFingerprint) % 5 === 0 ? coinsToUnits(.12) : 0) + behavior.edgeBias * Math.min(coinsToUnits(.7), bidUnits * .04)
+      const latentCardRisk = cardVolatility > 0 && bidUnits > coinsToUnits(4)
+        ? coinsToUnits(.06 * Math.min(5, cardVolatility)) * (hedgesReversals ? 1.25 : .55)
+        : 0
       const tactic = (_id: IdentityId) => 1
       const investmentValue = plan.identityAction?.type === 'invest' ? (() => {
         const targetId = plan.identityAction.targetPlayerId
@@ -857,7 +892,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
           : plan.identityAction?.type === 'lobbyistContract' ? coinsToUnits(.7 + behavior.antiLeaderBias * .35 + (plan.identityAction.specified ? .8 : 0)) * tactic('lobbyist')
             : plan.identityAction?.type === 'reverserInvert' ? (inversionSetup + reverserFutureValue) * tactic('reverser')
               : investmentValue
-      const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty + categoryMomentum + kidnapValue + boldness + blockValue + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) + identityValue + fingerprintBonus - tiePenalty
+      const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty - reversalUncertainty - latentCardRisk + categoryMomentum + kidnapValue + boldness + blockValue + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) + identityValue + fingerprintBonus + reverserMisdirection - tiePenalty
       scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
@@ -1090,20 +1125,30 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     }).filter((entry) => entry.count > 0)
     const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.gainUnits))
     const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.gainUnits >= coinsToUnits(10)).length
+    const strongestRival = [...rivalBreakpoints].sort((left, right) => right.gainUnits - left.gainUnits || left.playerId.localeCompare(right.playerId))[0]
+    const strongestRivalCash = strongestRival ? observation.balanceEstimates.find((estimate) => estimate.playerId === strongestRival.playerId) : undefined
     const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + breakpointBuyerCount * 2.4 + Math.max(0, likelyBuyerCount - 1) * .35
     const denyWeight = .45 + profile.revenge * .34 + (controller?.profileId === 'blocker' ? .3 : 0) + Math.max(0, behavior.antiLeaderBias) * .16
     const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + categoryHeat * .26 + likelyBuyerCount * .25
     const selfNeed = ownLossUnits + coinsToUnits(ownCategoryCount * (.35 + profile.collect * .24)) + (collectorCategory === won.item.category ? coinsToUnits(8) : 0)
-    const baseReserve = ownLossUnits + coinsToUnits(Math.max(1, .5 + won.item.value * .18))
+    const intrinsicFloor = coinsToUnits(Math.max(2, won.item.value * .55))
+    const baseReserve = Math.max(intrinsicFloor, ownLossUnits + coinsToUnits(Math.max(1, .5 + won.item.value * .18)))
     const premium = coinsToUnits(Math.max(0, demandWeight * (.7 + Math.max(0, behavior.edgeBias) * .35) + Math.max(0, behavior.assetMarketBias) * .35))
     const protectionWeight = .62 + profile.revenge * .16 + profile.collect * .12 + (controller?.profileId === 'blocker' ? .12 : 0) + Math.max(0, behavior.antiLeaderBias) * .1
     const antiGiftFloor = largestRivalGainUnits > 0 ? Math.round(largestRivalGainUnits * protectionWeight) : 0
-    const minimumBidUnits = Math.max(2, Math.ceil(Math.max(baseReserve + premium, antiGiftFloor) / 2) * 2)
+    const cashLimitedRivalGain = strongestRivalCash ? Math.min(largestRivalGainUnits, Math.max(intrinsicFloor, strongestRivalCash.highUnits * .86)) : largestRivalGainUnits
+    const marketCapture = .48 + strategy.market / 240 + profile.collect * .12 + Math.max(0, behavior.assetMarketBias) * .1
+    const setDemandFloor = cashLimitedRivalGain > 0 ? Math.round(cashLimitedRivalGain * clamp(marketCapture, .48, .82)) : 0
+    const hasComebackTools = player.cardInventory.length >= 2 || ['merchant', 'thief', 'reverser', 'nightwalker', 'investor'].includes(player.identity?.id ?? '')
+    const distressed = player.balanceUnits <= coinsToUnits(3.5) && !hasComebackTools
+    const distressDiscount = distressed ? .82 + unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:distress`) * .08 : 1
+    const reserveNoise = coinsToUnits(normalRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:reserve-noise`) * .32)
+    const minimumBidUnits = Math.max(intrinsicFloor, Math.ceil(Math.max(baseReserve + premium, antiGiftFloor, setDemandFloor) * distressDiscount / 2) * 2 + reserveNoise)
     const timing = roundIndex >= totalRounds - 2 ? -.8 : .35
     const proactiveSale = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:${won.roundIndex}:seller-mood`) < sellMood
     const variance = normalRandom(`${sessionSeed}:${player.id}:${won.item.id}:${won.roundIndex}:seller`) * 1.05
     const score = demandWeight * 1.35 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance + (proactiveSale ? 1.15 + Math.max(0, behavior.assetMarketBias) * 1.35 : 0) - selfNeed * .18 - rivalSetPressure * denyWeight - largestRivalGainUnits * (.14 + denyWeight * .12)
-    return { won, ownLossUnits, publicRivalWins, largestRivalGainUnits, breakpointBuyerCount, proactiveSale, minimumBidUnits, score }
+    return { won, ownLossUnits, publicRivalWins, largestRivalGainUnits, breakpointBuyerCount, proactiveSale, minimumBidUnits: Math.max(2, Math.ceil(minimumBidUnits / 2) * 2), score }
   }).filter((candidate) => {
     // A collector keeps its chosen category unless an explicit future rule says
     // otherwise; selling it cheaply is almost always a strategic own goal.
