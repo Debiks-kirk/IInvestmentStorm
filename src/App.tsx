@@ -1483,7 +1483,10 @@ function KidnapNegotiationPanel({ negotiation, onResolve }: { negotiation: Kidna
   if (!captured) return null
   const canPay = captured.balanceUnits >= negotiation.ransomUnits
   return <section className="kidnap-negotiation" role="dialog" aria-modal="true" aria-labelledby="kidnap-negotiation-title">
+    <div className="kidnap-negotiation__spotlight" aria-hidden="true" />
+    <div className="kidnap-negotiation__particles" aria-hidden="true">{Array.from({ length: 12 }, (_, index) => <i key={index} />)}</div>
     <div className="kidnap-negotiation__frame">
+      <div className="kidnap-negotiation__threat-mark" aria-hidden="true"><span>🥷</span><i>⛓</i></div>
       <p className="eyebrow">⛓ 绑匪 · 公开谈判</p>
       <h1 id="kidnap-negotiation-title">{captured.name} 拍下了 {negotiation.item.emoji} {negotiation.item.name}</h1>
       <p>有人发出赎金要求。现在由 <strong>{captured.name}</strong> 公开决定：保住本轮藏品，或将它交给绑匪。</p>
