@@ -227,6 +227,11 @@ export interface BotObservation {
 export function buildBotObservation(session: GameSession, playerId: string): BotObservation {
   const player = session.players.find((entry) => entry.id === playerId) as Player
   const prior = session.turns.map((turn) => turn.playerId).filter((id) => id !== playerId)
+  const pendingPrizeChange = session.pendingPrizeReroll
+  const concealedPrizeSwap = pendingPrizeChange?.cardId === 'prizeSwap'
+    && pendingPrizeChange.roundIndex === session.roundIndex
+    && pendingPrizeChange.playerId !== playerId
+  const visibleItem = concealedPrizeSwap ? pendingPrizeChange!.originalItem : session.itemDeck[session.roundIndex]
   const observation: BotObservation = {
     sessionSeed: session.id,
     playerId,
@@ -259,7 +264,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
       ? 0
       : coinsToUnits(session.settings.identitySettings.lobbyistFeeCoins),
     lobbyistSpecifiedFeeUnits: coinsToUnits(session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins),
-    item: session.itemDeck[session.roundIndex] ?? null,
+    item: visibleItem ?? null,
     self: { id: player.id, name: player.name, balanceUnits: player.balanceUnits, items: [...player.items], cardInventory: [...player.cardInventory], identity: player.identity ? { ...player.identity } : undefined, passivityFeeCount: player.passivityFeeCount ?? 0 },
     selfRoundStartBalanceUnits: session.roundStartBalanceUnits?.[player.id] ?? player.balanceUnits,
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
@@ -505,12 +510,12 @@ function cardUseVariants(observation: BotObservation): CardUse[][] {
   const variants: CardUse[][] = [[]]
   for (const candidate of candidates) variants.push([candidate])
   for (let left = 0; left < candidates.length; left += 1) for (let right = left + 1; right < candidates.length; right += 1) {
-    if (candidates[left].cardId === 'prizeReroll' || candidates[right].cardId === 'prizeReroll') continue
+    if (['prizeReroll', 'prizeSwap'].includes(candidates[left].cardId) || ['prizeReroll', 'prizeSwap'].includes(candidates[right].cardId)) continue
     if (candidates[left].cardId !== candidates[right].cardId) variants.push([candidates[left], candidates[right]])
   }
   // The player-facing rule has no per-round card cap. Keep planning bounded, but
   // include a combined multi-card option so Bots can still exploit a full hand.
-  const combined = candidates.filter((candidate, index, all) => candidate.cardId !== 'prizeReroll' && all.findIndex((entry) => entry.cardId === candidate.cardId) === index)
+  const combined = candidates.filter((candidate, index, all) => !['prizeReroll', 'prizeSwap'].includes(candidate.cardId) && all.findIndex((entry) => entry.cardId === candidate.cardId) === index)
   if (combined.length > 2) variants.push(combined)
   const seen = new Set<string>()
   const unique = variants.filter((variant) => {
@@ -723,6 +728,7 @@ export function decideBotMerchantOffer(player: Player, offeredCardIds: CardId[],
   const cardValue = (cardId: CardId) => cardId === 'legendaryLoot' ? 12
     : ['red', 'doubleBid', 'reverseRank'].includes(cardId) ? 8
       : ['bananaPeel', 'swap', 'prizeReroll'].includes(cardId) ? 6.5
+        : cardId === 'prizeSwap' ? 10
         : cardId === 'fateCoin' ? 5 : 4
   return [...offeredCardIds].sort((left, right) => {
     const score = (cardId: CardId) => {
@@ -763,6 +769,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     if (use.cardId === 'fateCoin') return total + coinsToUnits(1) * (1 + behavior.riskBias * .5)
     if (use.cardId === 'peek') return total + coinsToUnits(.35)
     if (use.cardId === 'prizeReroll') return total + Math.max(coinsToUnits(.25), assetUnits * .35)
+    if (use.cardId === 'prizeSwap') return total + Math.max(coinsToUnits(1.5), assetUnits * .75)
     if (use.cardId === 'legendaryLoot') return total + coinsToUnits((observation.item?.value ?? 0) * (.72 + profile.collect * .28)) + assetUnits * (1 + profile.collect)
     return total
   }, 0)
@@ -1108,7 +1115,7 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     return candidate.minimumBidUnits > candidate.ownLossUnits && (candidate.publicRivalWins > 0 || candidate.proactiveSale)
   }).sort((left, right) => right.score - left.score || left.won.item.id.localeCompare(right.won.item.id))
   const best = candidates[0]
-  if (!best || best.score < 1.2 + Math.max(0, behavior.reserveBias) * .8 - Math.max(0, behavior.assetMarketBias) * .65) return undefined
+  if (!best || best.score < .6 + Math.max(0, behavior.reserveBias) * .8 - Math.max(0, behavior.assetMarketBias) * .65) return undefined
   return { itemId: best.won.item.id, itemRoundIndex: best.won.roundIndex, minimumBidUnits: best.minimumBidUnits }
 }
 

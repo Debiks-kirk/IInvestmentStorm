@@ -185,6 +185,7 @@
 
 - `GameSession.itemDeck` 是实际结算牌堆；新会话同时复制为只读 `prophecyDeck`。改拍令只替换 `itemDeck[roundIndex + 1]`，所有预言家预览（包含 Bot）从 `prophecyDeck` 读取，故不会泄露被修改后的真实下一轮拍品。
 - 使用改拍令时，点击只打开确认弹层；确认后才生成并持久化 `pendingPrizeReroll`（使用者、回合、原下一拍品和从 `ITEM_POOL` 中排除全部已安排拍品后抽得的 6 张候选）。卡牌随确认从私密库存移除并占用本回合两张道具之一；候选区为 2×3，选择后将 `chosenItemId` 锁定并写入实际牌堆，提交回合时才转为 `CardUse`、进入下轮循环回收。
+- v29 将待选状态泛化为 `pendingPrizeReroll.cardId + targetRoundIndex`：改拍令目标是下一轮，传奇调包令目标是本轮。六选一统一在焦点弹窗呈现；调包令选定后仅更换实际 `itemDeck`，非使用者的私密 UI 与 Bot 观察适配器仍读取保存的 `originalItem`，结算时才使用真实拍品并播报道具影响。
 - 此拆分避免刷新重抽、候选重复或使用后取消；迁移对旧会话以现有 `itemDeck` 补建预言牌堆，并把未禁用的新卡安全补入循环牌池。
 
 ## 说客默认数值

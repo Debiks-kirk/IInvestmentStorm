@@ -108,7 +108,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 28,
+    version: 29,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -215,9 +215,13 @@ export function drawPrizeRerollOffers(itemDeck: Item[], count = 6): Item[] {
 }
 
 export function replaceNextPrize(itemDeck: Item[], roundIndex: number, chosenItem: Item): Item[] {
-  const nextIndex = roundIndex + 1
-  if (!itemDeck[nextIndex]) return [...itemDeck]
-  return itemDeck.map((item, index) => index === nextIndex ? { ...chosenItem } : item)
+  return replacePrizeAt(itemDeck, roundIndex + 1, chosenItem)
+}
+
+/** Replaces a single scheduled prize without ever touching the prophet deck. */
+export function replacePrizeAt(itemDeck: Item[], targetRoundIndex: number, chosenItem: Item): Item[] {
+  if (!itemDeck[targetRoundIndex]) return [...itemDeck]
+  return itemDeck.map((item, index) => index === targetRoundIndex ? { ...chosenItem } : item)
 }
 
 export interface CardGrantPreparation {

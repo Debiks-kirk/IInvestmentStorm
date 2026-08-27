@@ -89,7 +89,7 @@ export interface SeatConfig {
   controller: PlayerController
 }
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot' | 'prizeSwap'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker' | 'investor'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
@@ -106,6 +106,7 @@ export interface CardUse {
     originalItemId: string
     offeredItemIds: string[]
     chosenItemId: string
+    targetRoundIndex?: number
   }
 }
 
@@ -479,7 +480,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 28
+  version: 29
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -489,10 +490,12 @@ export interface GameSession {
   prophecyDeck: Item[]
   /** Round-start balances are frozen before any player submits, preventing seat-order leakage. */
   roundStartBalanceUnits: Record<string, number>
-  /** A confirmed prize-reroll draw survives a handoff/refresh until its owner submits. */
+  /** A confirmed prize-changing draw survives a handoff/refresh until its owner submits. */
   pendingPrizeReroll: {
     playerId: string
     roundIndex: number
+    cardId: 'prizeReroll' | 'prizeSwap'
+    targetRoundIndex: number
     originalItem: Item
     offeredItems: Item[]
     chosenItemId?: string

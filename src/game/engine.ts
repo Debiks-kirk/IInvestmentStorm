@@ -399,6 +399,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   for (const { use } of usedCards) {
     if (use.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
     if (use.cardId === 'prizeReroll') cardEffects.push(cardEffect('prizeReroll', '有人改写了下一轮拍品。'))
+    if (use.cardId === 'prizeSwap') cardEffects.push(cardEffect('prizeSwap', '本轮拍品已被秘密替换。'))
   }
 
   const rankingTurns = turns

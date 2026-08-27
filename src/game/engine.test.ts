@@ -4,7 +4,7 @@ import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './e
 import { CARD_DEFINITIONS, cardTargetScope, createCardDeck } from './cards'
 import { ITEM_POOL } from './items'
 import { SYSTEM_PRESETS } from './presets'
-import { createDefaultSettings, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize } from './session'
+import { createDefaultSettings, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, replacePrizeAt } from './session'
 import type { CardUse, Item, Player, RoundTurn } from './types'
 
 const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000', category: 'leisure' }
@@ -130,7 +130,7 @@ describe('道具卡结算', () => {
   it('逐张卡的目标范围明确：香蕉皮和换日均可指定任意其他玩家', () => {
     expect(CARD_DEFINITIONS.map((card) => [card.id, cardTargetScope(card.id)])).toEqual([
       ['red', 'none'], ['peek', 'previous'], ['swap', 'other'], ['redistribute', 'none'], ['doubleBid', 'none'],
-      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'], ['prizeReroll', 'none'], ['legendaryLoot', 'none'],
+      ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'], ['prizeReroll', 'none'], ['legendaryLoot', 'none'], ['prizeSwap', 'none'],
     ])
   })
 
@@ -377,9 +377,25 @@ describe('道具发放', () => {
     expect(replaced[1]).toEqual(scheduled[1])
   })
 
+  it('调包令替换本轮拍品，并在结算影响中留下揭晓记录', () => {
+    const scheduled = ITEM_POOL.slice(0, 6)
+    const offers = drawPrizeRerollOffers(scheduled)
+    const replaced = replacePrizeAt(scheduled, 1, offers[0])
+    expect(replaced[1]).toEqual(offers[0])
+    expect(replaced[0]).toEqual(scheduled[0])
+    const result = settle(players([20, 20, 20]), [
+      turn('p1', 9, null, { cardId: 'prizeSwap', prizeReroll: { originalItemId: scheduled[0].id, offeredItemIds: offers.map((entry) => entry.id), chosenItemId: offers[0].id, targetRoundIndex: 0 } }),
+      turn('p2', 7),
+      turn('p3', 2),
+    ]).result
+    expect(result.cardEffects).toEqual(expect.arrayContaining([{ cardId: 'prizeSwap', description: '本轮拍品已被秘密替换。' }]))
+  })
+
   it('改拍令会进入循环卡池，也可被禁用', () => {
     expect(createCardDeck([])).toContain('prizeReroll')
     expect(createCardDeck(['prizeReroll'])).not.toContain('prizeReroll')
+    expect(createCardDeck([]).filter((cardId) => cardId === 'prizeSwap')).toHaveLength(1)
+    expect(createCardDeck(['prizeSwap'])).not.toContain('prizeSwap')
   })
 
   it('禁用卡不会进入本局循环卡池', () => {

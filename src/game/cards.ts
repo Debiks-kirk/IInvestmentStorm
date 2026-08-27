@@ -44,6 +44,7 @@ export const CARD_DEFINITIONS: CardDefinition[] = [
   { id: 'reflectShield', name: '反弹护盾', symbol: '🛡', description: '自动反弹一次指定效果。', needsTarget: false, rarity: 'rare' },
   { id: 'prizeReroll', name: '改拍令', symbol: '🎴', description: '6 选 1 换下轮拍品。', needsTarget: false, rarity: 'uncommon' },
   { id: 'legendaryLoot', name: '夺宝令', symbol: '♛', description: '夺走本轮最终拍品。', needsTarget: false, rarity: 'legendary' },
+  { id: 'prizeSwap', name: '调包令', symbol: '🃏', description: '6 选 1 秘换本轮拍品。', needsTarget: false, rarity: 'legendary' },
 ]
 
 export function getCardDefinition(cardId: CardId): CardDefinition {
