@@ -332,6 +332,46 @@ describe('Bot 藏品出售与绑票谈判', () => {
     expect(offer === undefined || offer.minimumBidUnits >= coinsToUnits(8)).toBe(true)
   })
 
+  it('会按对手真实套装跳档选择封锁或高价出售，而不是低价送出关键拍品', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const item = { ...session.itemDeck[0], id: 'jump-fourth', category: 'leisure' as const, value: 8 }
+    const memory = emptyBotMemory('major-jump-market')
+    const seller = {
+      ...session.players[0],
+      controller: { kind: 'bot' as const, profileId: 'aggressive' as const, difficulty: 'expert' as const },
+      items: [{ item, roundIndex: 0 }],
+      botMemory: { ...memory, behavior: { ...memory.behavior, assetMarketBias: 1, antiLeaderBias: .5 } },
+    }
+    const observation = buildBotObservation({ ...session, players: [seller, ...session.players.slice(1)] }, seller.id)
+    observation.publicRounds = Array.from({ length: 3 }, () => ({
+      winnerId: session.players[1].id, itemWinnerId: session.players[1].id, totalBidUnits: 20, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'leisure' as const, rankings: [], publicDeltaByPlayerId: {},
+    }))
+    const offers = Array.from({ length: 40 }, (_, seed) => decideBotAssetAuctionOffer({ player: seller, observation, roundIndex: 3, totalRounds: 8, sessionSeed: `major-jump-market-${seed}` }))
+    const priced = offers.filter((offer): offer is NonNullable<typeof offer> => Boolean(offer))
+    expect(priced.length).toBeGreaterThan(0)
+    // 生活娱乐从 3 件到 4 件会多出 23 金币套装收益；市场型出售时不能按物品 8 金币低价放出。
+    expect(Math.min(...priced.map((offer) => offer.minimumBidUnits))).toBeGreaterThanOrEqual(coinsToUnits(15))
+    expect(offers.some((offer) => !offer)).toBe(true)
+  })
+
+  it('高干扰 Bot 会把公开对手的大额套装跳档纳入竞购报价，但仍受总预算约束', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const item = { ...session.itemDeck[0], id: 'block-fourth', category: 'property' as const, value: 9 }
+    const memory = emptyBotMemory('block-fourth')
+    const player = {
+      ...session.players[0],
+      controller: { kind: 'bot' as const, profileId: 'blocker' as const, difficulty: 'expert' as const },
+      botMemory: { ...memory, behavior: { ...memory.behavior, antiLeaderBias: 1 } },
+    }
+    const observation = buildBotObservation({ ...session, players: [player, ...session.players.slice(1)] }, player.id)
+    observation.publicRounds = Array.from({ length: 3 }, () => ({ winnerId: session.players[1].id, itemWinnerId: session.players[1].id, totalBidUnits: 20, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'property' as const, rankings: [], publicDeltaByPlayerId: {} }))
+    const lot = { id: 'blocker-lot', sellerId: session.players[2].id, item, itemRoundIndex: 1, minimumBidUnits: coinsToUnits(2), roundIndex: 3 }
+    const bids = Array.from({ length: 48 }, (_, seed) => decideBotAssetAuctionBids({ player, lots: [lot], budgetUnits: coinsToUnits(22), roundIndex: 3, totalRounds: 8, sessionSeed: `block-fourth-${seed}`, observation })[0].bidUnits)
+    expect(Math.max(...bids)).toBeGreaterThanOrEqual(coinsToUnits(12))
+    expect(Math.max(...bids)).toBeLessThanOrEqual(coinsToUnits(22))
+    expect(new Set(bids).size).toBeGreaterThan(5)
+  })
+
   it('绑票谈判会根据拍品加成与赎金压力决定保住或放弃藏品', () => {
     const session = createSession(seats(), createDefaultSettings(3))
     const item = { ...session.itemDeck[0], id: 'kidnap-luxury', category: 'luxury' as const, value: 12 }

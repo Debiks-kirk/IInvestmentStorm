@@ -975,9 +975,38 @@ export function decideBotMerchantBid(player: Player, cardId: CardId): { bidUnits
   return { bidUnits: selected.bidUnits, mode: 'cards', reason: '按道具协同性、现金保留与报价指纹，在半金币报价中选择了不易撞价的竞购方案。' }
 }
 
+interface PublicCategoryPressure {
+  playerId: string
+  count: number
+  /** Complete public end-game value if this player receives the item. */
+  marginalUnits: number
+  /** The set-tier component, excluding the item's own small value bonus. */
+  setJumpUnits: number
+  cashHighUnits: number
+}
+
+/** Uses only public collections and the Bot's legal balance estimates. */
+function publicCategoryPressures(observation: Pick<BotObservation, 'publicRounds' | 'balanceEstimates'> | undefined, excludedPlayerId: string, item: Item): PublicCategoryPressure[] {
+  if (!observation) return []
+  const counts = publicCategoryCounts(observation.publicRounds)
+  return observation.balanceEstimates
+    .filter((estimate) => estimate.playerId !== excludedPlayerId)
+    .map((estimate) => {
+      const count = counts.get(estimate.playerId)?.get(item.category) ?? 0
+      const setJumpCoins = Math.max(0, fixedAssetCoins(item.category, count + 1) - fixedAssetCoins(item.category, count))
+      return {
+        playerId: estimate.playerId,
+        count,
+        setJumpUnits: coinsToUnits(setJumpCoins),
+        marginalUnits: coinsToUnits(setJumpCoins + itemFixedAssetCoins(item.value)),
+        cashHighUnits: estimate.highUnits,
+      }
+    })
+}
+
 /** Chooses asset-auction quotes as a budgeted collection decision, not a blind
- * "minimum price plus random" bid. A high reserve price is ignored unless the
- * item can realistically improve this bot's end-game collection. */
+ * "minimum price plus random" bid. A set jump is real end-game wealth; some
+ * Bots additionally pay to keep a dangerous rival from obtaining it. */
 export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed, observation }: {
   player: Player
   lots: AssetAuctionLot[]
@@ -1014,13 +1043,28 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       // Fixed assets settle only at game end, but a real set jump is still close
       // to cash in the final standings. Earlier versions discounted it so hard
       // that Bots routinely donated 12–30 coin jumps for a token reserve.
-      const collectionWeight = .78 + profile.collect * .3 + strategy.collection / 550 + Math.max(0, behavior.assetFocusBias) * .18 + (collectorMatch ? .25 : 0)
-      const collectionPremium = assetGain * collectionWeight + setJumpUnits * (.28 + profile.collect * .2) + coinsToUnits(matchingItems * (.55 + profile.collect * .35) + (collectorMatch ? 1.5 : 0))
+      const rivalPressures = publicCategoryPressures(observation, player.id, lot.item)
+      const strongestRivalPressure = [...rivalPressures].sort((left, right) => right.marginalUnits - left.marginalUnits || right.cashHighUnits - left.cashHighUnits)[0]
+      const rivalThreatUnits = strongestRivalPressure?.marginalUnits ?? 0
+      const rivalCashCeiling = strongestRivalPressure?.cashHighUnits ?? 0
+      const meaningfulThreat = rivalThreatUnits >= coinsToUnits(10) && (rivalCashCeiling === 0 || rivalCashCeiling >= lot.minimumBidUnits)
+      const denialChance = clamp(.06 + strategy.interference / 260 + profile.revenge * .2 + (controller?.profileId === 'blocker' ? .24 : 0) + Math.max(0, behavior.antiLeaderBias) * .16 + (meaningfulThreat ? .08 : 0), .05, .66)
+      const contestsRival = meaningfulThreat && unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${lot.id}:deny-auction`) < denialChance
+      // assetGain is the full fixed-asset change. Route and denial are separate
+      // premiums so a large public set jump remains worth fighting for.
+      const collectionWeight = .92 + profile.collect * .35 + strategy.collection / 620 + Math.max(0, behavior.assetFocusBias) * .18 + (collectorMatch ? .28 : 0)
+      const futureRouteUnits = roundIndex < totalRounds - 2 && (matchingItems > 0 || collectorMatch)
+        ? coinsToUnits(.8 + matchingItems * (.55 + profile.collect * .24) + (collectorMatch ? 1.5 : 0))
+        : 0
+      const denialValueUnits = contestsRival
+        ? Math.min(rivalThreatUnits, rivalCashCeiling > 0 ? Math.round(rivalCashCeiling * .82) : rivalThreatUnits) * (.3 + profile.revenge * .26 + strategy.interference / 450 + Math.max(0, behavior.antiLeaderBias) * .12)
+        : 0
+      const collectionPremium = assetGain * collectionWeight + setJumpUnits * (.1 + profile.collect * .14) + futureRouteUnits + Math.round(denialValueUnits)
       const endGameWeight = roundIndex >= totalRounds - 2 ? 1.12 : 1
       const fairValue = Math.round((baseValue + collectionPremium + coinsToUnits(marketHeat * .45)) * endGameWeight)
       const maxBid = Math.max(0, Math.round(fairValue * (0.86 + profile.risk * .12 + Math.max(0, behavior.riskBias) * .06)))
       const moonshotPotential = matchingItems * 1.15 + (collectorMatch ? 2.5 : 0) + marketHeat + assetGain / coinsToUnits(8) + lot.item.value / 18
-      return { lot, assetGain, matchingItems, marketHeat, fairValue, maxBid, moonshotPotential, urgency: fairValue - lot.minimumBidUnits }
+      return { lot, assetGain, matchingItems, marketHeat, fairValue, maxBid, moonshotPotential, contestsRival, rivalThreatUnits, urgency: fairValue - lot.minimumBidUnits }
     })
     .sort((left, right) => right.urgency - left.urgency || right.assetGain - left.assetGain || left.lot.id.localeCompare(right.lot.id))
 
@@ -1051,7 +1095,8 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
     const room = Math.min(remaining, maxBid) - lot.minimumBidUnits
     const fingerprint = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${lot.id}:asset-auction`)
     const categoryPush = matchingItems > 0 ? .22 : 0
-    const desired = lot.minimumBidUnits + Math.max(0, Math.round(room * (moonshot ? .72 + fingerprint * .22 : .18 + categoryPush + fingerprint * .34)))
+    const denialPush = candidate.contestsRival ? .14 + Math.min(.16, candidate.rivalThreatUnits / coinsToUnits(100)) : 0
+    const desired = lot.minimumBidUnits + Math.max(0, Math.round(room * (moonshot ? .72 + fingerprint * .22 : .18 + categoryPush + denialPush + fingerprint * .34)))
     const bidUnits = Math.max(lot.minimumBidUnits, Math.min(remaining, maxBid, desired))
     // A tiny asymmetry helps Bots avoid mechanically tying exactly at reserve.
     const offset = (behavior.quoteFingerprint + hash(lot.id)) % 3 === 0 && bidUnits < Math.min(remaining, maxBid) ? 1 : 0
@@ -1107,7 +1152,6 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
   const strategy = player.botMemory?.strategy ?? defaultBotStrategy('adaptive')
   const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
   const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
-  const visibleCollections = publicCategoryCounts(observation.publicRounds)
   const reserveFloor = Math.round(player.balanceUnits * (.12 + Math.max(0, behavior.reserveBias) * .08))
   const sellMood = clamp(.08 + strategy.market / 320 + Math.max(0, behavior.assetMarketBias) * .24 + profile.risk * .05, .08, .48)
   const candidates = player.items.map((won, index) => {
@@ -1118,15 +1162,12 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     const publicRivalWins = observation.publicRounds.filter((round) => round.itemCategory === won.item.category && (round.itemWinnerId ?? round.winnerId) && (round.itemWinnerId ?? round.winnerId) !== player.id).length
     const categoryHeat = observation.publicRounds.filter((round) => round.itemCategory === won.item.category).length
     const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
-    const rivalBreakpoints = observation.opponents.map((opponent) => {
-      const count = visibleCollections.get(opponent.id)?.get(won.item.category) ?? 0
-      const setGainCoins = Math.max(0, fixedAssetCoins(won.item.category, count + 1) - fixedAssetCoins(won.item.category, count))
-      return { playerId: opponent.id, count, gainUnits: coinsToUnits(setGainCoins + itemFixedAssetCoins(won.item.value)) }
-    }).filter((entry) => entry.count > 0)
-    const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.gainUnits))
-    const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.gainUnits >= coinsToUnits(10)).length
-    const strongestRival = [...rivalBreakpoints].sort((left, right) => right.gainUnits - left.gainUnits || left.playerId.localeCompare(right.playerId))[0]
-    const strongestRivalCash = strongestRival ? observation.balanceEstimates.find((estimate) => estimate.playerId === strongestRival.playerId) : undefined
+    const rivalBreakpoints = publicCategoryPressures(observation, player.id, won.item)
+      .filter((entry) => entry.count > 0 || entry.setJumpUnits > 0)
+    const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.marginalUnits))
+    const largestRivalSetJumpUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.setJumpUnits))
+    const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.setJumpUnits >= coinsToUnits(10)).length
+    const strongestRival = [...rivalBreakpoints].sort((left, right) => right.marginalUnits - left.marginalUnits || right.cashHighUnits - left.cashHighUnits)[0]
     const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + breakpointBuyerCount * 2.4 + Math.max(0, likelyBuyerCount - 1) * .35
     const denyWeight = .45 + profile.revenge * .34 + (controller?.profileId === 'blocker' ? .3 : 0) + Math.max(0, behavior.antiLeaderBias) * .16
     const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + categoryHeat * .26 + likelyBuyerCount * .25
@@ -1134,25 +1175,31 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     const intrinsicFloor = coinsToUnits(Math.max(2, won.item.value * .55))
     const baseReserve = Math.max(intrinsicFloor, ownLossUnits + coinsToUnits(Math.max(1, .5 + won.item.value * .18)))
     const premium = coinsToUnits(Math.max(0, demandWeight * (.7 + Math.max(0, behavior.edgeBias) * .35) + Math.max(0, behavior.assetMarketBias) * .35))
-    const protectionWeight = .62 + profile.revenge * .16 + profile.collect * .12 + (controller?.profileId === 'blocker' ? .12 : 0) + Math.max(0, behavior.antiLeaderBias) * .1
+    const protectionWeight = .72 + profile.revenge * .18 + profile.collect * .14 + strategy.interference / 520 + (controller?.profileId === 'blocker' ? .16 : 0) + Math.max(0, behavior.antiLeaderBias) * .12
     const antiGiftFloor = largestRivalGainUnits > 0 ? Math.round(largestRivalGainUnits * protectionWeight) : 0
-    const cashLimitedRivalGain = strongestRivalCash ? Math.min(largestRivalGainUnits, Math.max(intrinsicFloor, strongestRivalCash.highUnits * .86)) : largestRivalGainUnits
-    const marketCapture = .48 + strategy.market / 240 + profile.collect * .12 + Math.max(0, behavior.assetMarketBias) * .1
-    const setDemandFloor = cashLimitedRivalGain > 0 ? Math.round(cashLimitedRivalGain * clamp(marketCapture, .48, .82)) : 0
+    const cashLimitedRivalGain = strongestRival ? Math.min(largestRivalGainUnits, Math.max(intrinsicFloor, strongestRival.cashHighUnits * .94)) : largestRivalGainUnits
+    // A market-minded seller can ask for almost all of a rival's visible set
+    // payoff; a distressed seller is allowed to take a smaller, safe exit.
+    const marketCapture = .64 + strategy.market / 240 + profile.collect * .14 + Math.max(0, behavior.assetMarketBias) * .15 + (controller?.profileId === 'blocker' ? .08 : 0)
+    const setDemandFloor = cashLimitedRivalGain > 0 ? Math.round(cashLimitedRivalGain * clamp(marketCapture, .64, 1.08)) : 0
     const hasComebackTools = player.cardInventory.length >= 2 || ['merchant', 'thief', 'reverser', 'nightwalker', 'investor'].includes(player.identity?.id ?? '')
     const distressed = player.balanceUnits <= coinsToUnits(3.5) && !hasComebackTools
     const distressDiscount = distressed ? .82 + unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:distress`) * .08 : 1
     const reserveNoise = coinsToUnits(normalRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:reserve-noise`) * .32)
     const minimumBidUnits = Math.max(intrinsicFloor, Math.ceil(Math.max(baseReserve + premium, antiGiftFloor, setDemandFloor) * distressDiscount / 2) * 2 + reserveNoise)
+    const majorRivalJump = largestRivalSetJumpUnits >= coinsToUnits(16)
+    const holdChance = clamp(.24 + profile.collect * .2 + profile.revenge * .18 + strategy.interference / 420 + (controller?.profileId === 'blocker' ? .2 : 0) + Math.max(0, behavior.antiLeaderBias) * .14 - Math.max(0, behavior.assetMarketBias) * .16 - (distressed ? .34 : 0), .08, .88)
+    const strategicHold = majorRivalJump && !distressed && unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:asset-hold`) < holdChance
     const timing = roundIndex >= totalRounds - 2 ? -.8 : .35
     const proactiveSale = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:${won.roundIndex}:seller-mood`) < sellMood
     const variance = normalRandom(`${sessionSeed}:${player.id}:${won.item.id}:${won.roundIndex}:seller`) * 1.05
-    const score = demandWeight * 1.35 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance + (proactiveSale ? 1.15 + Math.max(0, behavior.assetMarketBias) * 1.35 : 0) - selfNeed * .18 - rivalSetPressure * denyWeight - largestRivalGainUnits * (.14 + denyWeight * .12)
-    return { won, ownLossUnits, publicRivalWins, largestRivalGainUnits, breakpointBuyerCount, proactiveSale, minimumBidUnits: Math.max(2, Math.ceil(minimumBidUnits / 2) * 2), score }
+    const score = demandWeight * 1.35 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance + (proactiveSale ? 1.15 + Math.max(0, behavior.assetMarketBias) * 1.35 : 0) - selfNeed * .18 - rivalSetPressure * denyWeight - largestRivalGainUnits * (.14 + denyWeight * .12) - (strategicHold ? coinsToUnits(9) : 0)
+    return { won, ownLossUnits, publicRivalWins, largestRivalGainUnits, largestRivalSetJumpUnits, breakpointBuyerCount, proactiveSale, strategicHold, minimumBidUnits: Math.max(2, Math.ceil(minimumBidUnits / 2) * 2), score }
   }).filter((candidate) => {
     // A collector keeps its chosen category unless an explicit future rule says
     // otherwise; selling it cheaply is almost always a strategic own goal.
     if (collectorCategory === candidate.won.item.category) return false
+    if (candidate.strategicHold) return false
     // If a public rival is one purchase from a large set jump, selling is only
     // allowed when the reserve captures most of that gain. Otherwise the bot
     // keeps the item and denies the easy comeback route.
