@@ -492,14 +492,17 @@ body:has(.modal-backdrop), body:has(.advanced-backdrop), body:has(.kidnap-negoti
 .custom-bot-priority > header { display: flex; padding: 14px 16px; border-bottom: 1px solid rgba(126,115,93,.13); }
 .custom-bot-priority > header strong, .custom-bot-priority > header small { display: block; }
 .custom-bot-priority > header small { margin-top: 3px; color: var(--muted); font-size: 12px; }
-.custom-bot-priority ol { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 0; padding: 12px; list-style: none; }
-.custom-bot-priority li { display: grid; grid-template-columns: 24px 28px minmax(0,1fr) auto; align-items: center; gap: 8px; min-width: 0; padding: 9px 10px; border: 1px solid rgba(126,115,93,.13); border-radius: 11px; background: rgba(255,253,248,.82); }
+.custom-bot-priority ol { display: grid; gap: 8px; margin: 0; padding: 12px; list-style: none; }
+.custom-bot-priority li { display: grid; grid-template-columns: 28px 34px minmax(0,1fr) 40px; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 9px 12px; border: 1px solid rgba(126,115,93,.13); border-radius: 12px; background: rgba(255,253,248,.82); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .custom-bot-priority li > b { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 999px; color: #fffaf4; background: #8a7857; font-size: 11px; }
 .custom-bot-priority li > span { font-size: 20px; line-height: 1; }
-.custom-bot-priority li > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.custom-bot-priority li > div { display: flex; gap: 3px; }
+.custom-bot-priority li > strong { min-width: 0; overflow: visible; font-size: 15px; }
+.custom-bot-priority li.is-dragging { opacity: .48; transform: scale(.985); }
+.custom-bot-priority li.is-drop-target { border-color: rgba(159,81,74,.72); box-shadow: 0 -3px 0 rgba(159,81,74,.68); }
 .custom-bot-priority button { display: grid; width: 27px; height: 27px; place-items: center; padding: 0; border: 1px solid rgba(126,115,93,.24); border-radius: 8px; color: var(--ink); background: #fffdf8; cursor: pointer; font-weight: 800; }
 .custom-bot-priority button:disabled { opacity: .35; cursor: default; }
+.custom-bot-priority .priority-drag-handle { justify-self: end; width: 36px; height: 36px; border-radius: 10px; color: #7c6c4f; font-size: 21px; letter-spacing: -4px; touch-action: none; cursor: grab; user-select: none; }
+.custom-bot-priority .priority-drag-handle:active { cursor: grabbing; color: var(--red); background: rgba(159,81,74,.1); }
 .custom-bot-layout .empty-state { display: grid; place-content: center; min-height: 310px; text-align: center; }
 
 @media (max-width: 660px) {
@@ -511,7 +514,9 @@ body:has(.modal-backdrop), body:has(.advanced-backdrop), body:has(.kidnap-negoti
   .custom-bot-list > button { flex: 0 0 150px; }
   .custom-bot-layout > main { overflow: visible; padding: 17px 16px; }
   .custom-bot-name-row { flex-wrap: wrap; }
-  .custom-bot-sliders, .custom-bot-priority ol { grid-template-columns: 1fr; }
+  .custom-bot-sliders { grid-template-columns: 1fr; }
+  .custom-bot-priority li { grid-template-columns: 28px 34px minmax(0,1fr) 42px; min-height: 58px; padding: 10px 12px; }
+  .custom-bot-priority li > strong { font-size: 16px; }
 }
 
 /* 调包令：结算前的短促公共揭晓。粒子均为少量 CSS 元素，不使用 canvas。 */
