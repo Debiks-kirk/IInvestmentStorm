@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, estimateBalances } from './bots'
+import { coinsToUnits } from './engine'
 import { createDefaultSettings, createSession } from './session'
 import { createGamePreset } from './presets'
 import type { SeatConfig } from './types'
@@ -318,6 +319,17 @@ describe('Bot 藏品出售与绑票谈判', () => {
 
     const collector = { ...player, identity: { id: 'collector' as const, collectorCategory: 'leisure' as const, thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null } }
     expect(decideBotAssetAuctionOffer({ player: collector, observation, roundIndex: 2, totalRounds: 6, sessionSeed: 'seller-bot' })).toBeUndefined()
+  })
+
+  it('不会低价挂牌给公开可见、正好能补齐套装的对手', () => {
+    const session = createSession(seats(), createDefaultSettings(3))
+    const player = { ...session.players[0], controller: { kind: 'bot' as const, profileId: 'steady' as const, difficulty: 'expert' as const }, botMemory: emptyBotMemory('deny-set-gift') }
+    const item = { ...session.itemDeck[0], id: 'deny-leisure', category: 'leisure' as const, value: 5 }
+    player.items = [{ item, roundIndex: 0 }]
+    const observation = buildBotObservation({ ...session, players: [player, ...session.players.slice(1)] }, player.id)
+    observation.publicRounds = [{ winnerId: session.players[1].id, itemWinnerId: session.players[1].id, totalBidUnits: 18, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'leisure', rankings: [], publicDeltaByPlayerId: {} }]
+    const offer = decideBotAssetAuctionOffer({ player, observation, roundIndex: 2, totalRounds: 6, sessionSeed: 'deny-set-gift' })
+    expect(offer === undefined || offer.minimumBidUnits >= coinsToUnits(8)).toBe(true)
   })
 
   it('绑票谈判会根据拍品加成与赎金压力决定保住或放弃藏品', () => {

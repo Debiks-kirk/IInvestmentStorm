@@ -1,4 +1,4 @@
-import { calculateFixedAssets } from './assets'
+import { calculateFixedAssets, fixedAssetCoins, itemFixedAssetCoins } from './assets'
 import { cardTargetScope, getCardDefinition } from './cards'
 import { coinsToUnits } from './engine'
 import { getIdentityDefinition } from './identities'
@@ -151,12 +151,16 @@ function choose<T>(values: T[], seed: string): T | undefined {
 
 export interface PublicRoundObservation {
   winnerId: string | null
+  /** Final item owner after public transfers; old records fall back to winnerId. */
+  itemWinnerId?: string | null
   totalBidUnits: number
   minWinningBidUnits: number | null
   tiedPlayerIds: string[]
   itemCategory: AssetCategory
   rankings: Array<{ playerId: string; place: number; rewardUnits: number }>
   publicDeltaByPlayerId: Record<string, number>
+  /** Public asset-auction transfers, which keep collection estimates up to date. */
+  assetAuctionResults?: Array<{ sellerId: string; winnerId: string | null; itemCategory: AssetCategory }>
 }
 
 export interface CashEstimate {
@@ -261,7 +265,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
     humanOpponentIds: session.players.filter((entry) => entry.id !== playerId && entry.controller?.kind !== 'bot').map((entry) => entry.id),
     previousSubmitterIds: prior,
-    publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])) })),
+    publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, itemWinnerId: result.itemWinnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])), assetAuctionResults: result.assetAuctionResults.map((entry) => ({ sellerId: entry.sellerId, winnerId: entry.winnerId, itemCategory: entry.item.category })) })),
     balanceEstimates: [],
     cardDeckSize: session.cardDeck.length,
     activeTask: session.identityContracts.find((contract) => contract.targetPlayerId === playerId && contract.status === 'pending' && contract.executeRoundIndex === session.roundIndex) ? (() => { const contract = session.identityContracts.find((entry) => entry.targetPlayerId === playerId && entry.status === 'pending' && entry.executeRoundIndex === session.roundIndex)!; return { type: contract.taskType, comparisonPlayerId: contract.comparisonPlayerId } })() : undefined,
@@ -963,8 +967,13 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       const collectorMatch = collectorCategory === lot.item.category
       const marketHeat = categoryHeat(lot.item.category)
       const baseValue = coinsToUnits(.9 + lot.item.value * .36)
-      const collectionWeight = .42 + profile.collect * .24 + strategy.collection / 700 + Math.max(0, behavior.assetFocusBias) * .16 + (collectorMatch ? .22 : 0)
-      const collectionPremium = assetGain * collectionWeight + coinsToUnits(matchingItems * (.55 + profile.collect * .35) + (collectorMatch ? 1.5 : 0))
+      const currentSetCount = matchingItems + (collectorMatch ? 1 : 0)
+      const setJumpUnits = coinsToUnits(Math.max(0, fixedAssetCoins(lot.item.category, currentSetCount + 1) - fixedAssetCoins(lot.item.category, currentSetCount)))
+      // Fixed assets settle only at game end, but a real set jump is still close
+      // to cash in the final standings. Earlier versions discounted it so hard
+      // that Bots routinely donated 12–30 coin jumps for a token reserve.
+      const collectionWeight = .78 + profile.collect * .3 + strategy.collection / 550 + Math.max(0, behavior.assetFocusBias) * .18 + (collectorMatch ? .25 : 0)
+      const collectionPremium = assetGain * collectionWeight + setJumpUnits * (.28 + profile.collect * .2) + coinsToUnits(matchingItems * (.55 + profile.collect * .35) + (collectorMatch ? 1.5 : 0))
       const endGameWeight = roundIndex >= totalRounds - 2 ? 1.12 : 1
       const fairValue = Math.round((baseValue + collectionPremium + coinsToUnits(marketHeat * .45)) * endGameWeight)
       const maxBid = Math.max(0, Math.round(fairValue * (0.86 + profile.risk * .12 + Math.max(0, behavior.riskBias) * .06)))
@@ -1012,6 +1021,31 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
 }
 
 /**
+ * Rebuilds only the collection facts that every player can see in completed
+ * round recaps. This deliberately excludes inventories, identities and hidden
+ * transfers, while still letting a seller notice a rival sitting one item away
+ * from a public set-bonus breakpoint.
+ */
+function publicCategoryCounts(rounds: PublicRoundObservation[]): Map<string, Map<AssetCategory, number>> {
+  const counts = new Map<string, Map<AssetCategory, number>>()
+  const adjust = (playerId: string, category: AssetCategory, delta: number) => {
+    const byCategory = counts.get(playerId) ?? new Map<AssetCategory, number>()
+    byCategory.set(category, Math.max(0, (byCategory.get(category) ?? 0) + delta))
+    counts.set(playerId, byCategory)
+  }
+  for (const round of rounds) {
+    for (const transfer of round.assetAuctionResults ?? []) {
+      if (!transfer.winnerId) continue
+      adjust(transfer.sellerId, transfer.itemCategory, -1)
+      adjust(transfer.winnerId, transfer.itemCategory, 1)
+    }
+    const ownerId = round.itemWinnerId ?? round.winnerId
+    if (ownerId) adjust(ownerId, round.itemCategory, 1)
+  }
+  return counts
+}
+
+/**
  * A seller Bot only lists an item when the expected reserve can compensate for
  * its own collection loss and does not hand a large, cheap set bonus to a
  * visible rival. Category-win history is public, so this stays within the
@@ -1031,6 +1065,7 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
   const strategy = player.botMemory?.strategy ?? defaultBotStrategy('adaptive')
   const collectorCategory = player.identity?.id === 'collector' ? player.identity.collectorCategory : undefined
   const beforeAssets = calculateFixedAssets(player.items, collectorCategory).reduce((total, entry) => total + entry.units, 0)
+  const visibleCollections = publicCategoryCounts(observation.publicRounds)
   const reserveFloor = Math.round(player.balanceUnits * (.12 + Math.max(0, behavior.reserveBias) * .08))
   const sellMood = clamp(.08 + strategy.market / 320 + Math.max(0, behavior.assetMarketBias) * .24 + profile.risk * .05, .08, .48)
   const candidates = player.items.map((won, index) => {
@@ -1038,25 +1073,38 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     const afterAssets = calculateFixedAssets(remainingItems, collectorCategory).reduce((total, entry) => total + entry.units, 0)
     const ownLossUnits = Math.max(0, beforeAssets - afterAssets)
     const ownCategoryCount = player.items.filter((entry) => entry.item.category === won.item.category).length
-    const publicRivalWins = observation.publicRounds.filter((round) => round.itemCategory === won.item.category && round.winnerId && round.winnerId !== player.id).length
+    const publicRivalWins = observation.publicRounds.filter((round) => round.itemCategory === won.item.category && (round.itemWinnerId ?? round.winnerId) && (round.itemWinnerId ?? round.winnerId) !== player.id).length
     const categoryHeat = observation.publicRounds.filter((round) => round.itemCategory === won.item.category).length
     const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
-    const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + Math.max(0, likelyBuyerCount - 1) * .35
+    const rivalBreakpoints = observation.opponents.map((opponent) => {
+      const count = visibleCollections.get(opponent.id)?.get(won.item.category) ?? 0
+      const setGainCoins = Math.max(0, fixedAssetCoins(won.item.category, count + 1) - fixedAssetCoins(won.item.category, count))
+      return { playerId: opponent.id, count, gainUnits: coinsToUnits(setGainCoins + itemFixedAssetCoins(won.item.value)) }
+    }).filter((entry) => entry.count > 0)
+    const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => entry.gainUnits))
+    const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.gainUnits >= coinsToUnits(10)).length
+    const rivalSetPressure = publicRivalWins * (1.1 + profile.collect * .35) + breakpointBuyerCount * 2.4 + Math.max(0, likelyBuyerCount - 1) * .35
     const denyWeight = .45 + profile.revenge * .34 + (controller?.profileId === 'blocker' ? .3 : 0) + Math.max(0, behavior.antiLeaderBias) * .16
     const demandWeight = publicRivalWins * (1.2 + profile.risk * .25) + categoryHeat * .26 + likelyBuyerCount * .25
     const selfNeed = ownLossUnits + coinsToUnits(ownCategoryCount * (.35 + profile.collect * .24)) + (collectorCategory === won.item.category ? coinsToUnits(8) : 0)
     const baseReserve = ownLossUnits + coinsToUnits(Math.max(1, .5 + won.item.value * .18))
     const premium = coinsToUnits(Math.max(0, demandWeight * (.7 + Math.max(0, behavior.edgeBias) * .35) + Math.max(0, behavior.assetMarketBias) * .35))
-    const minimumBidUnits = Math.max(2, Math.ceil((baseReserve + premium) / 2) * 2)
+    const protectionWeight = .62 + profile.revenge * .16 + profile.collect * .12 + (controller?.profileId === 'blocker' ? .12 : 0) + Math.max(0, behavior.antiLeaderBias) * .1
+    const antiGiftFloor = largestRivalGainUnits > 0 ? Math.round(largestRivalGainUnits * protectionWeight) : 0
+    const minimumBidUnits = Math.max(2, Math.ceil(Math.max(baseReserve + premium, antiGiftFloor) / 2) * 2)
     const timing = roundIndex >= totalRounds - 2 ? -.8 : .35
     const proactiveSale = unitRandom(`${sessionSeed}:${player.id}:${roundIndex}:${won.item.id}:${won.roundIndex}:seller-mood`) < sellMood
     const variance = normalRandom(`${sessionSeed}:${player.id}:${won.item.id}:${won.roundIndex}:seller`) * 1.05
-    const score = demandWeight * 2.2 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance + (proactiveSale ? 1.15 + Math.max(0, behavior.assetMarketBias) * 1.35 : 0) - selfNeed * .18 - rivalSetPressure * denyWeight
-    return { won, ownLossUnits, publicRivalWins, proactiveSale, minimumBidUnits, score }
+    const score = demandWeight * 1.35 + (minimumBidUnits - ownLossUnits) * .34 + timing + variance + (proactiveSale ? 1.15 + Math.max(0, behavior.assetMarketBias) * 1.35 : 0) - selfNeed * .18 - rivalSetPressure * denyWeight - largestRivalGainUnits * (.14 + denyWeight * .12)
+    return { won, ownLossUnits, publicRivalWins, largestRivalGainUnits, breakpointBuyerCount, proactiveSale, minimumBidUnits, score }
   }).filter((candidate) => {
     // A collector keeps its chosen category unless an explicit future rule says
     // otherwise; selling it cheaply is almost always a strategic own goal.
     if (collectorCategory === candidate.won.item.category) return false
+    // If a public rival is one purchase from a large set jump, selling is only
+    // allowed when the reserve captures most of that gain. Otherwise the bot
+    // keeps the item and denies the easy comeback route.
+    if (candidate.largestRivalGainUnits >= coinsToUnits(10) && candidate.minimumBidUnits < Math.round(candidate.largestRivalGainUnits * .58)) return false
     return candidate.minimumBidUnits > candidate.ownLossUnits && (candidate.publicRivalWins > 0 || candidate.proactiveSale)
   }).sort((left, right) => right.score - left.score || left.won.item.id.localeCompare(right.won.item.id))
   const best = candidates[0]
