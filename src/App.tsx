@@ -172,9 +172,8 @@ function CollectionBook({ onBack }: { onBack: () => void }) {
   return <AppShell><header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回主页">←</button><Brand /><span /></header><section className="collection-page"><div className="collection-heading"><div><h1>游戏图鉴</h1></div></div><div className="collection-tabs" role="tablist" aria-label="图鉴分类"><button role="tab" aria-selected={tab === 'identities'} className={cx(tab === 'identities' && 'is-active')} onClick={() => setTab('identities')}>身份 <small>10</small></button><button role="tab" aria-selected={tab === 'cards'} className={cx(tab === 'cards' && 'is-active')} onClick={() => setTab('cards')}>道具 <small>13</small></button><button role="tab" aria-selected={tab === 'items'} className={cx(tab === 'items' && 'is-active')} onClick={() => setTab('items')}>拍品 <small>100</small></button></div>{tab === 'identities' && <div className="collection-grid collection-grid--identities" role="tabpanel">{IDENTITY_DEFINITIONS.map((identity) => <article className="collection-card collection-card--identity" key={identity.id}><span>{identity.symbol}</span><div><small>{identitySkillMode(identity.id) === 'active' ? '主动技能' : '被动技能'}</small><h2>{identity.name}</h2><p>{COLLECTION_IDENTITY_TEXT[identity.id]}</p></div></article>)}</div>}{tab === 'cards' && <div className="collection-grid collection-grid--cards" role="tabpanel">{CARD_DEFINITIONS.map((card) => <article className={`collection-card collection-card--card collection-card--${card.rarity}`} key={card.id}><span>{card.symbol}</span><div><small><CardRarityTag cardId={card.id} /></small><h2>{card.name}</h2><p>{COLLECTION_CARD_TEXT[card.id]}</p></div></article>)}</div>}{tab === 'items' && <div className="collection-items" role="tabpanel">{ASSET_CATEGORY_CONFIGS.map((category) => { const items = [...ITEM_POOL].filter((item) => item.category === category.category).sort((left, right) => left.value - right.value || left.name.localeCompare(right.name, 'zh-CN')); return <section className="collection-item-group" key={category.category}><header><div><small>{category.name} · 由低到高</small><h2>{items.length} 件拍品</h2><div className="collection-bonus-table" aria-label={`${category.name} 套装加成`}><span><small>2件</small><b>+{category.tiers[0]}</b></span><span><small>3件</small><b>+{category.tiers[1]}</b></span><span><small>4件</small><b>+{category.tiers[2]}</b></span><span><small>5件</small><b>+{category.tiers[3]}</b></span><span><small>6件+</small><b>+{category.additionalUnit}</b></span></div></div><span>{category.symbol}</span></header><div>{items.map((item) => <article key={item.id} style={{ '--item-tone': item.tone } as React.CSSProperties}><span>{item.emoji}</span><strong>{item.name}</strong><small>V{item.value}</small></article>)}</div></section> })}</div>}</section></AppShell>
 }
 
-function Home({ saved, onQuickStart, onSetup, onContinue, onRules, onHistory, onCollection, onDelete }: {
+function Home({ saved, onSetup, onContinue, onRules, onHistory, onCollection, onDelete }: {
   saved: GameSession | null
-  onQuickStart: () => void
   onSetup: () => void
   onContinue: () => void
   onRules: () => void
@@ -194,7 +193,6 @@ function Home({ saved, onQuickStart, onSetup, onContinue, onRules, onHistory, on
           <div className="home-actions">
             {saved && <button className="button button--primary button--large" onClick={onContinue}>{saved.phase === 'finalResult' ? '查看上局结果' : `继续第 ${saved.roundIndex + 1} 轮`} <span>→</span></button>}
             <button className={cx('button button--large', saved ? 'button--paper' : 'button--primary')} onClick={onSetup}>创建新对局</button>
-            <button className="button button--ghost" onClick={onQuickStart}>三人快速开始</button>
           </div>
           <div className="home-portals" aria-label="更多内容">
             <button className="home-portal home-portal--rules" onClick={onRules}><span className="home-portal__glyph" aria-hidden="true">◎</span><span className="home-portal__copy"><strong>玩法规则</strong></span></button>
@@ -2458,7 +2456,6 @@ export default function App() {
   }, [session])
 
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
-  const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.seats, cloneSettings(preset.settings))) }
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const persistCustomBotProfiles = (next: CustomBotProfile[]) => { setCustomBotProfiles(next); saveCustomBotProfiles(next) }
   const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
@@ -2472,5 +2469,5 @@ export default function App() {
   if (screen === 'history') return <History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} />
   if (screen === 'collection') return <CollectionBook onBack={() => setScreen('home')} />
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} />
-  return <Home saved={saved} onQuickStart={quickStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onCollection={() => setScreen('collection')} onDelete={removeSaved} />
+  return <Home saved={saved} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onCollection={() => setScreen('collection')} onDelete={removeSaved} />
 }
