@@ -345,6 +345,29 @@ describe('身份结算', () => {
     expect(settled.result.cardEffects).toEqual(expect.arrayContaining([expect.objectContaining({ cardId: 'legendaryLoot' })]))
   })
 
+  it('夺宝令使用者即使在绑票名单中也直接获得拍品，不触发谈判', () => {
+    const players = [player('assassin'), player('target'), player('legend')]
+    players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }
+    const settled = settleRound({
+      playersAfterBids: players,
+      turns: [
+        { ...turn('assassin', 4), identityAction: { type: 'kidnap', targetPlayerId: 'legend' } },
+        turn('target', 8),
+        { ...turn('legend', 2), cardUse: { cardId: 'legendaryLoot' } },
+      ],
+      item,
+      roundIndex: 0,
+      rewardMultipliers: [2, 1],
+      correctPredictionMultiplier: 1,
+      wrongPredictionMultiplier: 1.5,
+      fairnessOrderIds: players.map((entry) => entry.id),
+      identitySettings: defaultIdentitySettings(true),
+    })
+    expect(settled.result).toMatchObject({ winnerId: 'target', itemWinnerId: 'legend' })
+    expect(settled.result.kidnapAttempt).toMatchObject({ status: 'missed' })
+    expect(settled.players.find((entry) => entry.id === 'legend')?.items).toEqual([{ item, roundIndex: 0 }])
+  })
+
   it('绑匪目标未获拍品时保留失败扣费的私密反馈，公共结算不显示抢劫', () => {
     const players = [player('assassin'), player('target'), player('third')]
     players[0].identity = { id: 'assassin', thiefSuccesses: 0, merchantAuctionUsed: false, lobbyistNextFree: false, lobbyistLastIssuedRound: null }

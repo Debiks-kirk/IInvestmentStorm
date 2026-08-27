@@ -509,7 +509,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     }
   }
   if (itemWinnerId) playerById.get(itemWinnerId)?.items.push({ item, roundIndex })
-  if (kidnapAttempt && itemWinnerId && kidnapAttempt.targetPlayerIds.includes(itemWinnerId) && itemWinnerId !== kidnapAttempt.kidnapperId) {
+  // 夺宝令已经把最终藏品直接交给使用者；它不再属于正常得标者，
+  // 因此不会进入绑票谈判。只有没有夺宝令时才可能公开谈判。
+  if (kidnapAttempt && !legendaryLoot && itemWinnerId && kidnapAttempt.targetPlayerIds.includes(itemWinnerId) && itemWinnerId !== kidnapAttempt.kidnapperId) {
     kidnapAttempt = { ...kidnapAttempt, status: 'pending', capturedPlayerId: itemWinnerId }
   }
   if (winnerId && investments.some((investment) => investment.targetPlayerId === winnerId)) {
