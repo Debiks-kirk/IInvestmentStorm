@@ -612,7 +612,7 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
   if (observation.self.identity?.id === 'thief' && observation.roundIndex < observation.totalRounds - 1) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:thief`, identityAction: { type: 'thiefSteal' as const }, specialReason: '发动偷卡，争取从其他玩家的未使用库存中夺取机会。' })))
   }
-  if (observation.self.identity?.id === 'merchant' && observation.roundIndex < observation.totalRounds - 1 && observation.cardDeckSize > 0 && (observation.self.identity.merchantAuctionCount ?? 0) < observation.merchantAuctionLimit && observation.self.identity.merchantLastAuctionRound !== observation.roundIndex) {
+  if (observation.self.identity?.id === 'merchant' && observation.roundIndex < observation.totalRounds - 2 && observation.cardDeckSize > 0 && (observation.self.identity.merchantAuctionCount ?? 0) < observation.merchantAuctionLimit && observation.self.identity.merchantLastAuctionRound !== observation.roundIndex) {
     plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:merchant`, identityAction: { type: 'merchantAuction' as const }, specialReason: '发起下轮道具竞购，争取将循环道具转化为现金。' })))
   }
   if (observation.self.identity?.id === 'lobbyist' && (observation.self.identity.activeSkillUses ?? 0) < observation.lobbyistActivationLimit && observation.roundIndex < observation.totalRounds - 1) {

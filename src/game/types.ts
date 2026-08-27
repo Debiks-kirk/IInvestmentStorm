@@ -357,6 +357,13 @@ export interface RoundTurn {
   assetAuctionOffer?: { itemId: string; itemRoundIndex: number; minimumBidUnits: number }
 }
 
+/** A private late-game shop. Its drawn physical cards and prices are locked on entry. */
+export interface MerchantShop {
+  playerId: string
+  roundIndex: number
+  cards: Array<{ cardId: CardId; priceUnits: number }>
+}
+
 export interface RankingEntry {
   playerId: string
   place: number
@@ -483,7 +490,7 @@ export interface RoundResult {
 }
 
 export interface GameSession {
-  version: 31
+  version: 32
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -517,6 +524,8 @@ export interface GameSession {
   roundAssetAuctions: AssetAuctionLot[]
   /** Merchant's already drawn three-card offer; survives refresh and cannot be rerolled. */
   pendingMerchantOffers: Array<{ playerId: string; roundIndex: number; offeredCardIds: CardId[]; chosenCardId?: CardId }>
+  /** Last-two-round private shops. Unsold physical cards return to the deck on submission. */
+  merchantShops: MerchantShop[]
   /** Prophet-private stable candidate identities, keyed by prophet then target. */
   prophetIdentityCandidates: Record<string, Record<string, IdentityId[]>>
   /** Prophet-private solved/excluded state, keyed by prophet then target. */

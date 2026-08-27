@@ -108,7 +108,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 31,
+    version: 32,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
@@ -134,6 +134,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     pendingAssetAuctions: [],
     roundAssetAuctions: [],
     pendingMerchantOffers: [],
+    merchantShops: [],
     prophetIdentityCandidates: {},
     prophetIdentityProgress: {},
     pendingProphetCardOffers: [],

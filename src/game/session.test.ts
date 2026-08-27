@@ -25,6 +25,14 @@ describe('实体道具库存', () => {
   })
 })
 
+describe('道具商人末局商店', () => {
+  it('新对局会初始化可持久化的私密商店列表', () => {
+    const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+    expect(session.version).toBe(32)
+    expect(session.merchantShops).toEqual([])
+  })
+})
+
 describe('系统道具竞购数量', () => {
   it('会按每回合配置抽取对应数量，并允许设为零关闭', () => {
     const settings = createDefaultSettings(3)
