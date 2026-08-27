@@ -66,7 +66,7 @@ export function cardInventoryCounts(cardIds: CardId[]): Array<{ cardId: CardId; 
 export function createCardDeck(disabledCardIds: CardId[]): CardId[] {
   const disabled = new Set(disabledCardIds)
   const copiesByRarity: Record<CardRarity, number> = {
-    common: 4,
+    common: 5,
     rare: 3,
     uncommon: 2,
     legendary: 1,
