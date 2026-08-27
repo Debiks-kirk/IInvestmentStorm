@@ -1267,6 +1267,10 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
   const itemWasKidnapped = result.itemWinnerId !== result.winnerId
   const valueChanged = result.effectiveValueUnits !== item.value * 2
   const bananaEffect = result.cardEffects.find((effect) => effect.cardId === 'bananaPeel')
+  const prizeSwapEffect = result.cardEffects.find((effect) => effect.cardId === 'prizeSwap')
+  // 香蕉皮已有自己的结算提示，先让它完成，避免两个结算弹窗叠在一起。
+  // 绑票谈判在进入 roundResult 前已经处理完，因此调包揭晓天然排在它之后。
+  const [prizeSwapRevealOpen, setPrizeSwapRevealOpen] = useState(Boolean(prizeSwapEffect && !bananaEffect))
   const correctPredictionRewardUnits = result.predictionOutcomes.filter((outcome) => outcome.status === 'correct').reduce((total, outcome) => total + outcome.deltaUnits, 0)
   const stageIndex = revealStage === 'ties' ? 0 : revealStage === 'rankings' ? 1 : 2
   const showRankings = stageIndex >= 1
@@ -1291,7 +1295,22 @@ function RoundResults({ session, result, onNext }: { session: GameSession; resul
 
   return (
     <section className={cx('results-page', `reveal-stage-${revealStage}`, skipMotion && 'skip-motion')} data-reveal-stage={revealStage}>
-      {bananaEffect && bananaNoticeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="banana-notice-title"><div className="card-grant-sheet"><span>🍌</span><p className="eyebrow">本轮意外</p><h2 id="banana-notice-title">香蕉皮！</h2><p>{bananaEffect.description}</p><small>这笔下注已按作废结果参与本轮结算。</small><button className="button button--primary" onClick={() => setBananaNoticeOpen(false)}>知道了</button></div></div>}
+      {bananaEffect && bananaNoticeOpen && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="banana-notice-title"><div className="card-grant-sheet"><span>🍌</span><p className="eyebrow">本轮意外</p><h2 id="banana-notice-title">香蕉皮！</h2><p>{bananaEffect.description}</p><small>这笔下注已按作废结果参与本轮结算。</small><button className="button button--primary" onClick={() => { setBananaNoticeOpen(false); if (prizeSwapEffect) setPrizeSwapRevealOpen(true) }}>知道了</button></div></div>}
+      {prizeSwapEffect && prizeSwapRevealOpen && <div className="modal-backdrop prize-swap-reveal" role="dialog" aria-modal="true" aria-labelledby="prize-swap-reveal-title">
+        <div className="prize-swap-reveal__flames" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
+        <div className="prize-swap-reveal__embers" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i key={index} />)}</div>
+        <div className="prize-swap-reveal__frame">
+          <span className="prize-swap-reveal__jester" aria-hidden="true">🤡</span>
+          <p className="eyebrow">本轮拍品揭晓</p>
+          <h2 id="prize-swap-reveal-title">调包令<em>生效</em></h2>
+          <p className="prize-swap-reveal__lead">本轮拍品已被替换，真实拍品是：</p>
+          <article className="prize-swap-reveal__item">
+            <span aria-hidden="true">{item.emoji}</span>
+            <div><small>真实拍品</small><strong>{item.name}</strong><p>{categoryConfig(item.category).name}<b>价值 {item.value}</b></p></div>
+          </article>
+          <button className="button button--primary button--large" onClick={() => setPrizeSwapRevealOpen(false)}>继续揭晓 <span>→</span></button>
+        </div>
+      </div>}
       <div className="results-hero">
         <div><p className="eyebrow">第 {result.roundIndex + 1} 轮 · 结果</p><h1>{showRankings ? itemWasKidnapped ? <>本轮藏品<em>被人劫走</em></> : winner ? <><em>{winner.name}</em> 拿下 {item.name}</> : <>本轮物品<em>流拍</em></> : <>密封标，<em>正在开封</em></>}</h1><p>{showRankings ? itemWasKidnapped ? '排名奖励已正常结算，藏品归属发生了变化。' : winner ? '唯一排名金额胜出，获得本轮第一名奖励。' : '没有产生唯一排名金额，物品无人获得。' : '先核验并列下注，再揭晓获奖名次与金币流动。'}</p></div>
         <div className="result-prize"><span>{item.emoji}</span><small>{valueChanged ? <>真实价值 <CoinValue units={result.effectiveValueUnits} /></> : <>价值 {item.value}</>}</small></div>
