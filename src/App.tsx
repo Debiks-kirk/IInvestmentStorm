@@ -23,7 +23,8 @@ function cx(...values: Array<string | false | null | undefined>): string {
 }
 
 function identityFeedbackNotice(event: IdentityEvent, index: number) {
-  return { id: `identity-feedback-${event.roundIndex ?? 'setup'}-${event.playerId}-${index}`, playerId: event.playerId, title: event.title, detail: event.detail }
+  const detail = event.title === '获得投资回执' ? event.detail.replaceAll('本轮', '上一轮') : event.detail
+  return { id: `identity-feedback-${event.roundIndex ?? 'setup'}-${event.playerId}-${index}`, playerId: event.playerId, title: event.title, detail }
 }
 
 function passivityFeeNotice(penalty: RoundResult['passivityFeePenalties'][number], roundIndex: number, index: number) {
@@ -786,7 +787,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
   const advancedToolsUnlocked = !tutorial || session.roundIndex >= 2
   const [bidUnits, setBidUnits] = useState(0)
   const [auctionBidByLotId, setAuctionBidByLotId] = useState<Record<string, number>>({})
-  const [assetAuctionOffer, setAssetAuctionOffer] = useState<RoundTurn['assetAuctionOffer']>()
+  const [assetAuctionOffers, setAssetAuctionOffers] = useState<NonNullable<RoundTurn['assetAuctionOffers']>>([])
   const [prediction, setPrediction] = useState<string | null>(null)
   const [confirmedCardUses, setConfirmedCardUses] = useState<CardUse[]>([])
   const [cardConfirming, setCardConfirming] = useState<CardUse | null>(null)
@@ -1059,7 +1060,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       setSubmitError(`「${lot.item.name}」的报价低于起拍价 ${formatCoins(lot.minimumBidUnits)} 金币，请改为不报价或达到起拍价。`)
       return false
     }
-    const accepted = onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: resolvedPrediction, ...(auctionBids.length ? { auctionBids } : {}), ...(assetAuctionOffer ? { assetAuctionOffer } : {}), ...(allConfirmedCardUses.length > 0 ? { cardUses: allConfirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
+    const accepted = onSubmit({ playerId: player.id, bidUnits, predictedPlayerId: resolvedPrediction, ...(auctionBids.length ? { auctionBids } : {}), ...(assetAuctionOffers.length ? { assetAuctionOffers } : {}), ...(allConfirmedCardUses.length > 0 ? { cardUses: allConfirmedCardUses } : {}), ...(resolvedIdentityAction ? { identityAction: resolvedIdentityAction } : {}) }, timedOut)
     if (!accepted && !timedOut) {
       setConfirming(false)
       setSubmitError('当前选择无法提交：请检查余额、竞购起拍价和已安排的技能费用。')
@@ -1135,9 +1136,9 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           return <article key={asset.category} className="private-asset-row"><span>{config.symbol}</span><div><strong>{config.name} · {asset.itemCount} 件</strong><small>{items.map(({ item: wonItem }) => `${wonItem.emoji}${wonItem.name}`).join(' · ')}</small></div><div className="private-asset-value">{asset.units > 0 ? <><CoinValue units={asset.units} signed /><small>当前终局加成</small></> : <><strong>再收 {2 - asset.itemCount} 件</strong><small>即可触发加成</small></>}</div></article>
         })}</div>}
         {player.items.length > 0 && <div className="asset-auction-list"><small>从已有藏品中选择一件，安排到下一轮竞购；最后一轮不能发起。</small>{player.items.map((won) => {
-          const selected = assetAuctionOffer?.itemId === won.item.id && assetAuctionOffer.itemRoundIndex === won.roundIndex
-          const disabled = session.roundIndex >= session.settings.rounds - 1 || Boolean(assetAuctionOffer && !selected)
-          return <article key={`${won.item.id}-${won.roundIndex}`}><span>{won.item.emoji}</span><div><strong>{won.item.name}</strong><small>{categoryConfig(won.item.category).name}</small></div>{selected ? <div className="asset-auction-list__offer"><b>起拍价 {formatCoins(assetAuctionOffer.minimumBidUnits)} 金币</b><button aria-label="起拍价减一金币" disabled={assetAuctionOffer.minimumBidUnits <= 2} onClick={() => setAssetAuctionOffer({ ...assetAuctionOffer, minimumBidUnits: Math.max(2, assetAuctionOffer.minimumBidUnits - 2) })}>− 1</button><button aria-label="起拍价加一金币" onClick={() => setAssetAuctionOffer({ ...assetAuctionOffer, minimumBidUnits: assetAuctionOffer.minimumBidUnits + 2 })}>+ 1</button><button className="asset-auction-list__cancel" onClick={() => setAssetAuctionOffer(undefined)}>取消</button></div> : <button className="asset-auction-list__start" disabled={disabled} onClick={() => setAssetAuctionOffer({ itemId: won.item.id, itemRoundIndex: won.roundIndex, minimumBidUnits: 2 })}>{session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可拍卖' : '发起竞购'}</button>}</article>
+          const selected = assetAuctionOffers.find((offer) => offer.itemId === won.item.id && offer.itemRoundIndex === won.roundIndex)
+          const disabled = session.roundIndex >= session.settings.rounds - 1
+          return <article key={`${won.item.id}-${won.roundIndex}`}><span>{won.item.emoji}</span><div><strong>{won.item.name}</strong><small>{categoryConfig(won.item.category).name}</small></div>{selected ? <div className="asset-auction-list__offer"><b>起拍价 {formatCoins(selected.minimumBidUnits)} 金币</b><button aria-label="起拍价减一金币" disabled={selected.minimumBidUnits <= 2} onClick={() => setAssetAuctionOffers((offers) => offers.map((offer) => offer === selected ? { ...offer, minimumBidUnits: Math.max(2, offer.minimumBidUnits - 2) } : offer))}>− 1</button><button aria-label="起拍价加一金币" onClick={() => setAssetAuctionOffers((offers) => offers.map((offer) => offer === selected ? { ...offer, minimumBidUnits: offer.minimumBidUnits + 2 } : offer))}>+ 1</button><button className="asset-auction-list__cancel" onClick={() => setAssetAuctionOffers((offers) => offers.filter((offer) => offer !== selected))}>取消</button></div> : <button className="asset-auction-list__start" disabled={disabled} onClick={() => setAssetAuctionOffers((offers) => [...offers, { itemId: won.item.id, itemRoundIndex: won.roundIndex, minimumBidUnits: 2 }])}>{session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可拍卖' : '发起竞购'}</button>}</article>
         })}</div>}
       </section></div>}
       {toolPanel === 'identity' && !focusFlowActive && <div className="modal-backdrop focus-backdrop" role="dialog" aria-modal="true" aria-labelledby="identity-tool-title"><section className="focus-sheet focus-sheet--identity identity-skills">
@@ -1185,7 +1186,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
       <div className="private-command-bar">
         <nav className="turn-tool-dock" aria-label="回合工具">
           <button type="button" className={cx(identityAction && 'has-action')} onClick={() => setToolPanel('identity')} data-testid="identity-tool"><span>{identity ? getIdentityDefinition(identity.id).symbol : '◎'}</span><div><strong>身份</strong><small>{identityDockStatus}</small></div>{identityAction && <i>1</i>}</button>
-          <button type="button" onClick={() => setToolPanel('assets')} data-testid="assets-tool"><span>◆</span><div><strong>资产</strong><small>{player.items.length} 件 · +{formatCoins(assetBreakdowns.reduce((total, asset) => total + asset.units, 0))}</small></div>{assetAuctionOffer && <i>1</i>}</button>
+          <button type="button" onClick={() => setToolPanel('assets')} data-testid="assets-tool"><span>◆</span><div><strong>资产</strong><small>{player.items.length} 件 · +{formatCoins(assetBreakdowns.reduce((total, asset) => total + asset.units, 0))}</small></div>{assetAuctionOffers.length > 0 && <i>{assetAuctionOffers.length}</i>}</button>
           <button type="button" className={cx(allConfirmedCardUses.length > 0 && 'has-action')} onClick={() => setToolPanel('backpack')} data-testid="backpack-tool"><span className="dock-backpack">▥</span><div><strong>背包</strong><small>{visibleCardInventory.length} 张道具</small></div>{visibleCardInventory.length > 0 && <i>{visibleCardInventory.length}</i>}</button>
         </nav>
         <div className="private-submit"><p><span>下注 <strong>{unitsToCoins(bidUnits)}</strong></span><span>预测 <strong>{predictionBlockedByInvestment ? '跳过' : predicted?.name ?? '跳过'}</strong></span><span>道具 <strong>{[...allConfirmedCardUses.map((use) => getCardDefinition(use.cardId).name), ...(lockedPrizeReroll ? [getCardDefinition(lockedPrizeReroll.cardId).name] : [])].join('、') || '不使用'}</strong></span></p><button className="button button--primary button--large" aria-disabled={Boolean(submitBlockReason)} onClick={() => { if (submitBlockReason) { setSubmitError(submitBlockReason); return } setConfirming(true) }}>确认提交</button></div>
@@ -1716,10 +1717,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         || Boolean(assetLot && bid.bidUnits > 0 && bid.bidUnits < assetLot.minimumBidUnits)
     })) return false
     if (turn.bidUnits + auctionBidTotal > currentPlayer.balanceUnits) return false
-    if (turn.assetAuctionOffer) {
-      const offer = turn.assetAuctionOffer
+    const assetAuctionOffers = turn.assetAuctionOffers ?? (turn.assetAuctionOffer ? [turn.assetAuctionOffer] : [])
+    if (session.roundIndex >= session.settings.rounds - 1 && assetAuctionOffers.length > 0) return false
+    const listedItemKeys = new Set<string>()
+    for (const offer of assetAuctionOffers) {
+      const itemKey = `${offer.itemId}-${offer.itemRoundIndex}`
       const ownsItem = currentPlayer.items.some((won) => won.item.id === offer.itemId && won.roundIndex === offer.itemRoundIndex)
-      if (session.roundIndex >= session.settings.rounds - 1 || !ownsItem || !Number.isInteger(offer.minimumBidUnits) || offer.minimumBidUnits < 2) return false
+      if (listedItemKeys.has(itemKey) || !ownsItem || !Number.isInteger(offer.minimumBidUnits) || offer.minimumBidUnits < 2) return false
+      listedItemKeys.add(itemKey)
     }
     if (turn.identityAction?.type === 'prophetDivination') {
       const action = turn.identityAction
@@ -1837,8 +1842,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       resolvedTurn = { ...resolvedTurn, identityAction: { type: 'lobbyistContract', targetPlayerId: action.targetPlayerId, specified: Boolean(action.specified), taskType: resolvedTask.taskType, ...(resolvedTask.comparisonPlayerId ? { comparisonPlayerId: resolvedTask.comparisonPlayerId } : {}) } }
     }
     let pendingAssetAuctions = [...session.pendingAssetAuctions]
-    if (turn.assetAuctionOffer) {
-      const offer = turn.assetAuctionOffer
+    for (const offer of assetAuctionOffers) {
       const seller = players.find((entry) => entry.id === turn.playerId)
       const itemIndex = seller?.items.findIndex((entry) => entry.item.id === offer.itemId && entry.roundIndex === offer.itemRoundIndex) ?? -1
       if (!seller || itemIndex < 0) return false
@@ -2273,7 +2277,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         }).concat(decideBotAssetAuctionBids({ player: currentPlayer, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id, observation }))
         const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
         const assetAuctionOffer = decideBotAssetAuctionOffer({ player: currentPlayer, observation, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id })
-        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffer } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
+        const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffers: [assetAuctionOffer] } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {
           const retainedBidUnits = Number.isInteger(decision.bidUnits) ? Math.max(0, Math.min(currentPlayer.balanceUnits, decision.bidUnits)) : 0

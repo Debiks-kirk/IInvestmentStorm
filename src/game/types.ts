@@ -351,6 +351,9 @@ export interface RoundTurn {
   cardUse?: CardUse
   identityAction?: IdentityAction
   auctionBids?: AuctionBid[]
+  /** One player may place several held items into next round's asset market. */
+  assetAuctionOffers?: Array<{ itemId: string; itemRoundIndex: number; minimumBidUnits: number }>
+  /** @deprecated Kept only for pre-v32 saved turns. */
   assetAuctionOffer?: { itemId: string; itemRoundIndex: number; minimumBidUnits: number }
 }
 
