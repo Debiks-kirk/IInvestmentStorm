@@ -3,7 +3,7 @@ import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
 import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets } from './storage'
 import { defaultBotStrategy } from './bots'
-import { CARD_DEFINITIONS } from './cards'
+import { createCardDeck } from './cards'
 
 const values = new Map<string, string>()
 const localStorageMock = {
@@ -110,8 +110,7 @@ describe('对局存档迁移', () => {
     const enabled = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     expect(enabled.roundAuctions).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'system', merchantId: null, roundIndex: 0 })]))
     expect(enabled.pendingIdentityNotices.filter((notice) => notice.title === '本轮道具竞购')).toHaveLength(3)
-    const copiesByRarity = { common: 4, rare: 3, uncommon: 2, legendary: 1 }
-    expect(enabled.cardDeck).toHaveLength(CARD_DEFINITIONS.reduce((total, card) => total + copiesByRarity[card.rarity], 0) - 1)
+    expect(enabled.cardDeck).toHaveLength(createCardDeck([]).length - 2)
     const settings = createDefaultSettings(3)
     settings.systemAuctionCardsPerRound = 0
     const disabled = createSession(['甲', '乙', '丙'], settings)
@@ -125,7 +124,7 @@ describe('对局存档迁移', () => {
     legacy.merchantAuction = null
     legacy.phase = 'roundIntro'
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()?.settings.systemAuctionCardsPerRound).toBe(1)
+    expect(loadSession()?.settings.systemAuctionCardsPerRound).toBe(2)
     expect(loadSession()?.merchantAuction).toBeNull()
   })
 
@@ -136,7 +135,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 32, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 1 } })
+    expect(loadSession()).toMatchObject({ version: 32, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {

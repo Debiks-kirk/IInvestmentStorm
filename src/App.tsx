@@ -5,7 +5,7 @@ import { createAssetTrajectories, createGameHighlights, createRoundBulletin } fr
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
-import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, roundStartPlayerIndex, validateNames } from './game/session'
+import { createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, resolveRoundPrize, roundStartPlayerIndex, validateNames, visibleRoundItem } from './game/session'
 import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
@@ -169,14 +169,12 @@ const COLLECTION_CARD_TEXT: Record<CardId, string> = {
 
 function CollectionBook({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<'identities' | 'cards' | 'items'>('identities')
-  return <AppShell><header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回主页">←</button><Brand /><span /></header><section className="collection-page"><div className="collection-heading"><div><p className="eyebrow">游戏图鉴</p><h1>一眼<em>看懂</em></h1><p>身份、道具与全部拍品。</p></div><span>{tab === 'identities' ? '10 个身份' : tab === 'cards' ? '13 张道具' : '100 件拍品'}</span></div><div className="collection-tabs" role="tablist" aria-label="图鉴分类"><button role="tab" aria-selected={tab === 'identities'} className={cx(tab === 'identities' && 'is-active')} onClick={() => setTab('identities')}>身份 <small>10</small></button><button role="tab" aria-selected={tab === 'cards'} className={cx(tab === 'cards' && 'is-active')} onClick={() => setTab('cards')}>道具 <small>13</small></button><button role="tab" aria-selected={tab === 'items'} className={cx(tab === 'items' && 'is-active')} onClick={() => setTab('items')}>拍品 <small>100</small></button></div>{tab === 'identities' && <div className="collection-grid collection-grid--identities" role="tabpanel">{IDENTITY_DEFINITIONS.map((identity) => <article className="collection-card collection-card--identity" key={identity.id}><span>{identity.symbol}</span><div><small>{identitySkillMode(identity.id) === 'active' ? '主动技能' : '被动技能'}</small><h2>{identity.name}</h2><p>{COLLECTION_IDENTITY_TEXT[identity.id]}</p></div></article>)}</div>}{tab === 'cards' && <div className="collection-grid collection-grid--cards" role="tabpanel">{CARD_DEFINITIONS.map((card) => <article className={`collection-card collection-card--card collection-card--${card.rarity}`} key={card.id}><span>{card.symbol}</span><div><small><CardRarityTag cardId={card.id} /></small><h2>{card.name}</h2><p>{COLLECTION_CARD_TEXT[card.id]}</p></div></article>)}</div>}{tab === 'items' && <div className="collection-items" role="tabpanel">{ASSET_CATEGORY_CONFIGS.map((category) => { const items = [...ITEM_POOL].filter((item) => item.category === category.category).sort((left, right) => left.value - right.value || left.name.localeCompare(right.name, 'zh-CN')); return <section className="collection-item-group" key={category.category}><header><div><small>{category.name} · 由低到高</small><h2>{items.length} 件拍品</h2><div className="collection-bonus-table" aria-label={`${category.name} 套装加成`}><span><small>2件</small><b>+{category.tiers[0]}</b></span><span><small>3件</small><b>+{category.tiers[1]}</b></span><span><small>4件</small><b>+{category.tiers[2]}</b></span><span><small>5件</small><b>+{category.tiers[3]}</b></span><span><small>6件+</small><b>+{category.additionalUnit}</b></span></div></div><span>{category.symbol}</span></header><div>{items.map((item) => <article key={item.id} style={{ '--item-tone': item.tone } as React.CSSProperties}><span>{item.emoji}</span><strong>{item.name}</strong><small>V{item.value}</small></article>)}</div></section> })}</div>}</section></AppShell>
+  return <AppShell><header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回主页">←</button><Brand /><span /></header><section className="collection-page"><div className="collection-heading"><div><h1>游戏图鉴</h1></div></div><div className="collection-tabs" role="tablist" aria-label="图鉴分类"><button role="tab" aria-selected={tab === 'identities'} className={cx(tab === 'identities' && 'is-active')} onClick={() => setTab('identities')}>身份 <small>10</small></button><button role="tab" aria-selected={tab === 'cards'} className={cx(tab === 'cards' && 'is-active')} onClick={() => setTab('cards')}>道具 <small>13</small></button><button role="tab" aria-selected={tab === 'items'} className={cx(tab === 'items' && 'is-active')} onClick={() => setTab('items')}>拍品 <small>100</small></button></div>{tab === 'identities' && <div className="collection-grid collection-grid--identities" role="tabpanel">{IDENTITY_DEFINITIONS.map((identity) => <article className="collection-card collection-card--identity" key={identity.id}><span>{identity.symbol}</span><div><small>{identitySkillMode(identity.id) === 'active' ? '主动技能' : '被动技能'}</small><h2>{identity.name}</h2><p>{COLLECTION_IDENTITY_TEXT[identity.id]}</p></div></article>)}</div>}{tab === 'cards' && <div className="collection-grid collection-grid--cards" role="tabpanel">{CARD_DEFINITIONS.map((card) => <article className={`collection-card collection-card--card collection-card--${card.rarity}`} key={card.id}><span>{card.symbol}</span><div><small><CardRarityTag cardId={card.id} /></small><h2>{card.name}</h2><p>{COLLECTION_CARD_TEXT[card.id]}</p></div></article>)}</div>}{tab === 'items' && <div className="collection-items" role="tabpanel">{ASSET_CATEGORY_CONFIGS.map((category) => { const items = [...ITEM_POOL].filter((item) => item.category === category.category).sort((left, right) => left.value - right.value || left.name.localeCompare(right.name, 'zh-CN')); return <section className="collection-item-group" key={category.category}><header><div><small>{category.name} · 由低到高</small><h2>{items.length} 件拍品</h2><div className="collection-bonus-table" aria-label={`${category.name} 套装加成`}><span><small>2件</small><b>+{category.tiers[0]}</b></span><span><small>3件</small><b>+{category.tiers[1]}</b></span><span><small>4件</small><b>+{category.tiers[2]}</b></span><span><small>5件</small><b>+{category.tiers[3]}</b></span><span><small>6件+</small><b>+{category.additionalUnit}</b></span></div></div><span>{category.symbol}</span></header><div>{items.map((item) => <article key={item.id} style={{ '--item-tone': item.tone } as React.CSSProperties}><span>{item.emoji}</span><strong>{item.name}</strong><small>V{item.value}</small></article>)}</div></section> })}</div>}</section></AppShell>
 }
 
-function Home({ saved, historyCount, onQuickStart, onTutorial, onSetup, onContinue, onRules, onHistory, onCollection, onDelete }: {
+function Home({ saved, onQuickStart, onSetup, onContinue, onRules, onHistory, onCollection, onDelete }: {
   saved: GameSession | null
-  historyCount: number
   onQuickStart: () => void
-  onTutorial: () => void
   onSetup: () => void
   onContinue: () => void
   onRules: () => void
@@ -192,14 +190,17 @@ function Home({ saved, historyCount, onQuickStart, onTutorial, onSetup, onContin
           <Brand />
           <p className="eyebrow">一台设备 · 3–10 人</p>
           <h1>把筹码藏好。<br /><em>看谁笑到最后。</em></h1>
-          <p className="lead">秘密下注，猜中赢家，避开并列。每一次把设备递出去，都是一次不动声色的加码。</p>
+          <p className="lead">秘密下注，猜中赢家，避开并列。</p>
           <div className="home-actions">
             {saved && <button className="button button--primary button--large" onClick={onContinue}>{saved.phase === 'finalResult' ? '查看上局结果' : `继续第 ${saved.roundIndex + 1} 轮`} <span>→</span></button>}
             <button className={cx('button button--large', saved ? 'button--paper' : 'button--primary')} onClick={onSetup}>创建新对局</button>
             <button className="button button--ghost" onClick={onQuickStart}>三人快速开始</button>
-            <button className="text-button home-tutorial" onClick={onTutorial}>✦ 先玩 3 轮新手引导</button>
           </div>
-          <div className="home-links"><button className="text-button" onClick={onRules}>用 30 秒看懂规则</button><button className="text-button" onClick={onCollection}>查看游戏图鉴</button><button className="text-button" onClick={onHistory}>对局历史{historyCount > 0 ? ` · ${historyCount}` : ''}</button></div>
+          <div className="home-portals" aria-label="更多内容">
+            <button className="home-portal home-portal--rules" onClick={onRules}><span className="home-portal__glyph" aria-hidden="true">◎</span><span className="home-portal__copy"><strong>玩法规则</strong></span></button>
+            <button className="home-portal home-portal--collection" onClick={onCollection}><span className="home-portal__glyph" aria-hidden="true">◇</span><span className="home-portal__copy"><strong>游戏图鉴</strong></span></button>
+            <button className="home-portal home-portal--history" onClick={onHistory}><span className="home-portal__glyph" aria-hidden="true">◷</span><span className="home-portal__copy"><strong>对局历史</strong></span></button>
+          </div>
         </div>
         <div className="hero-table" aria-hidden="true">
           <div className="hero-table__ring">
@@ -268,21 +269,21 @@ function Rules({ onBack }: { onBack: () => void }) {
     <AppShell>
       <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回">←</button><Brand /><span /></header>
       <section className="rules-page">
-        <p className="eyebrow">30 秒规则</p>
-        <h1>出价要狠，<em>撞价要命。</em></h1>
+        <p className="eyebrow">核心玩法</p>
+        <h1>拍下藏品，<em>攒出总资产。</em></h1>
+        <p className="rules-lead">每轮围绕一件拍品秘密下注。唯一高价者拿奖金和拍品；同类拍品越多，终局资产加成越高。</p>
         <div className="rules-grid">
-          <article><span className="rule-number">01</span><h2>秘密下注</h2><p>轮流拿设备，下注会立刻消耗金币。余额只有本人长按才能看见。</p></article>
-          <article><span className="rule-number">02</span><h2>避开并列</h2><p>所有相同出价都出局。剩下的唯一出价从高到低重新排名。</p></article>
-          <article><span className="rule-number">03</span><h2>顺手猜人</h2><p>可猜谁会第一。猜错扣半个物品价值；猜中则由第一名向你付款。</p></article>
-          <article><span className="rule-number">04</span><h2>资产翻盘</h2><p>拍品会组成四类固定资产。用过的道具会回到卡池，留着不用则一直由你保管。</p></article>
-          <article><span className="rule-number">05</span><h2>Bot 也会上桌</h2><p>Bot 只按它能合法看到的信息行动，会记住本局的恩怨；高手可能得到一次模糊投资情报。</p></article>
+          <article><span className="rule-number">01</span><h2>看拍品，秘密下注</h2><p>每人依次写下出价。提交后，这笔金币就会扣除。</p></article>
+          <article><span className="rule-number">02</span><h2>唯一高价，拿奖拿货</h2><p>相同出价一起出局；剩下的唯一出价按高到低获奖，第一名拿拍品。</p></article>
+          <article><span className="rule-number">03</span><h2>收同类，叠加成</h2><p>拍品分四类。每多收几件同类拍品，终局固定资产加成就更高。</p></article>
+          <article><span className="rule-number">04</span><h2>终局比总资产</h2><p>剩余金币 + 拍品固定资产 = 总资产。最高者获胜，同分共享名次。</p></article>
         </div>
         <div className="rule-example">
           <div><small>四人下注</small><strong>10 · 10 · 9 · 8</strong></div>
           <span>→</span>
           <div><small>10 撞车出局</small><strong>9 成为第一</strong></div>
         </div>
-        <p className="rules-footnote">固定资产只在终局结算；劫富济贫只公开总转移金额，不公开任何人的余额。</p>
+        <div className="rules-side-note"><strong>可选的支线</strong><span>预测第一可搏额外收益；身份与道具会改变局势，但不改变这条主线。</span></div>
         <button className="button button--primary" onClick={onBack}>明白了</button>
       </section>
     </AppShell>
@@ -795,8 +796,7 @@ function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], 
 
 function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotice, onStartPrizeReroll, onChoosePrizeReroll, onConfirmPrizeReroll, onStartMerchantOffer, onChooseMerchantOffer, onOpenMerchantShop, onBuyMerchantShopCard, onChooseProphetOffer, onUseProphetDivination, onResolveFateCoin, onArmDeadline }: { session: GameSession; onSubmit: (turn: RoundTurn, timedOut?: boolean) => boolean; onAcknowledgeGrant: (playerId: string) => void; onAcknowledgeNotice: (noticeId: string) => void; onStartPrizeReroll: (playerId: string, cardId: 'prizeReroll' | 'prizeSwap') => void; onChoosePrizeReroll: (cardId: 'prizeReroll' | 'prizeSwap', itemId: string) => void; onConfirmPrizeReroll: (cardId: 'prizeReroll' | 'prizeSwap') => void; onStartMerchantOffer: (playerId: string) => void; onChooseMerchantOffer: (cardId: CardId) => void; onOpenMerchantShop: (playerId: string) => boolean; onBuyMerchantShopCard: (playerId: string, cardId: CardId) => boolean; onChooseProphetOffer: (playerId: string, cardId: CardId) => void; onUseProphetDivination: (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId) => boolean; onResolveFateCoin: (playerId: string, result: 'heads' | 'tails') => CardUse | null; onArmDeadline: () => void }) {
   const player = session.players[session.currentTurnIndex]
-  const concealedPrizeSwap = session.pendingPrizeChanges.find((change) => change.cardId === 'prizeSwap' && change.roundIndex === session.roundIndex) ?? null
-  const item = concealedPrizeSwap && concealedPrizeSwap.playerId !== player.id ? concealedPrizeSwap.originalItem : session.itemDeck[session.roundIndex]
+  const item = visibleRoundItem(session.itemDeck, session.pendingPrizeChanges, session.roundIndex, player.id)
   const tutorial = session.tutorial?.kind === 'firstGame'
   const predictionUnlocked = !tutorial || session.roundIndex >= 1
   const advancedToolsUnlocked = !tutorial || session.roundIndex >= 2
@@ -1665,7 +1665,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex || !pending.chosenItemId) return
     const chosenItem = pending.offeredItems.find((item) => item.id === pending.chosenItemId)
     if (!chosenItem) return
-    patch({ itemDeck: replacePrizeAt(session.itemDeck, pending.targetRoundIndex, chosenItem), pendingPrizeChanges: session.pendingPrizeChanges.map((change) => change === pending ? { ...change, confirmedItemId: chosenItem.id } : change) })
+    patch({ itemDeck: cardId === 'prizeReroll' ? replacePrizeAt(session.itemDeck, pending.targetRoundIndex, chosenItem) : session.itemDeck, pendingPrizeChanges: session.pendingPrizeChanges.map((change) => change === pending ? { ...change, confirmedItemId: chosenItem.id } : change) })
   }
   const useProphetDivination = (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId): boolean => {
     const player = session.players[session.currentTurnIndex]
@@ -1927,20 +1927,19 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const isLast = turns.length >= session.players.length
     const nextTurnIndex = session.players.length > 0 ? (session.currentTurnIndex + 1) % session.players.length : 0
     const autoConfirmedPrizeChanges = lockedPrizeChanges.filter((change) => !pendingPrizeChanges.find((pending) => pending.cardId === change.cardId)?.confirmedItemId)
-    const timedOutItemDeck = autoConfirmedPrizeChanges.reduce((deck, change) => replacePrizeAt(deck, change.targetRoundIndex, change.offeredItems.find((item) => item.id === change.confirmedItemId) ?? change.offeredItems[0]), session.itemDeck)
-    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, merchantShops, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => !(change.playerId === turn.playerId && change.roundIndex === session.roundIndex)), ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
+    const timedOutItemDeck = autoConfirmedPrizeChanges.filter((change) => change.cardId === 'prizeReroll').reduce((deck, change) => replacePrizeAt(deck, change.targetRoundIndex, change.offeredItems.find((item) => item.id === change.confirmedItemId) ?? change.offeredItems[0]), session.itemDeck)
+    const retainedPrizeChanges = session.pendingPrizeChanges.filter((change) => !(change.playerId === turn.playerId && change.roundIndex === session.roundIndex && change.cardId !== 'prizeSwap'))
+    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, merchantShops, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: retainedPrizeChanges, ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
   }
   const reveal = () => {
     if (session.phase !== 'revealReady') return
     // 调包令的已确认选择会同时写入牌堆和回合记录。结算以回合记录为准，避免
     // Bot 的连续自动操作遇到状态刷新时，展示仍回读到旧的预设拍品。
-    const swapUse = session.turns.flatMap((turn) => turnCardUses(turn)).find((use) => use.cardId === 'prizeSwap' && use.prizeReroll?.targetRoundIndex === session.roundIndex)
-    const swappedItem = swapUse?.prizeReroll?.chosenItemId
-      ? ITEM_POOL.find((item) => item.id === swapUse.prizeReroll?.chosenItemId)
-      : undefined
-    const roundItem = swappedItem ?? session.itemDeck[session.roundIndex]
-    const resolvedItemDeck = swappedItem ? replacePrizeAt(session.itemDeck, session.roundIndex, swappedItem) : session.itemDeck
+    const resolvedPrize = resolveRoundPrize(session.itemDeck, session.turns, session.roundIndex)
+    const roundItem = resolvedPrize.item
+    const resolvedItemDeck = resolvedPrize.itemDeck
+    if (!roundItem) return
     let auctionPlayers = session.players.map((player) => ({ ...player, cardInventory: [...player.cardInventory] }))
     let auctionDeck = [...session.cardDeck]
     const auctionNotices = [...session.pendingIdentityNotices]
@@ -2038,11 +2037,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           pendingIdentityNotices: notices,
         },
         itemDeck: resolvedItemDeck,
+        pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex),
         phase: 'kidnapNegotiation',
       })
       return
     }
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], phase: 'roundResult' })
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex), phase: 'roundResult' })
   }
   const resolveKidnapNegotiation = (payRansom: boolean) => {
     const negotiation = session.pendingKidnapNegotiation
@@ -2459,7 +2459,6 @@ export default function App() {
 
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
   const quickStart = () => { const preset = SYSTEM_PRESETS[0]; begin(createSession(preset.seats, cloneSettings(preset.settings))) }
-  const tutorialStart = () => begin(createTutorialSession())
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const persistCustomBotProfiles = (next: CustomBotProfile[]) => { setCustomBotProfiles(next); saveCustomBotProfiles(next) }
   const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
@@ -2473,5 +2472,5 @@ export default function App() {
   if (screen === 'history') return <History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} />
   if (screen === 'collection') return <CollectionBook onBack={() => setScreen('home')} />
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} />
-  return <Home saved={saved} historyCount={history.length} onQuickStart={quickStart} onTutorial={tutorialStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onCollection={() => setScreen('collection')} onDelete={removeSaved} />
+  return <Home saved={saved} onQuickStart={quickStart} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onCollection={() => setScreen('collection')} onDelete={removeSaved} />
 }

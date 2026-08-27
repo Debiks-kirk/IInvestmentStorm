@@ -3,7 +3,7 @@ import { createCardDeck, drawCard, getCardDefinition } from './cards'
 import { emptyBotMemory, strategyForController } from './bots'
 import { createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, ITEM_POOL, shuffle } from './items'
-import type { CardGrant, CardId, GameSession, GameSettings, Item, Player, RoundTurn, SeatConfig } from './types'
+import type { CardGrant, CardId, GameSession, GameSettings, Item, PendingPrizeChange, Player, RoundTurn, SeatConfig } from './types'
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
@@ -49,7 +49,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
     revealBalanceLeader: false,
     cardGrantProbability: 100,
     disabledCardIds: [],
-    systemAuctionCardsPerRound: 1,
+    systemAuctionCardsPerRound: playerCount === 10 ? 3 : 2,
     turnTimeLimitSeconds: 20,
     turnTimerEnabled: false,
     identitySettings,
@@ -224,6 +224,20 @@ export function replaceNextPrize(itemDeck: Item[], roundIndex: number, chosenIte
 export function replacePrizeAt(itemDeck: Item[], targetRoundIndex: number, chosenItem: Item): Item[] {
   if (!itemDeck[targetRoundIndex]) return [...itemDeck]
   return itemDeck.map((item, index) => index === targetRoundIndex ? { ...chosenItem } : item)
+}
+
+/** The selected prize of a 调包令 stays hidden until settlement. */
+export function visibleRoundItem(itemDeck: Item[], pendingPrizeChanges: PendingPrizeChange[], roundIndex: number, viewerId: string): Item {
+  const concealedChange = pendingPrizeChanges.find((change) => change.cardId === 'prizeSwap' && change.roundIndex === roundIndex && change.targetRoundIndex === roundIndex && change.confirmedItemId)
+  if (!concealedChange || concealedChange.playerId === viewerId) return itemDeck[roundIndex] as Item
+  return concealedChange.originalItem
+}
+
+/** Resolves a confirmed 调包令 only once everyone has submitted. */
+export function resolveRoundPrize(itemDeck: Item[], turns: RoundTurn[], roundIndex: number): { item: Item | undefined; itemDeck: Item[] } {
+  const swapUse = turns.flatMap((turn) => turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).find((use) => use.cardId === 'prizeSwap' && use.prizeReroll?.targetRoundIndex === roundIndex)
+  const chosenItem = swapUse?.prizeReroll?.chosenItemId ? ITEM_POOL.find((item) => item.id === swapUse.prizeReroll?.chosenItemId) : undefined
+  return { item: chosenItem ?? itemDeck[roundIndex], itemDeck: chosenItem ? replacePrizeAt(itemDeck, roundIndex, chosenItem) : itemDeck }
 }
 
 export interface CardGrantPreparation {

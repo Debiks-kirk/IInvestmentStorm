@@ -20,7 +20,7 @@ export interface SharedPresetPayload {
 }
 
 export function cloneSettings(settings: GameSettings): GameSettings {
-  return { ...settings, systemAuctionCardsPerRound: settings.systemAuctionCardsPerRound ?? 1, turnTimeLimitSeconds: settings.turnTimeLimitSeconds ?? 20, turnTimerEnabled: settings.turnTimerEnabled ?? false, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...normalizeIdentitySettings(settings.identitySettings, false), disabledIdentityIds: [...normalizeIdentitySettings(settings.identitySettings, false).disabledIdentityIds] } }
+  return { ...settings, systemAuctionCardsPerRound: settings.systemAuctionCardsPerRound ?? (settings.playerCount === 10 ? 3 : 2), turnTimeLimitSeconds: settings.turnTimeLimitSeconds ?? 20, turnTimerEnabled: settings.turnTimerEnabled ?? false, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...normalizeIdentitySettings(settings.identitySettings, false), disabledIdentityIds: [...normalizeIdentitySettings(settings.identitySettings, false).disabledIdentityIds] } }
 }
 
 function systemPreset(id: string, name: string, playerCount: number, withBots = false): SystemPreset {

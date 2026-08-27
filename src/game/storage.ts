@@ -54,7 +54,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     cardGrantProbability: oldSettings.cardGrantProbability ?? 80,
     disabledCardIds: (oldSettings.disabledCardIds ?? []) as CardId[],
     // 已进行的旧存档不补插首轮竞购；新开局会由默认设置明确写入 true。
-    systemAuctionCardsPerRound: oldSettings.systemAuctionCardsPerRound ?? (session.tutorial?.kind === 'firstGame' ? 0 : 1),
+    systemAuctionCardsPerRound: oldSettings.systemAuctionCardsPerRound ?? (session.tutorial?.kind === 'firstGame' ? 0 : (oldSettings.playerCount === 10 ? 3 : 2)),
     turnTimeLimitSeconds: Math.min(120, Math.max(5, oldSettings.turnTimeLimitSeconds ?? 20)),
     turnTimerEnabled: oldSettings.turnTimerEnabled ?? false,
     animationSpeed: oldSettings.animationSpeed ?? 'full',

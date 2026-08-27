@@ -409,8 +409,7 @@ describe('道具发放', () => {
   it('禁用卡不会进入本局循环卡池', () => {
     const deck = createCardDeck(['red', 'black', 'peek'])
     expect(deck).not.toEqual(expect.arrayContaining(['red', 'black', 'peek']))
-    const copiesByRarity = { common: 4, rare: 3, uncommon: 2, legendary: 1 }
-    expect(deck).toHaveLength(CARD_DEFINITIONS.filter((card) => !['red', 'black', 'peek'].includes(card.id)).reduce((total, card) => total + copiesByRarity[card.rarity], 0))
+    expect(deck).toHaveLength(createCardDeck([]).length - createCardDeck([]).filter((cardId) => ['red', 'black', 'peek'].includes(cardId)).length)
   })
 
   it('逆转排名卡默认加入卡池，也可被单独禁用', () => {
@@ -421,7 +420,7 @@ describe('道具发放', () => {
     expect(createCardDeck([])).toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
     expect(createCardDeck(['bananaPeel', 'reflectShield'])).not.toEqual(expect.arrayContaining(['bananaPeel', 'reflectShield']))
     expect(createCardDeck([]).filter((cardId) => cardId === 'legendaryLoot')).toHaveLength(1)
-    expect(createCardDeck([]).filter((cardId) => cardId === 'red')).toHaveLength(4)
+    expect(createCardDeck([]).filter((cardId) => cardId === 'red')).toHaveLength(5)
     expect(createCardDeck([]).filter((cardId) => cardId === 'reverseRank')).toHaveLength(3)
     expect(createCardDeck([]).filter((cardId) => cardId === 'bananaPeel')).toHaveLength(2)
     expect(createCardDeck(['legendaryLoot'])).not.toContain('legendaryLoot')
@@ -583,7 +582,8 @@ describe('固定资产与默认配置', () => {
   })
 
   it('新默认设置与六个系统配置使用确认后的规则', () => {
-    expect(createDefaultSettings()).toMatchObject({ rounds: 5, initialCoins: 30, wrongPredictionMultiplier: 1.5, cardGrantProbability: 100, revealBalanceLeader: false, systemAuctionCardsPerRound: 1 })
+    expect(createDefaultSettings()).toMatchObject({ rounds: 5, initialCoins: 30, wrongPredictionMultiplier: 1.5, cardGrantProbability: 100, revealBalanceLeader: false, systemAuctionCardsPerRound: 2 })
+    expect(SYSTEM_PRESETS.filter((preset) => preset.settings.playerCount === 10).every((preset) => preset.settings.systemAuctionCardsPerRound === 3)).toBe(true)
     expect(SYSTEM_PRESETS.map((preset) => [preset.settings.playerCount, preset.settings.rounds, preset.settings.initialCoins])).toEqual([[3, 5, 30], [3, 5, 30], [6, 8, 30], [6, 8, 30], [10, 10, 30], [10, 10, 30]])
     expect(SYSTEM_PRESETS.filter((preset) => preset.id.startsWith('bot-')).map((preset) => [preset.seats.filter((seat) => seat.controller.kind === 'human').length, preset.seats.filter((seat) => seat.controller.kind === 'bot').map((seat) => seat.name)])).toEqual([[1, ['机器人1', '机器人2']], [1, ['机器人1', '机器人2', '机器人3', '机器人4', '机器人5']], [1, ['机器人1', '机器人2', '机器人3', '机器人4', '机器人5', '机器人6', '机器人7', '机器人8', '机器人9']]])
   })

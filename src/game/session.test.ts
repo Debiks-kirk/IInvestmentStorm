@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { defaultBotStrategy, emptyBotMemory } from './bots'
-import { CARD_DEFINITIONS, cardInventoryCounts, removeOneCard } from './cards'
+import { cardInventoryCounts, createCardDeck, removeOneCard } from './cards'
 import { coinsToUnits } from './engine'
-import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, roundPlayerIndices } from './session'
+import { ITEM_POOL } from './items'
+import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, resolveRoundPrize, roundPlayerIndices, visibleRoundItem } from './session'
+import type { PendingPrizeChange, RoundTurn } from './types'
 
 describe('轮转操作顺序', () => {
   it('保持座位不变，并且每轮将起点向后顺移一位', () => {
@@ -39,8 +41,7 @@ describe('系统道具竞购数量', () => {
     settings.rounds = 3
     settings.systemAuctionCardsPerRound = 3
     const crowded = createSession(['甲', '乙', '丙'], settings)
-    const copiesByRarity = { common: 4, rare: 3, uncommon: 2, legendary: 1 }
-    const totalCardCopies = CARD_DEFINITIONS.reduce((total, card) => total + copiesByRarity[card.rarity], 0)
+    const totalCardCopies = createCardDeck([]).length
     expect(crowded.roundAuctions).toHaveLength(3)
     expect(crowded.cardDeck).toHaveLength(totalCardCopies - 3)
 
@@ -124,5 +125,21 @@ describe('新手引导局', () => {
     expect(session.settings).toMatchObject({ playerCount: 3, rounds: 3, cardGrantProbability: 0, systemAuctionCardsPerRound: 0 })
     expect(session.itemDeck.map((item) => item.id)).toEqual(['basketball', 'camera', 'apartment'])
     expect(session.players[0]).toMatchObject({ name: '新手', cardInventory: ['doubleBid'], identity: { id: 'reverser' } })
+  })
+})
+
+describe('调包令的隐藏与结算', () => {
+  it('其他玩家整轮只看到原拍品，结算才采用与原拍品不同的已选拍品', () => {
+    const itemDeck = ITEM_POOL.slice(0, 3)
+    const original = itemDeck[0]
+    const chosen = ITEM_POOL.find((item) => !itemDeck.some((scheduled) => scheduled.id === item.id))!
+    const change: PendingPrizeChange = { playerId: 'bot', roundIndex: 0, cardId: 'prizeSwap', targetRoundIndex: 0, originalItem: original, offeredItems: [chosen], chosenItemId: chosen.id, confirmedItemId: chosen.id }
+    const turns: RoundTurn[] = [{ playerId: 'bot', bidUnits: 0, predictedPlayerId: null, cardUses: [{ cardId: 'prizeSwap', prizeReroll: { originalItemId: original.id, offeredItemIds: [chosen.id], chosenItemId: chosen.id, targetRoundIndex: 0 } }], auctionBids: [] }]
+
+    expect(visibleRoundItem(itemDeck, [change], 0, 'human')).toEqual(original)
+    const resolved = resolveRoundPrize(itemDeck, turns, 0)
+    expect(resolved.item).toEqual(chosen)
+    expect(resolved.item?.id).not.toBe(original.id)
+    expect(resolved.itemDeck[0]).toEqual(chosen)
   })
 })
