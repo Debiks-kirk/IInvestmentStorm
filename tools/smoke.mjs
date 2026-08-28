@@ -466,7 +466,7 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
   await setRange(page.locator('#player-count'), playerCount)
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级规则/ }).click()
-  await page.locator('#motion').selectOption('reduced')
+  await page.locator('#motion').selectOption(inspectControls ? 'normal' : 'reduced')
   for (let index = 1; index <= playerCount; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
   await finishAdvancedSettings(page)
   await page.getByRole('button', { name: /开始这局/ }).click()
@@ -475,7 +475,19 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
   if (inspectControls) {
     await page.getByRole('button', { name: /暂停/ }).click()
     await page.getByRole('button', { name: /单步/ }).click()
-    await page.locator('[data-testid="spectator-event"]').waitFor({ timeout: 8000 })
+    const spectatorEvent = page.locator('[data-testid="spectator-event"]')
+    await spectatorEvent.waitFor({ timeout: 8000 })
+    const eventContrast = await spectatorEvent.locator('article').evaluate((card) => {
+      const title = card.querySelector('h1')
+      return {
+        cardOpacity: Number.parseFloat(getComputedStyle(card).opacity),
+        titleOpacity: title ? Number.parseFloat(getComputedStyle(title).opacity) : 0,
+        titleColor: title ? getComputedStyle(title).color : '',
+      }
+    })
+    if (eventContrast.cardOpacity < 0.99 || eventContrast.titleOpacity < 0.99 || eventContrast.titleColor === 'rgb(255, 255, 255)') {
+      throw new Error(`观战事件卡文字对比度异常：${JSON.stringify(eventContrast)}`)
+    }
     await page.getByRole('button', { name: /单步/ }).click()
     await page.getByRole('button', { name: '接管本次' }).click()
     await page.locator('.identity-choice-card').first().click()
