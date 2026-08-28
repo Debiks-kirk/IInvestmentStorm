@@ -301,6 +301,7 @@ function HistoryDetail({ entry, onBack }: { entry: GameHistoryEntry; onBack: () 
         <section className="history-standings panel"><div className="panel-title"><div><p className="eyebrow">最终资产</p><h2>最终排行榜</h2></div><span>现金 + 固定资产</span></div><div>{standings.map((standing) => <article key={standing.player.id} className={cx('history-standing', standing.place === 1 && 'is-first')} style={{ '--player-color': standing.player.color } as React.CSSProperties}><span>{standing.place}</span><div className="history-standing__avatar">{standing.player.name.slice(0, 1)}</div><div><strong>{standing.player.name}</strong><small>{standing.player.items.length ? standing.player.items.map(({ item }) => `${item.emoji}${item.name}`).join(' · ') : '没有拍品收藏'}</small></div><div className="history-standing__assets"><b><CoinValue units={standing.totalAssetUnits} /></b><small>现金 {formatCoins(standing.cashUnits)} · 固定资产 +{formatCoins(standing.fixedAssetUnits)}</small></div></article>)}</div></section>
         <section className="history-highlights panel"><div className="panel-title"><div><p className="eyebrow">终局收官</p><h2>本局名场面</h2></div><span>基于已封存的逐轮记录</span></div><div>{highlights.map((highlight) => <article key={highlight.id}><span>{highlight.symbol}</span><div><strong>{highlight.title}</strong><p>{highlight.detail}</p></div></article>)}</div></section>
         {session.settings.identitySettings.enabled && <section className="identity-final panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>身份公开</h2></div><span>完整记录</span></div><div>{session.players.map((player) => { const identity = player.identity ? getIdentityDefinition(player.identity.id) : null; return <article key={player.id}><span>{identity?.symbol ?? '—'}</span><div><strong>{player.name} · {identity?.name ?? '未选择身份'}</strong><small>{identity?.summary ?? '本局未启用身份。'}</small></div></article> })}</div></section>}
+        <RelayTenureReview session={session} />
         <RoundReview session={session} />
       </section>
     </AppShell>
@@ -1566,6 +1567,32 @@ function AssetTrajectoryChart({ session }: { session: GameSession }) {
   </section>
 }
 
+function MarketReview({ session, result }: { session: GameSession; result: RoundResult }) {
+  const cardLots = result.cardAuctionResults ?? []
+  const assetLots = result.assetAuctionResults ?? []
+  if (cardLots.length === 0 && assetLots.length === 0) return null
+  return <article className="review-block review-block--wide review-block--market"><h3>本轮市场</h3>{cardLots.length > 0 && <div className="review-market-group"><strong>道具竞购</strong>{cardLots.map((lot) => { const card = getCardDefinition(lot.cardId); return <div className="review-row" key={lot.lotId}><strong>{card.symbol} {card.name}</strong><span>{lot.winnerId ? <>{playerName(session.players, lot.winnerId)} 拍下{lot.winningBidUnits !== null ? ` · ${formatCoins(lot.winningBidUnits)} 金币` : ''}</> : lot.merchantId ? <>无人拍下，归入 {playerName(session.players, lot.merchantId)}</> : '无人拍下，返回卡池'}</span></div>})}</div>}{assetLots.length > 0 && <div className="review-market-group"><strong>拍品竞购</strong>{assetLots.map((lot) => <div className="review-row" key={lot.lotId}><strong>{lot.item.emoji} {lot.item.name}</strong><span>{lot.winnerId ? <>{playerName(session.players, lot.sellerId)} → {playerName(session.players, lot.winnerId)}{lot.winningBidUnits !== null ? ` · ${formatCoins(lot.winningBidUnits)} 金币` : ''}</> : <>无人拍下，回归 {playerName(session.players, lot.sellerId)}</>}</span></div>)}</div>}</article>
+}
+
+function RelayTenureReview({ session }: { session: GameSession }) {
+  if (session.mode !== 'relay') return null
+  const results = [...session.results].sort((left, right) => left.roundIndex - right.roundIndex)
+  return <section className="relay-tenure-review panel"><div className="panel-title"><div><p className="eyebrow">接力回顾</p><h2>操作者任期</h2></div><span>{session.relayMethod === 'rotation' ? '按回合轮换' : '分段接力'}</span></div><p className="round-review-note">数据归属于操作者负责的回合；资产仍由同一位游戏玩家继承。</p><div className="relay-tenure-grid">{session.players.flatMap((player) => (player.relayOperators ?? []).map((operator) => {
+    const assigned = results.flatMap((result) => result.turns.filter((turn) => turn.playerId === player.id && turn.operatorId === operator.id).map((turn) => ({ result, turn })))
+    const firstRound = assigned[0]?.result.roundIndex
+    const lastRound = assigned.at(-1)?.result.roundIndex
+    const before = firstRound === undefined ? session.settings.initialCoins * 2 : results.filter((result) => result.roundIndex < firstRound).at(-1)?.totalAssetUnitsAfter[player.id] ?? session.settings.initialCoins * 2
+    const after = lastRound === undefined ? before : assigned.at(-1)?.result.totalAssetUnitsAfter[player.id] ?? before
+    const bidUnits = assigned.reduce((sum, entry) => sum + entry.turn.bidUnits, 0)
+    const awards = assigned.filter(({ result }) => result.rankings.some((entry) => entry.playerId === player.id)).length
+    const items = assigned.filter(({ result }) => result.itemWinnerId === player.id).length
+    const cardWins = assigned.reduce((sum, { result }) => sum + (result.cardAuctionResults ?? []).filter((lot) => lot.winnerId === player.id).length, 0)
+    const assetWins = assigned.reduce((sum, { result }) => sum + result.assetAuctionResults.filter((lot) => lot.winnerId === player.id).length, 0)
+    const activeTurns = assigned.filter(({ turn }) => turn.identityAction || turnCardUses(turn).length > 0).length
+    return <article key={`${player.id}-${operator.id}`}><header><span style={{ background: player.color }}>{player.name.slice(0, 1)}</span><div><strong>{operator.name}</strong><small>替 {player.name} · {assigned.length} 回合</small></div></header>{assigned.length === 0 ? <p>本局未轮到这位操作者。</p> : <><div className="relay-tenure-metrics"><span><b>{formatCoins(bidUnits)}</b>下注</span><span><b>{awards}</b>获奖</span><span><b>{items}</b>拍品</span><span><b>{formatCoins(after - before)}</b>资产变化</span></div><small>第 {firstRound! + 1}–{lastRound! + 1} 轮 · 技能/道具 {activeTurns} · 市场获得 道具 {cardWins} / 拍品 {assetWins}</small></>}</article>
+  }))}</div></section>
+}
+
 function RoundReview({ session }: { session: GameSession }) {
   return (
     <section className="round-review panel">
@@ -1580,6 +1607,7 @@ function RoundReview({ session }: { session: GameSession }) {
           return <details key={result.roundIndex} open={result.roundIndex === session.results.length - 1}>
             <summary><span>第 {result.roundIndex + 1} 轮</span><strong>{result.item.emoji} {result.item.name}</strong><small>真实价值 {formatCoins(result.effectiveValueUnits)} · 总下注 {formatCoins(result.totalBidUnits)}</small></summary>
             <div className="round-review-grid">
+              <MarketReview session={session} result={result} />
               <article className="review-block"><h3>全部下注</h3>{result.turns.map((turn) => { const ranking = result.rankings.find((entry) => entry.playerId === turn.playerId); return <div className="review-row" key={turn.playerId}><strong>{playerName(session.players, turn.playerId)}</strong><span>实际下注 <CoinValue units={turn.bidUnits} /></span>{ranking && ranking.bidUnits !== turn.bidUnits && <small>排名下注 {formatCoins(ranking.bidUnits)}</small>}</div> })}</article>
               <article className="review-block"><h3>道具使用</h3>{cardTurns.length === 0 ? <p>本轮没有使用道具。</p> : cardTurns.map(({ playerId, use }, index) => { const target = use.targetPlayerId ? ` → ${playerName(session.players, use.targetPlayerId)}` : ''; const coin = use.cardId === 'fateCoin' ? `（${use.coinResult === 'heads' ? '正面' : '反面'}）` : ''; const chosen = use.cardId === 'prizeReroll' && use.prizeReroll ? ITEM_POOL.find((item) => item.id === use.prizeReroll?.chosenItemId) : null; const reroll = chosen ? `（改为 ${chosen.emoji}${chosen.name}）` : ''; return <div className="review-row" key={`${playerId}-${use.cardId}-${index}`}><strong>{playerName(session.players, playerId)}</strong><span>{getCardDefinition(use.cardId).symbol} {getCardDefinition(use.cardId).name}{coin}{reroll}{target}</span></div> })}{result.cardEffects.length > 0 && <div className="review-effects">{result.cardEffects.map((effect, index) => <small key={`${effect.cardId ?? effect.symbol}-${index}`}>{effect.description}</small>)}</div>}</article>
               <article className="review-block"><h3>身份技能</h3>{skillTurns.length === 0 && identityEvents.length === 0 ? <p>本轮没有身份技能记录。</p> : <>{skillTurns.map((turn) => <div className="review-row" key={`${turn.playerId}-${turn.identityAction!.type}`}><strong>{playerName(session.players, turn.playerId)}</strong><span>{identityActionReview(turn.identityAction!, session.players, session.prophetDivinations, result.nightwalkerOutcomes?.find((entry) => entry.playerId === turn.playerId))}</span></div>)}{identityEvents.map((event, index) => <div className="review-row review-row--event" key={`${event.playerId}-${event.title}-${index}`}><strong>{playerName(session.players, event.playerId)} · {event.title}</strong><span>{event.detail}</span>{event.deltaUnits !== 0 && <DeltaLabel units={event.deltaUnits} />}</div>)}</>}</article>
@@ -1647,7 +1675,7 @@ function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: Ga
       {fullyRevealed && <SubLeaderboards session={session} />}
       {fullyRevealed && session.settings.identitySettings.enabled && <section className="identity-final panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>身份公开</h2></div><span>所有身份与开局配置</span></div><div>{session.players.map((player) => { const identity = player.identity ? getIdentityDefinition(player.identity.id) : null; const config = player.identity?.id === 'thief' && player.identity.targetPlayerId ? `目标：${playerName(session.players, player.identity.targetPlayerId)}` : player.identity?.collectorCategory ? `收藏类别：${categoryConfig(player.identity.collectorCategory).name}` : ''; return <article key={player.id}><span>{identity?.symbol ?? '—'}</span><div><strong>{player.name} · {identity?.name ?? '未选择身份'}</strong><small>{identity?.summary ?? '本局未启用身份。'}{config ? ` ${config}` : ''}</small></div></article> })}</div></section>}
       {fullyRevealed && botArchives.length > 0 && <section className="bot-reveal panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>Bot 档案</h2></div><span>性格、难度和本局恩怨</span></div>{botArchives.map(({ player, operator }) => { const controller = operator.controller as Extract<Player['controller'], { kind: 'bot' }>; const profile = BOT_PROFILES.find((entry) => entry.id === controller.profileId); const grudges = Object.entries(operator.botMemory?.grudgeByPlayerId ?? {}).filter(([, score]) => score > 0).sort((a, b) => b[1] - a[1]); return <article key={operator.id}><strong>{operator.name} · 替 {player.name} 出战 · {profile?.name}</strong><small>{profile?.summary} · {controller.difficulty === 'easy' ? '简单' : controller.difficulty === 'expert' ? '高手' : '标准'}难度</small><p>{grudges.length ? `本局最在意：${grudges.slice(0, 2).map(([id]) => playerName(session.players, id)).join('、')}` : '本局没有形成明显恩怨。'}</p></article> })}</section>}
-      {fullyRevealed && <><RoundReview session={session} /><div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div><div className="final-actions"><button className="button button--paper button--large" onClick={onRematch}>原班再来一局</button><button className="button button--primary button--large" onClick={onRevenge}>复仇局 <span>⚡</span></button><button className="text-button" onClick={onNewGame}>重新设置</button></div><small className="rematch-note">复仇局沿用座位与规则，只继承 Bot 对公开事件形成的恩怨。</small></>}
+      {fullyRevealed && <><RelayTenureReview session={session} /><RoundReview session={session} /><div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div><div className="final-actions"><button className="button button--paper button--large" onClick={onRematch}>原班再来一局</button><button className="button button--primary button--large" onClick={onRevenge}>复仇局 <span>⚡</span></button><button className="text-button" onClick={onNewGame}>重新设置</button></div><small className="rematch-note">复仇局沿用座位与规则，只继承 Bot 对公开事件形成的恩怨。</small></>}
     </section>
   )
 }
@@ -2124,6 +2152,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const auctionNotices = [...session.pendingIdentityNotices]
     const auctionEvents = [...session.identityEvents]
     const cardAuctionFeedback = new Map(auctionPlayers.map((player) => [player.id, [] as string[]]))
+    const cardAuctionResults: RoundResult['cardAuctionResults'] = []
     const spectatorMarketEvents: SpectatorEventInput[] = []
     for (const lot of session.roundAuctions ?? []) {
       const bids = session.turns.map((turn) => ({ playerId: turn.playerId, bidUnits: turn.auctionBids?.find((bid) => bid.lotId === lot.id)?.bidUnits ?? 0 }))
@@ -2151,6 +2180,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           cardAuctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」流拍，已归入你的道具库存。`)
         } else auctionDeck = shuffle([...auctionDeck, lot.cardId])
       }
+      cardAuctionResults.push({
+        lotId: lot.id,
+        cardId: lot.cardId,
+        source: lot.source,
+        merchantId: lot.merchantId,
+        winnerId: winnerBid?.playerId ?? null,
+        winningBidUnits: winnerBid?.bidUnits ?? null,
+      })
       spectatorMarketEvents.push({ roundIndex: session.roundIndex, type: 'auctionResult', playerId: winnerBid?.playerId, counterpartyPlayerId: lot.merchantId ?? undefined, bidUnits: winnerBid?.bidUnits, lotId: lot.id, summary: winnerBid ? `${playerName(auctionPlayers, winnerBid.playerId)} 拍下 ${getCardDefinition(lot.cardId).name}` : `${getCardDefinition(lot.cardId).name} 流拍`, details: [winnerBid ? `成交价 ${formatCoins(winnerBid.bidUnits)} 金币` : lot.merchantId ? '道具退回发起者' : '道具返回卡池'] })
       for (const player of auctionPlayers) {
         if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) {
@@ -2171,10 +2208,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         winner.balanceUnits -= winnerBid.bidUnits
         seller.balanceUnits += winnerBid.bidUnits
         winner.items.push({ item: lot.item, roundIndex: lot.itemRoundIndex })
-        assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: winner.id })
+        assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: winner.id, winningBidUnits: winnerBid.bidUnits })
       } else {
         if (seller) seller.items.push({ item: lot.item, roundIndex: lot.itemRoundIndex })
-        assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: null })
+        assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: null, winningBidUnits: null })
       }
       spectatorMarketEvents.push({ roundIndex: session.roundIndex, type: 'assetSale', playerId: winner?.id, counterpartyPlayerId: lot.sellerId, bidUnits: winnerBid?.bidUnits, lotId: lot.id, summary: winner && winnerBid ? `${winner.name} 拍下 ${lot.item.name}` : `${lot.item.name} 未成交`, details: [winnerBid ? `成交价 ${formatCoins(winnerBid.bidUnits)} 金币` : `起拍价 ${formatCoins(lot.minimumBidUnits)} 金币`, `卖家 ${seller?.name ?? '未知'}`] })
     }
@@ -2192,6 +2229,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       identitySettings: session.settings.identitySettings,
       identityContracts: session.identityContracts,
     })
+    settled.result.cardAuctionResults = cardAuctionResults
     settled.result.assetAuctionResults = assetAuctionResults
     const feedbackNotices = settled.identityEvents.map(identityFeedbackNotice)
     const passivityNotices = settled.result.passivityFeePenalties.map((penalty, index) => passivityFeeNotice(penalty, session.roundIndex, index))

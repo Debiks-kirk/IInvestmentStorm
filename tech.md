@@ -6,6 +6,11 @@
 - `RoundTurn.operatorId` 和 `SpectatorEvent.operatorId` 记录实际操作者。运行时以操作者的控制器与 BotMemory 生成决策，但始终向竞争玩家写入资产、身份和结算结果。
 - v34 迁移为旧会话补齐标准模式；预设导出格式升至 v3，携带接力方式、操作者与 Bot 模板快照。复仇局重新创建会话，仅映射 Bot 操作者的 `grudgeByPlayerId`。
 
+## 终局市场记录
+
+- `RoundResult.cardAuctionResults` 与 `assetAuctionResults` 保存每轮市场的标的、归属和最终成交价；普通结算页仍可按隐私规则隐藏价格，终局复盘和历史详情读取同一份已封存数据完整呈现。
+- `RelayTenureReview` 从 `RoundTurn.operatorId` 和每轮 `totalAssetUnitsAfter` 派生操作者任期统计，不重复持久化财务快照；旧结果缺失市场字段时迁移为空数组，不重算历史结算。
+
 ## 投资者分红倍率（v28 兼容）
 
 - `IdentitySettings.investorDividendMultiplier` 默认 `1.25`，归一化到 `1–3`、`0.05` 步长；加载旧会话与旧预设时自动补齐，并在下一次持久化写回。

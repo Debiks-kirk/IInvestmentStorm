@@ -807,6 +807,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     identityEvents,
     nightwalkerOutcomes,
     investments: investmentRecords,
+    cardAuctionResults: [],
     assetAuctionResults: [],
     passivityFeePlayerCount: passivityFeePenalties.length,
     passivityFeePenalties,

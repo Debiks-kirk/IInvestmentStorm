@@ -232,6 +232,17 @@ export interface AssetAuctionResult {
   item: Item
   sellerId: string
   winnerId: string | null
+  winningBidUnits: number | null
+}
+
+/** A settled card-market lot, retained for complete end-game replay. */
+export interface CardAuctionResult {
+  lotId: string
+  cardId: CardId
+  source: AuctionLot['source']
+  merchantId: string | null
+  winnerId: string | null
+  winningBidUnits: number | null
 }
 
 export type ProphetDivinationMode = 'wealth' | 'stars' | 'identity'
@@ -502,6 +513,7 @@ export interface RoundResult {
   identityEvents: IdentityEvent[]
   nightwalkerOutcomes: NightwalkerOutcome[]
   investments: InvestmentRecord[]
+  cardAuctionResults: CardAuctionResult[]
   assetAuctionResults: AssetAuctionResult[]
   /** The public result exposes only this count, never the affected identities. */
   passivityFeePlayerCount: number

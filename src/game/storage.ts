@@ -4,7 +4,7 @@ import { getProphetIdentityProgress } from './prophet'
 import { cloneSettings } from './presets'
 import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
 import { emptyBotMemory, normalizeBotStrategy, strategyForController } from './bots'
-import type { CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RelayOperator, RelaySeatConfig, RoundResult, SeatConfig, SpectatorEvent } from './types'
+import type { AssetAuctionResult, CardAuctionResult, CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RelayOperator, RelaySeatConfig, RoundResult, SeatConfig, SpectatorEvent } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
@@ -113,7 +113,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     itemWinnerId: result.itemWinnerId ?? result.winnerId ?? null,
     nightwalkerOutcomes: result.nightwalkerOutcomes ?? [],
     investments: result.investments ?? [],
-    assetAuctionResults: result.assetAuctionResults ?? [],
+    cardAuctionResults: Array.isArray(result.cardAuctionResults) ? result.cardAuctionResults.map((entry) => ({ ...entry, winningBidUnits: entry.winningBidUnits ?? null } as CardAuctionResult)) : [],
+    assetAuctionResults: Array.isArray(result.assetAuctionResults) ? result.assetAuctionResults.map((entry) => ({ ...entry, winningBidUnits: entry.winningBidUnits ?? null } as AssetAuctionResult)) : [],
     passivityFeePlayerCount: result.passivityFeePlayerCount ?? 0,
     passivityFeePenalties: result.passivityFeePenalties ?? [],
   }))
