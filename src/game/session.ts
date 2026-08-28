@@ -149,7 +149,7 @@ export function createSession(seatsOrNames: SeatConfig[] | RelaySeatConfig[] | s
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 34,
+    version: 35,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     mode,
@@ -194,7 +194,8 @@ export function createSession(seatsOrNames: SeatConfig[] | RelaySeatConfig[] | s
     spectatorMode: allOperatorsAreBots(players),
     spectatorEvents: [],
     pendingSpectatorEvents: [],
-    spectatorTakeoverPlayerId: null,
+    spectatorTakeoverPlayerIds: [],
+    spectatorTakeoverRoundIndex: null,
     createdAt: now,
     updatedAt: now,
   }

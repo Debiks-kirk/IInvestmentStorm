@@ -488,11 +488,7 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
     if (eventContrast.cardOpacity < 0.99 || eventContrast.titleOpacity < 0.99 || eventContrast.titleColor === 'rgb(255, 255, 255)') {
       throw new Error(`观战事件卡文字对比度异常：${JSON.stringify(eventContrast)}`)
     }
-    await page.getByRole('button', { name: /单步/ }).click()
-    await page.getByRole('button', { name: '接管本次' }).click()
-    await page.locator('.identity-choice-card').first().click()
-    await page.getByRole('button', { name: /确认身份与准备/ }).click()
-    await page.locator('[data-testid="spectator-event"]').waitFor({ timeout: 8000 })
+    await page.getByRole('button', { name: /继续/ }).click()
     await page.getByRole('button', { name: '▦ 数据' }).click()
     await page.getByText('实时数据中心', { exact: true }).waitFor()
     await page.getByRole('button', { name: '关闭数据面板' }).click()
@@ -506,6 +502,30 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
   await page.getByRole('button', { name: '原班再来一局' }).waitFor()
   await page.getByRole('button', { name: /复仇局/ }).waitFor()
   await assertNoHorizontalOverflow(page, `${playerCount} 人全 Bot 观战终局页`)
+}
+
+async function runSpectatorTakeoverFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await setRange(page.locator('#player-count'), 3)
+  await page.locator('#rounds').fill('2')
+  await page.getByRole('button', { name: /高级规则/ }).click()
+  await page.locator('#motion').selectOption('reduced')
+  for (let index = 1; index <= 3; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
+  await finishAdvancedSettings(page)
+  await page.getByRole('button', { name: /开始这局/ }).click()
+  await page.locator('.spectator-controls').waitFor({ timeout: 8000 })
+  await page.getByLabel('观战速度').selectOption('4')
+  await page.getByRole('button', { name: '接管下一轮' }).waitFor({ timeout: 30000 })
+  await page.getByRole('button', { name: '接管下一轮' }).click()
+  const picker = page.locator('.spectator-takeover-picker')
+  await picker.waitFor()
+  await picker.locator('.spectator-takeover-picker__grid button').first().click()
+  await picker.getByRole('button', { name: '开始接管下一轮' }).click()
+  await page.getByRole('button', { name: '启动抽奖机' }).waitFor({ timeout: 10000 })
+  if (await page.locator('.spectator-controls').count()) throw new Error('接管下一轮后不应继续显示观战控制')
 }
 
 async function runBalanceRevealFlow(page) {
@@ -685,6 +705,7 @@ try {
     await runBotSpectatorFlow(page, 3, true)
     await runBotSpectatorFlow(page, 6, false)
     await runBotSpectatorFlow(page, 10, false)
+    await runSpectatorTakeoverFlow(page)
     console.log('3/6/10 人全 Bot 观战流程冒烟测试通过。')
   } else if (process.env.SMOKE_ONLY === 'balance') {
     await runBalanceRevealFlow(page)

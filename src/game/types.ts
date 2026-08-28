@@ -552,7 +552,7 @@ export interface SpectatorEvent {
 }
 
 export interface GameSession {
-  version: 34
+  version: 35
   id: string
   phase: GamePhase
   mode: GameMode
@@ -617,8 +617,10 @@ export interface GameSession {
   spectatorEvents: SpectatorEvent[]
   /** Validated actions waiting to be shown before the state machine may continue. */
   pendingSpectatorEvents: SpectatorEvent[]
-  /** One Bot action temporarily controlled by the viewer; the seat remains a Bot. */
-  spectatorTakeoverPlayerId: string | null
+  /** Players selected at a round-result pause for one manually played next round. */
+  spectatorTakeoverPlayerIds: string[]
+  /** The one round that temporarily leaves full-information spectator playback. */
+  spectatorTakeoverRoundIndex: number | null
   /** A short, deterministic onboarding path. Omitted for every normal game. */
   tutorial?: { kind: 'firstGame' }
   createdAt: string
