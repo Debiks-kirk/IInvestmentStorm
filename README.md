@@ -1,4 +1,4 @@
-# 谁在加码
+# 拍卖大作战
 
 一款供 3–10 人共用一台设备游玩的密封竞价聚会游戏。玩家秘密下注并预测赢家；并列出价者失去排名奖励，最终金币最多者获胜。
 
@@ -30,4 +30,3 @@ npm run build
 ## 项目状态
 
 长期目标与决策见 [memory.md](memory.md)，里程碑见 [plan.md](plan.md)，实现基线见 [tech.md](tech.md)，可审计进展见 [progress.md](progress.md)。
-

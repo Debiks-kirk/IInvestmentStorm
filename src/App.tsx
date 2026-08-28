@@ -143,9 +143,9 @@ function AppShell({ children, quiet = false }: { children: ReactNode; quiet?: bo
 
 function Brand() {
   return (
-    <div className="brand" aria-label="谁在加码">
-      <span className="brand__mark">↑</span>
-      <span>谁在加码</span>
+    <div className="brand" aria-label="拍卖大作战">
+      <img className="brand__logo" src="/assets/auction-battle-logo.png" alt="" />
+      <span>拍卖大作战</span>
     </div>
   )
 }
@@ -407,14 +407,14 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${sharePreset.name.replace(/[\\/:*?"<>|]/g, '-') || '谁在加码配置'}.json`
+    link.download = `${sharePreset.name.replace(/[\\/:*?"<>|]/g, '-') || '拍卖大作战配置'}.json`
     link.click()
     URL.revokeObjectURL(url)
     setShareStatus('已下载配置文件。')
   }
   const importPreset = () => {
     const imported = importGamePreset(importText)
-    if (!imported || !imported.name) { setImportError('这不是有效的《谁在加码》配置文件。'); return }
+    if (!imported || !imported.name) { setImportError('这不是有效的《拍卖大作战》配置文件。'); return }
     // Imported templates are always copied into this device as fresh profiles.
     // Seat controllers point at their embedded snapshot, so a name/ID collision
     // can never silently change how a shared setup plays.
