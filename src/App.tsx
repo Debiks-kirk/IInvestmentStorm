@@ -1550,20 +1550,22 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const merchantCardOfferIds = identity.needsMerchantCard ? session.cardDeck.slice(0, session.settings.identitySettings.merchantInitialOfferCount) : undefined
     patch({ identityDraft: { ...draft, selectedIdentityId: identityId, ...(merchantCardOfferIds ? { merchantCardOfferIds } : {}) } })
   }
-  const startMerchantOffer = (playerId: string) => {
+  const startMerchantOffer = (playerId: string): boolean => {
     const player = session.players[session.currentTurnIndex]
-    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'merchant' || session.roundIndex >= session.settings.rounds - 2 || session.pendingMerchantOffers.some((offer) => offer.playerId === playerId && offer.roundIndex === session.roundIndex) || session.merchantShops.some((shop) => shop.playerId === playerId && shop.roundIndex === session.roundIndex)) return
+    if (session.phase !== 'privateTurn' || player?.id !== playerId || player.identity?.id !== 'merchant' || session.roundIndex >= session.settings.rounds - 2 || session.pendingMerchantOffers.some((offer) => offer.playerId === playerId && offer.roundIndex === session.roundIndex) || session.merchantShops.some((shop) => shop.playerId === playerId && shop.roundIndex === session.roundIndex)) return false
     const distinct = Array.from(new Set(session.cardDeck)).filter((cardId) => !session.settings.disabledCardIds.includes(cardId)).slice(0, 3)
-    if (distinct.length < 3) return
+    if (distinct.length < 3) return false
     const deck = [...session.cardDeck]
     distinct.forEach((cardId) => deck.splice(deck.indexOf(cardId), 1))
     patch({ cardDeck: deck, pendingMerchantOffers: [...session.pendingMerchantOffers, { playerId, roundIndex: session.roundIndex, offeredCardIds: distinct }] })
+    return true
   }
-  const chooseMerchantOffer = (cardId: CardId) => {
+  const chooseMerchantOffer = (cardId: CardId): boolean => {
     const player = session.players[session.currentTurnIndex]
     const offer = session.pendingMerchantOffers.find((entry) => entry.playerId === player?.id && entry.roundIndex === session.roundIndex)
-    if (!offer || !offer.offeredCardIds.includes(cardId)) return
+    if (!offer || !offer.offeredCardIds.includes(cardId)) return false
     patch({ pendingMerchantOffers: session.pendingMerchantOffers.map((entry) => entry === offer ? { ...entry, chosenCardId: cardId } : entry) })
+    return true
   }
   const openMerchantShop = (playerId: string): boolean => {
     const player = session.players[session.currentTurnIndex]
@@ -1634,36 +1636,39 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     }
     patch({ players, cardDeck, pendingIdentityCardAwards: pendingAwards, identityAvailableIds: enabledIdentityIds(session.settings.identitySettings), identityDraft: { playerIndex: nextIndex, choiceIds: dealIdentityChoices(selectedIds, session.settings.identitySettings) }, phase: 'identityHandoff' })
   }
-  const startPrizeReroll = (playerId: string, cardId: 'prizeReroll' | 'prizeSwap') => {
+  const startPrizeReroll = (playerId: string, cardId: 'prizeReroll' | 'prizeSwap'): boolean => {
     const currentPlayer = session.players[session.currentTurnIndex]
     const targetRoundIndex = cardId === 'prizeSwap' ? session.roundIndex : session.roundIndex + 1
     const alreadyLocked = session.pendingPrizeChanges.some((change) => change.playerId === playerId && change.roundIndex === session.roundIndex && change.cardId === cardId)
     const unresolvedChange = session.pendingPrizeChanges.some((change) => change.playerId === playerId && change.roundIndex === session.roundIndex && !change.confirmedItemId)
-    if (session.phase !== 'privateTurn' || currentPlayer?.id !== playerId || alreadyLocked || unresolvedChange || (cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1) || !currentPlayer.cardInventory.includes(cardId)) return
+    if (session.phase !== 'privateTurn' || currentPlayer?.id !== playerId || alreadyLocked || unresolvedChange || (cardId === 'prizeReroll' && session.roundIndex >= session.settings.rounds - 1) || !currentPlayer.cardInventory.includes(cardId)) return false
     const originalItem = session.itemDeck[targetRoundIndex]
     const offerCount = cardId === 'prizeSwap' ? 9 : 6
     const offeredItems = drawPrizeRerollOffers(session.itemDeck, offerCount, originalItem)
-    if (!originalItem || offeredItems.length !== offerCount) return
+    if (!originalItem || offeredItems.length !== offerCount) return false
     patch({
       players: session.players.map((player) => player.id === playerId ? { ...player, cardInventory: removeOneCard(player.cardInventory, cardId) } : player),
       pendingPrizeChanges: [...session.pendingPrizeChanges, { playerId, roundIndex: session.roundIndex, cardId, targetRoundIndex, originalItem: { ...originalItem }, offeredItems }],
     })
+    return true
   }
-  const choosePrizeReroll = (cardId: 'prizeReroll' | 'prizeSwap', itemId: string) => {
+  const choosePrizeReroll = (cardId: 'prizeReroll' | 'prizeSwap', itemId: string): boolean => {
     const pending = session.pendingPrizeChanges.find((change) => change.cardId === cardId && !change.confirmedItemId)
     const currentPlayer = session.players[session.currentTurnIndex]
-    if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex) return
+    if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex) return false
     const chosenItem = pending.offeredItems.find((item) => item.id === itemId)
-    if (!chosenItem) return
+    if (!chosenItem) return false
     patch({ pendingPrizeChanges: session.pendingPrizeChanges.map((change) => change === pending ? { ...change, chosenItemId: chosenItem.id } : change) })
+    return true
   }
-  const confirmPrizeReroll = (cardId: 'prizeReroll' | 'prizeSwap') => {
+  const confirmPrizeReroll = (cardId: 'prizeReroll' | 'prizeSwap'): boolean => {
     const pending = session.pendingPrizeChanges.find((change) => change.cardId === cardId && !change.confirmedItemId)
     const currentPlayer = session.players[session.currentTurnIndex]
-    if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex || !pending.chosenItemId) return
+    if (session.phase !== 'privateTurn' || !pending || pending.confirmedItemId || pending.playerId !== currentPlayer?.id || pending.roundIndex !== session.roundIndex || !pending.chosenItemId) return false
     const chosenItem = pending.offeredItems.find((item) => item.id === pending.chosenItemId)
-    if (!chosenItem) return
+    if (!chosenItem) return false
     patch({ itemDeck: cardId === 'prizeReroll' ? replacePrizeAt(session.itemDeck, pending.targetRoundIndex, chosenItem) : session.itemDeck, pendingPrizeChanges: session.pendingPrizeChanges.map((change) => change === pending ? { ...change, confirmedItemId: chosenItem.id } : change) })
+    return true
   }
   const useProphetDivination = (playerId: string, mode: ProphetDivination['mode'], targetPlayerId?: string, identityId?: IdentityId): boolean => {
     const player = session.players[session.currentTurnIndex]
@@ -1732,13 +1737,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     patch({ players, cardDeck, prophetDivinations: mode === 'identity' && identityDivinationThisRound ? session.prophetDivinations.map((entry) => entry.id === identityDivinationThisRound.id ? divination as ProphetDivination : entry) : [...session.prophetDivinations, divination], prophetIdentityProgress: identityProgress, pendingIdentityNotices: resolvedNotices, pendingProphetCardOffers })
     return true
   }
-  const chooseProphetOffer = (playerId: string, cardId: CardId) => {
+  const chooseProphetOffer = (playerId: string, cardId: CardId): boolean => {
     const player = session.players[session.currentTurnIndex]
     const offer = session.pendingProphetCardOffers.find((entry) => entry.playerId === playerId && entry.chosenCardIds.length < 2)
-    if (session.phase !== 'privateTurn' || player?.id !== playerId || !offer || !offer.offeredCardIds.includes(cardId) || offer.chosenCardIds.includes(cardId)) return
+    if (session.phase !== 'privateTurn' || player?.id !== playerId || !offer || !offer.offeredCardIds.includes(cardId) || offer.chosenCardIds.includes(cardId)) return false
     const deckIndex = session.cardDeck.indexOf(cardId)
     const cardDeck = deckIndex >= 0 ? session.cardDeck.filter((_, index) => index !== deckIndex) : session.cardDeck
     patch({ cardDeck, players: session.players.map((entry) => entry.id === playerId ? { ...entry, cardInventory: [...entry.cardInventory, cardId] } : entry), pendingProphetCardOffers: session.pendingProphetCardOffers.map((entry) => entry === offer ? { ...entry, chosenCardIds: [...entry.chosenCardIds, cardId] } : entry) })
+    return true
   }
   const resolveFateCoin = (playerId: string, result: 'heads' | 'tails'): CardUse | null => {
     const player = session.players[session.currentTurnIndex]
@@ -1929,6 +1935,23 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const retainedPrizeChanges = session.pendingPrizeChanges.filter((change) => !(change.playerId === turn.playerId && change.roundIndex === session.roundIndex && change.cardId !== 'prizeSwap'))
     patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, merchantShops, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: retainedPrizeChanges, ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
     return true
+  }
+  /**
+   * Bot decisions are deliberately rich and may include cards, skills, investments
+   * and several market quotes.  A stale offer or a newly-invalid extra action must
+   * never leave the device on the Bot thinking screen.  This fallback keeps the
+   * planned main bid, removes only optional actions and uses legal zero quotes for
+   * every market lot.  The final timed-out-style retry also resolves a malformed
+   * pending prize choice without rerolling it.
+   */
+  const submitBotRecoveryTurn = (player: Player, intendedBidUnits: number, reason: string): boolean => {
+    const safeBidUnits = Number.isInteger(intendedBidUnits) ? Math.max(0, Math.min(player.balanceUnits, intendedBidUnits)) : 0
+    const emptyAuctionBids = [...(session.roundAuctions ?? []), ...(session.roundAssetAuctions ?? [])]
+      .map((lot) => ({ lotId: lot.id, bidUnits: 0 }))
+    const record = { mode: 'conserve' as const, reason }
+    if (submitTurn({ playerId: player.id, bidUnits: safeBidUnits, predictedPlayerId: null, auctionBids: emptyAuctionBids, cardUses: [] }, record, true)) return true
+    if (safeBidUnits > 0) return submitTurn({ playerId: player.id, bidUnits: 0, predictedPlayerId: null, auctionBids: emptyAuctionBids, cardUses: [] }, record, true)
+    return false
   }
   const reveal = () => {
     if (session.phase !== 'revealReady') return
@@ -2287,6 +2310,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       } else if (session.phase === 'handoff' && isBot(currentPlayer)) {
         patch({ phase: 'privateTurn' })
       } else if (session.phase === 'privateTurn' && isBot(currentPlayer)) {
+        try {
         const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
         const observation = buildBotObservation(session, currentPlayer.id)
         const merchantShop = session.merchantShops.find((shop) => shop.playerId === currentPlayer.id && shop.roundIndex === session.roundIndex)
@@ -2309,25 +2333,22 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const pendingPrizeChange = session.pendingPrizeChanges.find((change) => change.playerId === currentPlayer.id && change.roundIndex === session.roundIndex && !change.confirmedItemId)
         if (pendingPrizeChange) {
           if (!pendingPrizeChange.chosenItemId) {
-            const choice = decideBotPrizeReroll(currentPlayer, pendingPrizeChange.offeredItems, session.roundIndex, session.id)
-            if (choice) choosePrizeReroll(pendingPrizeChange.cardId, choice.id)
+            const choice = decideBotPrizeReroll(currentPlayer, pendingPrizeChange.offeredItems, session.roundIndex, session.id) ?? pendingPrizeChange.offeredItems[0]
+            if (choice && choosePrizeReroll(pendingPrizeChange.cardId, choice.id)) return
           } else {
-            confirmPrizeReroll(pendingPrizeChange.cardId)
+            if (confirmPrizeReroll(pendingPrizeChange.cardId)) return
           }
-          return
         }
         const memory = currentPlayer.botMemory ?? emptyBotMemory(`${session.id}:${currentPlayer.id}`)
         const merchantOffer = session.pendingMerchantOffers.find((offer) => offer.playerId === currentPlayer.id && offer.roundIndex === session.roundIndex)
         if (merchantOffer && !merchantOffer.chosenCardId) {
-          const cardId = decideBotMerchantOffer(currentPlayer, merchantOffer.offeredCardIds, session.roundIndex, session.id)
-          if (cardId) chooseMerchantOffer(cardId)
-          return
+          const cardId = decideBotMerchantOffer(currentPlayer, merchantOffer.offeredCardIds, session.roundIndex, session.id) ?? merchantOffer.offeredCardIds[0]
+          if (cardId && chooseMerchantOffer(cardId)) return
         }
         const prophetOffer = session.pendingProphetCardOffers.find((offer) => offer.playerId === currentPlayer.id && offer.chosenCardIds.length < 2)
         if (prophetOffer) {
           const cardId = prophetOffer.offeredCardIds.find((id) => !prophetOffer.chosenCardIds.includes(id))
-          if (cardId) chooseProphetOffer(currentPlayer.id, cardId)
-          return
+          if (cardId && chooseProphetOffer(currentPlayer.id, cardId)) return
         }
         const ownDivinations = session.prophetDivinations.filter((entry) => entry.playerId === currentPlayer.id && entry.roundIndex === session.roundIndex)
         const identityRecord = ownDivinations.find((entry) => entry.mode === 'identity')
@@ -2343,13 +2364,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         }
         const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
         if (decision.identityAction?.type === 'merchantAuction' && !merchantOffer) {
-          startMerchantOffer(currentPlayer.id)
-          return
+          if (startMerchantOffer(currentPlayer.id)) return
         }
         const prizeChangeCard = decision.cardUses.map((use) => use.cardId).find((cardId): cardId is 'prizeReroll' | 'prizeSwap' => cardId === 'prizeReroll' || cardId === 'prizeSwap')
         if (prizeChangeCard && !session.pendingPrizeChanges.some((change) => change.playerId === currentPlayer.id && change.roundIndex === session.roundIndex && change.cardId === prizeChangeCard)) {
-          startPrizeReroll(currentPlayer.id, prizeChangeCard)
-          return
+          if (startPrizeReroll(currentPlayer.id, prizeChangeCard)) return
         }
         const plannedIdentityCost = decision.identityAction?.type === 'reverserInvert'
           ? (currentPlayer.identity?.reverserFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 4 : 2)))
@@ -2378,8 +2397,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffers: [assetAuctionOffer] } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {
-          const retainedBidUnits = Number.isInteger(decision.bidUnits) ? Math.max(0, Math.min(currentPlayer.balanceUnits, decision.bidUnits)) : 0
-          submitTurn({ playerId: currentPlayer.id, bidUnits: retainedBidUnits, predictedPlayerId, auctionBids, cardUses: [] }, { ...decision, reason: `${decision.reason} 附加计划未通过校验，保留竞拍和预测，撤销本回合道具/身份动作。` })
+          submitBotRecoveryTurn(currentPlayer, decision.bidUnits, `${decision.reason} 附加计划未通过校验，保留本轮下注并撤销不合法的附加动作。`)
+        }
+        } catch (error) {
+          // A bot planner must never be able to stall the shared device.  Keep a
+          // concise console trace for diagnosis, then submit a safe legal turn.
+          console.error('Bot 自动决策异常，已使用恢复方案。', error)
+          submitBotRecoveryTurn(currentPlayer, Math.floor(currentPlayer.balanceUnits * 0.3), '自动决策出现异常，已改用保守竞拍方案。')
         }
       } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
         patch({ phase: 'auctionBid' })
