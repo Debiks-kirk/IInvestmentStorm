@@ -458,26 +458,42 @@ async function runAssetFinalFlow(page) {
   await assertNoHorizontalOverflow(page, '固定资产终局页')
 }
 
-async function runBotSpectatorFlow(page) {
+async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true) {
   await page.goto('http://127.0.0.1:5181')
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
+  await setRange(page.locator('#player-count'), playerCount)
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级规则/ }).click()
   await page.locator('#motion').selectOption('reduced')
-  for (let index = 1; index <= 3; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
+  for (let index = 1; index <= playerCount; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
   await finishAdvancedSettings(page)
   await page.getByRole('button', { name: /开始这局/ }).click()
-  await page.getByRole('button', { name: '继续自动' }).waitFor({ timeout: 15000 })
-  await page.getByRole('button', { name: '继续自动' }).click()
-  await page.getByText('全局结束', { exact: true }).waitFor({ timeout: 15000 })
+  await page.locator('.spectator-controls').waitFor({ timeout: 8000 })
+  await page.getByLabel('观战速度').selectOption('4')
+  if (inspectControls) {
+    await page.getByRole('button', { name: /暂停/ }).click()
+    await page.getByRole('button', { name: /单步/ }).click()
+    await page.locator('[data-testid="spectator-event"]').waitFor({ timeout: 8000 })
+    await page.getByRole('button', { name: /单步/ }).click()
+    await page.getByRole('button', { name: '接管本次' }).click()
+    await page.locator('.identity-choice-card').first().click()
+    await page.getByRole('button', { name: /确认身份与准备/ }).click()
+    await page.locator('[data-testid="spectator-event"]').waitFor({ timeout: 8000 })
+    await page.getByRole('button', { name: '▦ 数据' }).click()
+    await page.getByText('实时数据中心', { exact: true }).waitFor()
+    await page.getByRole('button', { name: '关闭数据面板' }).click()
+  }
+  await page.getByRole('button', { name: /继续/ }).waitFor({ timeout: 30000 })
+  await page.getByRole('button', { name: /继续/ }).click()
+  await page.getByText('全局结束', { exact: true }).waitFor({ timeout: 30000 })
   await page.getByText('Bot 档案', { exact: true }).waitFor()
   await page.getByText('逐轮复盘', { exact: true }).waitFor()
   await page.getByText('本局名场面 · 5 张', { exact: true }).waitFor()
   await page.getByRole('button', { name: '原班再来一局' }).waitFor()
   await page.getByRole('button', { name: /复仇局/ }).waitFor()
-  await assertNoHorizontalOverflow(page, '全 Bot 观战终局页')
+  await assertNoHorizontalOverflow(page, `${playerCount} 人全 Bot 观战终局页`)
 }
 
 async function runBalanceRevealFlow(page) {
@@ -626,8 +642,10 @@ try {
     await runLobbyistTaskFlow(page)
     console.log('说客任务流程冒烟测试通过。')
   } else if (process.env.SMOKE_ONLY === 'bot') {
-    await runBotSpectatorFlow(page)
-    console.log('全 Bot 观战流程冒烟测试通过。')
+    await runBotSpectatorFlow(page, 3, true)
+    await runBotSpectatorFlow(page, 6, false)
+    await runBotSpectatorFlow(page, 10, false)
+    console.log('3/6/10 人全 Bot 观战流程冒烟测试通过。')
   } else if (process.env.SMOKE_ONLY === 'balance') {
     await runBalanceRevealFlow(page)
     console.log('余额翻牌流程冒烟测试通过。')
@@ -646,7 +664,7 @@ try {
     await runLobbyistTaskFlow(page)
     await runAssetFinalFlow(page)
     await runBalanceRevealFlow(page)
-    await runBotSpectatorFlow(page)
+    await runBotSpectatorFlow(page, 3, true)
     await page.setViewportSize({ width: 1366, height: 768 })
     await page.evaluate(() => localStorage.clear())
     await page.goto('http://127.0.0.1:5181')

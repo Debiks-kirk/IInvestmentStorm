@@ -324,3 +324,11 @@
 - `decideBotAssetAuctionBids` 可选接收公开回合摘要，按类别出现次数、不同赢家和公开高总下注构造 `marketHeat`。在套装、收藏家类别或热门类别有充分价值时，单回合最多一张拍品可按小概率获得高价上限与较激进报价；其随机源是会话种子，刷新可复现。
 - `decideBotAssetAuctionOffer` 以市场倾向抽取每回合卖货意愿，仍保留收藏家目标类别保护、自身套装损失、竞争对手受益和最低保本价约束。`decideBotKidnapResponse` 同时加入市场倾向、资产专注与稳定正态扰动。
 - `BotObservation.humanOpponentIds` 只包含公开的座位控制器类型。仅专家绑匪有 38% 概率随机挑一名真人加 3.8 个百分点的目标评分，作为轻微戏剧性偏向，不读取任何真人私密状态。
+
+### 全 Bot 观战事件架构（v33）
+
+- `GameSession.spectatorMode` 只在全 Bot 座位中启用；`spectatorEvents` 保存完整结构化历史，`pendingSpectatorEvents` 是必须播放完才能继续自动状态机的队列。
+- `appendSpectatorEvent(s)` 统一分配会话内递增序号。事件只保存通过校验的最终选择和结果，不复制 Bot 计划评分，也不依赖 `BotDecisionRecord.reason`。
+- `spectatorTakeoverPlayerId` 是一次性 UI 控制权，不改写 `Player.controller`。身份、私密回合、旧竞购与绑票提交后都会清空它。
+- `createSpectatorPlayerStats` 从玩家、`RoundTurn`、`RoundResult` 与市场事件派生实时统计；`createSpectatorChart` 派生总资产、现金、累计下注和累计净收益，结算仍是唯一财务数据源。
+- v32 及更早存档迁移到 v33：全 Bot 未完成局保留私密行动阶段，混合局仍退回设备传递页；已完成结果只补基础历史，不重算结算。

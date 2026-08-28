@@ -135,7 +135,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 32, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
+    expect(loadSession()).toMatchObject({ version: 33, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -152,7 +152,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(32)
+    expect(first?.version).toBe(33)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -173,7 +173,7 @@ describe('对局存档迁移', () => {
     delete strategy.identityPriority
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(32)
+    expect(migrated?.version).toBe(33)
     expect(migrated?.players[0].botMemory?.strategy.identityPriority[0]).toBe(legacy.players[0].botMemory.strategy.identityTactics ? Object.keys(legacy.players[0].botMemory.strategy.identityTactics).find((identityId) => legacy.players[0].botMemory.strategy.identityTactics[identityId] === 100) : undefined)
   })
 
@@ -187,7 +187,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(32)
+    expect(migrated?.version).toBe(33)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

@@ -489,8 +489,35 @@ export interface RoundResult {
   totalAssetUnitsAfter: Record<string, number>
 }
 
+export type SpectatorEventType =
+  | 'identityChoice'
+  | 'turn'
+  | 'auctionBid'
+  | 'auctionResult'
+  | 'assetSale'
+  | 'kidnap'
+  | 'roundResult'
+
+/** A validated public action in an all-Bot game. It never contains planner scores or reasons. */
+export interface SpectatorEvent {
+  id: string
+  sequence: number
+  roundIndex: number
+  type: SpectatorEventType
+  playerId?: string
+  /** Merchant or seller on market events. */
+  counterpartyPlayerId?: string
+  identityId?: IdentityId
+  identityChoiceIds?: IdentityId[]
+  turn?: RoundTurn
+  bidUnits?: number
+  lotId?: string
+  summary: string
+  details: string[]
+}
+
 export interface GameSession {
-  version: 32
+  version: 33
   id: string
   phase: GamePhase
   settings: GameSettings
@@ -546,6 +573,14 @@ export interface GameSession {
   currentTurnIndex: number
   turns: RoundTurn[]
   results: RoundResult[]
+  /** Full-information playback is enabled only when every seat was a Bot at game creation. */
+  spectatorMode: boolean
+  /** Durable event history used by the live dashboard and post-refresh playback. */
+  spectatorEvents: SpectatorEvent[]
+  /** Validated actions waiting to be shown before the state machine may continue. */
+  pendingSpectatorEvents: SpectatorEvent[]
+  /** One Bot action temporarily controlled by the viewer; the seat remains a Bot. */
+  spectatorTakeoverPlayerId: string | null
   /** A short, deterministic onboarding path. Omitted for every normal game. */
   tutorial?: { kind: 'firstGame' }
   createdAt: string

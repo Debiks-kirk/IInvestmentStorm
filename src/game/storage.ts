@@ -4,7 +4,7 @@ import { getProphetIdentityProgress } from './prophet'
 import { cloneSettings } from './presets'
 import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
 import { emptyBotMemory, normalizeBotStrategy, strategyForController } from './bots'
-import type { CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig } from './types'
+import type { CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig, SpectatorEvent } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
@@ -26,14 +26,14 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
-    const safeSession = migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
-      : migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
-        : migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
+    const safeSession = !migrated.spectatorMode && migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
+      : !migrated.spectatorMode && migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
+        : !migrated.spectatorMode && migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
           : migrated
-    if (parsed.version !== 32 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 33 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !Array.isArray(parsed.spectatorEvents) || !Array.isArray(parsed.pendingSpectatorEvents) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -58,7 +58,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     turnTimeLimitSeconds: Math.min(120, Math.max(5, oldSettings.turnTimeLimitSeconds ?? 20)),
     turnTimerEnabled: oldSettings.turnTimerEnabled ?? false,
     animationSpeed: oldSettings.animationSpeed ?? 'full',
-    identitySettings: session.version === 4 || session.version === 5 || session.version === 6 || session.version === 7 || session.version === 8 || session.version === 9 || session.version === 10 || session.version === 11 || session.version === 12 || session.version === 13 || session.version === 14 || session.version === 15 || session.version === 16 || session.version === 17 || session.version === 18 || session.version === 19 || session.version === 20 || session.version === 21 || session.version === 22 || session.version === 23 || session.version === 24 || session.version === 25 || session.version === 26 || session.version === 27 || session.version === 28 || session.version === 29 || session.version === 30 || session.version === 31 || session.version === 32 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
+    identitySettings: (session.version ?? 0) >= 4 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
@@ -128,9 +128,19 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   const pendingPrizeChanges = Array.isArray(session.pendingPrizeChanges)
     ? session.pendingPrizeChanges.map(normalizePendingPrizeChange)
     : session.pendingPrizeReroll ? [normalizePendingPrizeChange(session.pendingPrizeReroll)] : []
+  const spectatorMode = session.spectatorMode ?? (players.length > 0 && players.every((player) => player.controller?.kind === 'bot'))
+  const existingSpectatorEvents = Array.isArray(session.spectatorEvents) ? session.spectatorEvents as SpectatorEvent[] : []
+  const reconstructedEvents: SpectatorEvent[] = existingSpectatorEvents.length > 0 ? existingSpectatorEvents : results.map((result, index) => ({
+    id: `spectator-migrated-result-${result.roundIndex}`,
+    sequence: index,
+    roundIndex: result.roundIndex,
+    type: 'roundResult',
+    summary: `第 ${result.roundIndex + 1} 轮结算完成`,
+    details: [`总下注 ${result.totalBidUnits / 2} 金币`, result.itemWinnerId ? '拍品已有归属' : '拍品流拍'],
+  }))
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 32,
+    version: 33,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -184,6 +194,10 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     finalReceiptIndex: session.finalReceiptIndex ?? null,
     operationDeadlineAt: settings.turnTimerEnabled && typeof session.operationDeadlineAt === 'number' ? session.operationDeadlineAt : null,
     cardRulesStartRound: session.cardRulesStartRound ?? Math.max((session.roundIndex ?? 0) + 1, 1),
+    spectatorMode,
+    spectatorEvents: reconstructedEvents,
+    pendingSpectatorEvents: Array.isArray(session.pendingSpectatorEvents) ? session.pendingSpectatorEvents as SpectatorEvent[] : [],
+    spectatorTakeoverPlayerId: typeof session.spectatorTakeoverPlayerId === 'string' ? session.spectatorTakeoverPlayerId : null,
   }
   return migrated
 }

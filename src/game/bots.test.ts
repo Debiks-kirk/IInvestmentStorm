@@ -326,13 +326,14 @@ describe('Bot 信息边界与决策', () => {
 describe('Bot 藏品出售与绑票谈判', () => {
   it('会把自身收益较低、已有公开竞争需求的藏品挂到下一轮竞购，同时保留收藏家目标类', () => {
     const session = createSession(seats(), createDefaultSettings(3))
-    const player = { ...session.players[0], controller: { kind: 'bot' as const, profileId: 'aggressive' as const, difficulty: 'expert' as const }, botMemory: emptyBotMemory('seller-bot') }
+    const stablePlayers = session.players.map((entry, index) => ({ ...entry, id: `seller-player-${index}` }))
+    const player = { ...stablePlayers[0], controller: { kind: 'bot' as const, profileId: 'aggressive' as const, difficulty: 'expert' as const }, botMemory: emptyBotMemory('seller-bot') }
     const item = { ...session.itemDeck[0], id: 'seller-leisure', category: 'leisure' as const, value: 4 }
     player.items = [{ item, roundIndex: 0 }]
-    const observation = buildBotObservation({ ...session, players: [player, ...session.players.slice(1)] }, player.id)
+    const observation = buildBotObservation({ ...session, id: 'seller-session', players: [player, ...stablePlayers.slice(1)] }, player.id)
     observation.publicRounds = [
-      { winnerId: session.players[1].id, totalBidUnits: 20, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'leisure', rankings: [], publicDeltaByPlayerId: {} },
-      { winnerId: session.players[2].id, totalBidUnits: 22, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'leisure', rankings: [], publicDeltaByPlayerId: {} },
+      { winnerId: stablePlayers[1].id, totalBidUnits: 20, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'leisure', rankings: [], publicDeltaByPlayerId: {} },
+      { winnerId: stablePlayers[2].id, totalBidUnits: 22, minWinningBidUnits: 8, tiedPlayerIds: [], itemCategory: 'leisure', rankings: [], publicDeltaByPlayerId: {} },
     ]
     const offer = decideBotAssetAuctionOffer({ player, observation, roundIndex: 2, totalRounds: 6, sessionSeed: 'seller-bot' })
     expect(offer).toMatchObject({ itemId: 'seller-leisure', itemRoundIndex: 0 })

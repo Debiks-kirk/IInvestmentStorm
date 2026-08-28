@@ -10,7 +10,8 @@ import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistor
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
-import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig } from './game/types'
+import { appendSpectatorEvent, appendSpectatorEvents, createRoundResultSpectatorEvent, createSpectatorChart, createSpectatorPlayerStats, createTurnSpectatorEvent, type SpectatorChartKey, type SpectatorEventInput } from './game/spectator'
+import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'collection' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
@@ -650,8 +651,36 @@ function BotThinking({ player, allBots }: { player: Player; allBots: boolean }) 
   return <section className="bot-thinking screen-center"><div className="privacy-seal"><span>✦</span></div><p className="eyebrow">Bot 正在行动</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">正在分析拍品、局势与可用技能。</p><div className="bot-thinking__dots" aria-label="Bot 正在思考"><i /><i /><i /></div>{allBots && <small className="privacy-note">观战模式会自动推进至终局</small>}</section>
 }
 
-function SpectatorControls({ paused, speed, onToggle, onSpeed, onTakeOver }: { paused: boolean; speed: number; onToggle: () => void; onSpeed: (speed: number) => void; onTakeOver: () => void }) {
-  return <div className="spectator-controls" aria-label="Bot 观战控制"><span>Bot 观战</span><button className="text-button" onClick={onToggle}>{paused ? '继续自动' : '暂停'}</button><select aria-label="观战速度" value={speed} onChange={(event) => onSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select>{paused && <button className="text-button spectator-controls__takeover" onClick={onTakeOver}>接管当前 Bot</button>}</div>
+function SpectatorControls({ paused, speed, canTakeOver, takingOver, onToggle, onStep, onSpeed, onPanel, onTakeOver }: { paused: boolean; speed: number; canTakeOver: boolean; takingOver: boolean; onToggle: () => void; onStep: () => void; onSpeed: (speed: number) => void; onPanel: () => void; onTakeOver: () => void }) {
+  return <div className="spectator-controls" aria-label="Bot 观战控制"><strong><i>LIVE</i> 观战模式</strong><button onClick={onToggle}>{paused ? '▶ 继续' : 'Ⅱ 暂停'}</button><button onClick={onStep} disabled={!paused}>▷ 单步</button><label><span>速度</span><select aria-label="观战速度" value={speed} onChange={(event) => onSpeed(Number(event.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option></select></label><button className="spectator-controls__panel" onClick={onPanel}>▦ 数据</button><button className="spectator-controls__takeover" disabled={!canTakeOver} onClick={onTakeOver}>{takingOver ? '取消接管' : '接管本次'}</button></div>
+}
+
+function SpectatorEventStage({ event, session }: { event: SpectatorEvent; session: GameSession }) {
+  const player = event.playerId ? session.players.find((entry) => entry.id === event.playerId) : null
+  const identity = player?.identity ? getIdentityDefinition(player.identity.id) : null
+  const controller = player?.controller?.kind === 'bot' ? player.controller : null
+  const profile = controller ? BOT_PROFILES.find((entry) => entry.id === controller.profileId) : null
+  const icon = event.type === 'identityChoice' ? identity?.symbol ?? '◇' : event.type === 'roundResult' ? '✓' : event.type === 'kidnap' ? '⛓' : event.type.includes('auction') || event.type === 'assetSale' ? '◈' : '●'
+  return <section className={`spectator-event-stage spectator-event-stage--${event.type}`} aria-live="polite" data-testid="spectator-event"><div className="spectator-event-stage__pulse" aria-hidden="true" /><article><div className="spectator-event-stage__icon" style={player ? { '--player-color': player.color } as React.CSSProperties : undefined}>{icon}</div><p className="eyebrow">第 {event.roundIndex + 1} 轮 · {event.type === 'identityChoice' ? '身份确认' : event.type === 'roundResult' ? '回合落定' : '行动确认'}</p><h1>{event.summary}</h1>{player && <div className="spectator-event-stage__profile"><span style={{ background: player.color }}>{player.name.slice(0, 1)}</span><div><strong>{player.name} · {identity?.name ?? '未选身份'}</strong><small>{profile?.name ?? '自定义'} · {controller?.difficulty === 'expert' ? '高手' : controller?.difficulty === 'easy' ? '简单' : '标准'}</small></div></div>}<div className="spectator-event-stage__details">{event.details.map((detail, index) => <span key={`${detail}-${index}`}>{detail}</span>)}</div></article></section>
+}
+
+function SpectatorChart({ session, chartKey }: { session: GameSession; chartKey: SpectatorChartKey }) {
+  const rows = createSpectatorChart(session, chartKey); const width = 560; const height = 220; const pad = 25
+  const maximum = Math.max(2, ...rows.flatMap((row) => Object.values(row.values)))
+  const points = (playerId: string) => rows.map((row, index) => `${pad + (rows.length === 1 ? 0 : index * (width - pad * 2) / (rows.length - 1))},${height - pad - ((row.values[playerId] ?? 0) / maximum) * (height - pad * 2)}`).join(' ')
+  return <div className="spectator-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="对局走势折线图"><g className="spectator-chart__grid"><line x1={pad} y1={pad} x2={pad} y2={height - pad} /><line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} /><line x1={pad} y1={height / 2} x2={width - pad} y2={height / 2} /></g>{session.players.map((player) => <polyline key={player.id} points={points(player.id)} fill="none" stroke={player.color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />)}</svg><div>{session.players.map((player) => <span key={player.id}><i style={{ background: player.color }} />{player.name}</span>)}</div></div>
+}
+
+type SpectatorPanelTab = 'battle' | 'data' | 'events'
+
+function SpectatorDashboard({ session, tab, open, selectedPlayerId, eventFilter, onTab, onClose, onSelectPlayer, onFilter }: { session: GameSession; tab: SpectatorPanelTab; open: boolean; selectedPlayerId: string | null; eventFilter: string; onTab: (tab: SpectatorPanelTab) => void; onClose: () => void; onSelectPlayer: (id: string | null) => void; onFilter: (value: string) => void }) {
+  const [chartKey, setChartKey] = useState<SpectatorChartKey>('assets'); const stats = createSpectatorPlayerStats(session); const selected = stats.find((entry) => entry.player.id === selectedPlayerId); const acted = new Set(session.turns.map((turn) => turn.playerId)).size
+  const filteredEvents = session.spectatorEvents.filter((event) => eventFilter === 'all' || event.type === eventFilter || event.playerId === eventFilter).slice().reverse()
+  return <aside className={cx('spectator-dashboard', open && 'is-open')} aria-label="观战数据面板"><header><div><small>拍卖大作战</small><strong>实时数据中心</strong></div><button aria-label="关闭数据面板" onClick={onClose}>×</button></header><nav>{([['battle', '战况'], ['data', '数据'], ['events', '事件']] as const).map(([id, label]) => <button key={id} className={cx(tab === id && 'is-active')} onClick={() => onTab(id)}>{label}</button>)}</nav><div className="spectator-dashboard__body">
+    {tab === 'battle' && <><div className="spectator-progress"><span>本轮进度</span><strong>{acted} / {session.players.length}</strong><i><b style={{ width: `${acted / Math.max(1, session.players.length) * 100}%` }} /></i></div><div className="spectator-rank-list">{stats.map((entry) => <button key={entry.player.id} onClick={() => onSelectPlayer(entry.player.id)}><b>{entry.place}</b><span style={{ background: entry.player.color }}>{entry.player.name.slice(0, 1)}</span><div><strong>{entry.player.name}</strong><small>{entry.player.identity ? getIdentityDefinition(entry.player.identity.id).name : '选择身份中'} · {entry.mainCategory}</small></div><em><CoinValue units={entry.totalAssetUnits} /><small>现金 {formatCoins(entry.cashUnits)} · 固资 {formatCoins(entry.fixedAssetUnits)}</small></em></button>)}</div></>}
+    {tab === 'data' && <><div className="spectator-chart-tabs">{([['assets', '总资产'], ['cash', '现金'], ['bids', '累计下注'], ['net', '累计净收益']] as const).map(([id, label]) => <button key={id} className={cx(chartKey === id && 'is-active')} onClick={() => setChartKey(id)}>{label}</button>)}</div><SpectatorChart session={session} chartKey={chartKey} /><details className="spectator-detail-table"><summary>展开详细统计</summary>{stats.map((entry) => <button key={entry.player.id} onClick={() => onSelectPlayer(entry.player.id)}><strong>{entry.player.name}</strong><span>总下注 {formatCoins(entry.totalBidUnits)}</span><span>均注 {formatCoins(entry.averageBidUnits)}</span><span>获奖 {entry.awardCount} 次</span><span>预测 {entry.predictionHits}/{entry.predictionCount}</span><span>预测净值 {formatCoins(entry.predictionNetUnits)}</span><span>道具 {entry.cardUses} · 技能 {entry.skillUses}</span><span>道具市场 支 {formatCoins(entry.cardAuctionSpentUnits)} / 收 {formatCoins(entry.cardAuctionIncomeUnits)}</span><span>拍品市场 支 {formatCoins(entry.assetAuctionSpentUnits)} / 收 {formatCoins(entry.assetAuctionIncomeUnits)}</span></button>)}</details></>}
+    {tab === 'events' && <><select className="spectator-event-filter" aria-label="筛选观战事件" value={eventFilter} onChange={(event) => onFilter(event.target.value)}><option value="all">全部事件</option><option value="turn">回合操作</option><option value="identityChoice">身份选择</option><option value="roundResult">回合结算</option>{session.players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select><div className="spectator-event-list">{filteredEvents.map((event) => <article key={event.id}><i>{event.sequence + 1}</i><div><strong>{event.summary}</strong><small>第 {event.roundIndex + 1} 轮 · {event.details.join(' · ')}</small></div></article>)}</div></>}
+  </div>{selected && <div className="spectator-player-detail" role="dialog" aria-modal="true"><header><div><span style={{ background: selected.player.color }}>{selected.player.name.slice(0, 1)}</span><div><small>玩家详情</small><h2>{selected.player.name}</h2></div></div><button onClick={() => onSelectPlayer(null)}>×</button></header><div className="spectator-player-detail__identity"><b>{selected.player.identity ? getIdentityDefinition(selected.player.identity.id).symbol : '◇'}</b><div><strong>{selected.player.identity ? getIdentityDefinition(selected.player.identity.id).name : '未选身份'}</strong><small>库存 {selected.cardCount} 张 · 收藏 {selected.itemCount} 件</small></div></div><div className="spectator-player-detail__numbers"><span><b>{formatCoins(selected.cashUnits)}</b>现金</span><span><b>{formatCoins(selected.fixedAssetUnits)}</b>固定资产</span><span><b>{formatCoins(selected.totalAssetUnits)}</b>总资产</span></div><h3>收藏进度</h3>{selected.categories.map((entry) => <div className="spectator-category-row" key={entry.name}><strong>{entry.name}</strong><span>{entry.count} 件 · +{formatCoins(entry.units)}</span><small>{entry.nextAt ? `下一档 ${entry.nextAt} 件` : '最高档'}</small></div>)}<h3>逐轮操作</h3>{session.results.flatMap((result) => result.turns.map((turn) => ({ result, turn }))).filter(({ turn }) => turn.playerId === selected.player.id).map(({ result, turn }) => <div className="spectator-player-round" key={result.roundIndex}><b>第 {result.roundIndex + 1} 轮</b><span>下注 {formatCoins(turn.bidUnits)} · {turn.predictedPlayerId ? `预测 ${playerName(session.players, turn.predictedPlayerId)}` : '未预测'}</span></div>)}</div>}</aside>
 }
 
 function IdentityHandoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
@@ -1540,8 +1569,15 @@ function KidnapNegotiationPanel({ negotiation, onResolve }: { negotiation: Kidna
 
 function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: { session: GameSession; setSession: (session: GameSession) => void; onExit: () => void; onNewGame: () => void; onRematch: () => void; onRevenge: () => void }) {
   const [botPaused, setBotPaused] = useState(false)
-  const [botSpeed, setBotSpeed] = useState(1)
+  const [botSpeed, setBotSpeed] = useState(() => { const value = Number(localStorage.getItem('auction-battle:spectator-speed')); return [0.5, 1, 2, 4].includes(value) ? value : 1 })
   const [autoPausedRound, setAutoPausedRound] = useState<number | null>(null)
+  const [spectatorPanelTab, setSpectatorPanelTab] = useState<SpectatorPanelTab>(() => (localStorage.getItem('auction-battle:spectator-tab') as SpectatorPanelTab) || 'battle')
+  const [spectatorPanelOpen, setSpectatorPanelOpen] = useState(false)
+  const [spectatorPlayerId, setSpectatorPlayerId] = useState<string | null>(null)
+  const [spectatorEventFilter, setSpectatorEventFilter] = useState('all')
+  const [spectatorStepPending, setSpectatorStepPending] = useState(false)
+  useEffect(() => { localStorage.setItem('auction-battle:spectator-speed', String(botSpeed)) }, [botSpeed])
+  useEffect(() => { localStorage.setItem('auction-battle:spectator-tab', spectatorPanelTab) }, [spectatorPanelTab])
   const patch = (changes: Partial<GameSession>) => setSession({ ...session, ...changes, updatedAt: new Date().toISOString() })
   const chooseIdentity = (identityId: IdentityId) => {
     const draft = session.identityDraft
@@ -1588,9 +1624,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const shop = session.merchantShops.find((entry) => entry.playerId === playerId && entry.roundIndex === session.roundIndex)
     const listing = shop?.cards.find((entry) => entry.cardId === cardId)
     if (session.phase !== 'privateTurn' || player?.id !== playerId || !shop || !listing || player.balanceUnits < listing.priceUnits) return false
+    const spectatorPatch = appendSpectatorEvent(session, { roundIndex: session.roundIndex, type: 'auctionResult', playerId, summary: `${player.name} 从道具商店购买 ${getCardDefinition(cardId).name}`, details: [`支付 ${formatCoins(listing.priceUnits)} 金币`] })
     patch({
       players: session.players.map((entry) => entry.id === playerId ? { ...entry, balanceUnits: entry.balanceUnits - listing.priceUnits, cardInventory: [...entry.cardInventory, cardId] } : entry),
       merchantShops: session.merchantShops.map((entry) => entry === shop ? { ...entry, cards: entry.cards.filter((card) => card !== listing) } : entry),
+      ...spectatorPatch,
     })
     return true
   }
@@ -1609,7 +1647,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       cardDeck.splice(cardIndex, 1)
       pendingAwards.push({ playerId: session.players[draft.playerIndex].id, cardId: config.merchantCardId })
     }
+    const draftPlayer = session.players[draft.playerIndex]
     const players = session.players.map((player, index) => index === draft.playerIndex ? (botRecord ? appendBotRecord({ ...player, identity: createPlayerIdentity(identityId, config) }, { stage: 'identity', roundIndex: 0, mode: botRecord.mode, reason: botRecord.reason }) : { ...player, identity: createPlayerIdentity(identityId, config) }) : player)
+    const spectatorPatch = appendSpectatorEvent(session, { roundIndex: 0, type: 'identityChoice', playerId: draftPlayer.id, identityId, identityChoiceIds: [...draft.choiceIds], summary: `${draftPlayer.name} 选择了 ${getIdentityDefinition(identityId).name}`, details: [`候选：${draft.choiceIds.map((id) => getIdentityDefinition(id).name).join(' / ')}`, config.collectorCategory ? `专精 ${categoryConfig(config.collectorCategory).name}` : config.targetPlayerId ? `目标 ${playerName(session.players, config.targetPlayerId)}` : '身份配置完成'] })
+    if (session.spectatorTakeoverPlayerId === draftPlayer.id) setBotPaused(false)
     const selectedIds = players.flatMap((candidate) => candidate.identity ? [candidate.identity.id] : [])
     const nextIndex = draft.playerIndex + 1
     if (nextIndex >= players.length) {
@@ -1631,10 +1672,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           return truth ? { ...targets, [target.id]: shuffle([truth, ...alternatives]) } : targets
         }, {}),
       }), {})
-      patch({ players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: deck, pendingIdentityCardAwards: [], pendingCardGrants: allAwards.filter((award) => delivered.has(`${award.playerId}-${award.cardId}`)).map((award) => ({ ...award, announced: false })), pendingIdentityNotices: [...session.pendingIdentityNotices, ...routed.notices], identityEvents: [...session.identityEvents, ...routed.events], identityAvailableIds: enabled, identityDraft: null, prophetIdentityCandidates, phase: 'roundIntro' })
+      patch({ players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: deck, pendingIdentityCardAwards: [], pendingCardGrants: allAwards.filter((award) => delivered.has(`${award.playerId}-${award.cardId}`)).map((award) => ({ ...award, announced: false })), pendingIdentityNotices: [...session.pendingIdentityNotices, ...routed.notices], identityEvents: [...session.identityEvents, ...routed.events], identityAvailableIds: enabled, identityDraft: null, prophetIdentityCandidates, phase: 'roundIntro', spectatorTakeoverPlayerId: null, ...spectatorPatch })
       return
     }
-    patch({ players, cardDeck, pendingIdentityCardAwards: pendingAwards, identityAvailableIds: enabledIdentityIds(session.settings.identitySettings), identityDraft: { playerIndex: nextIndex, choiceIds: dealIdentityChoices(selectedIds, session.settings.identitySettings) }, phase: 'identityHandoff' })
+    patch({ players, cardDeck, pendingIdentityCardAwards: pendingAwards, identityAvailableIds: enabledIdentityIds(session.settings.identitySettings), identityDraft: { playerIndex: nextIndex, choiceIds: dealIdentityChoices(selectedIds, session.settings.identitySettings) }, phase: 'identityHandoff', spectatorTakeoverPlayerId: null, ...spectatorPatch })
   }
   const startPrizeReroll = (playerId: string, cardId: 'prizeReroll' | 'prizeSwap'): boolean => {
     const currentPlayer = session.players[session.currentTurnIndex]
@@ -1734,7 +1775,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     // "guessed right" notification sits above the 6-choose-2 sheet and makes the
     // reward look as if it never appeared.
     const resolvedNotices = unlockMilestone ? notices.filter((notice) => notice.id !== `prophet-identity-feedback-${divination.id}`) : notices
-    patch({ players, cardDeck, prophetDivinations: mode === 'identity' && identityDivinationThisRound ? session.prophetDivinations.map((entry) => entry.id === identityDivinationThisRound.id ? divination as ProphetDivination : entry) : [...session.prophetDivinations, divination], prophetIdentityProgress: identityProgress, pendingIdentityNotices: resolvedNotices, pendingProphetCardOffers })
+    const prophet = session.players.find((entry) => entry.id === playerId)
+    const guessDetails = divination.identityGuesses?.map((guess) => `${playerName(session.players, guess.targetPlayerId)}：${getIdentityDefinition(guess.identityId).name} · ${guess.correct ? '猜中' : '猜错'}`) ?? []
+    const spectatorPatch = appendSpectatorEvent(session, { roundIndex: session.roundIndex, type: 'turn', playerId, summary: `${prophet?.name ?? '预言家'} 发动${prophetModeLabel(mode)}`, details: mode === 'wealth' && divination.wealth ? [`最高余额约 ${formatCoins(divination.wealth.highestRangeUnits[0])}–${formatCoins(divination.wealth.highestRangeUnits[1])}`, `最低余额约 ${formatCoins(divination.wealth.lowestRangeUnits[0])}–${formatCoins(divination.wealth.lowestRangeUnits[1])}`] : mode === 'stars' ? [`查看未来 ${divination.starItemIds?.length ?? 0} 件拍品`] : guessDetails })
+    patch({ players, cardDeck, prophetDivinations: mode === 'identity' && identityDivinationThisRound ? session.prophetDivinations.map((entry) => entry.id === identityDivinationThisRound.id ? divination as ProphetDivination : entry) : [...session.prophetDivinations, divination], prophetIdentityProgress: identityProgress, pendingIdentityNotices: resolvedNotices, pendingProphetCardOffers, ...spectatorPatch })
     return true
   }
   const chooseProphetOffer = (playerId: string, cardId: CardId): boolean => {
@@ -1933,7 +1977,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const autoConfirmedPrizeChanges = lockedPrizeChanges.filter((change) => !pendingPrizeChanges.find((pending) => pending.cardId === change.cardId)?.confirmedItemId)
     const timedOutItemDeck = autoConfirmedPrizeChanges.filter((change) => change.cardId === 'prizeReroll').reduce((deck, change) => replacePrizeAt(deck, change.targetRoundIndex, change.offeredItems.find((item) => item.id === change.confirmedItemId) ?? change.offeredItems[0]), session.itemDeck)
     const retainedPrizeChanges = session.pendingPrizeChanges.filter((change) => !(change.playerId === turn.playerId && change.roundIndex === session.roundIndex && change.cardId !== 'prizeSwap'))
-    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, merchantShops, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: retainedPrizeChanges, ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex })
+    const spectatorPatch = appendSpectatorEvent(session, createTurnSpectatorEvent(session, resolvedTurn))
+    if (session.spectatorTakeoverPlayerId === turn.playerId) setBotPaused(false)
+    patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, merchantShops, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: retainedPrizeChanges, ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex, spectatorTakeoverPlayerId: null, ...spectatorPatch })
     return true
   }
   /**
@@ -1966,6 +2012,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const auctionNotices = [...session.pendingIdentityNotices]
     const auctionEvents = [...session.identityEvents]
     const cardAuctionFeedback = new Map(auctionPlayers.map((player) => [player.id, [] as string[]]))
+    const spectatorMarketEvents: SpectatorEventInput[] = []
     for (const lot of session.roundAuctions ?? []) {
       const bids = session.turns.map((turn) => ({ playerId: turn.playerId, bidUnits: turn.auctionBids?.find((bid) => bid.lotId === lot.id)?.bidUnits ?? 0 }))
         .filter((bid) => lot.merchantId !== bid.playerId && bid.bidUnits > 0)
@@ -1992,6 +2039,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           cardAuctionFeedback.get(merchant.id)?.push(`你安排的「${getCardDefinition(lot.cardId).name}」流拍，已归入你的道具库存。`)
         } else auctionDeck = shuffle([...auctionDeck, lot.cardId])
       }
+      spectatorMarketEvents.push({ roundIndex: session.roundIndex, type: 'auctionResult', playerId: winnerBid?.playerId, counterpartyPlayerId: lot.merchantId ?? undefined, bidUnits: winnerBid?.bidUnits, lotId: lot.id, summary: winnerBid ? `${playerName(auctionPlayers, winnerBid.playerId)} 拍下 ${getCardDefinition(lot.cardId).name}` : `${getCardDefinition(lot.cardId).name} 流拍`, details: [winnerBid ? `成交价 ${formatCoins(winnerBid.bidUnits)} 金币` : lot.merchantId ? '道具退回发起者' : '道具返回卡池'] })
       for (const player of auctionPlayers) {
         if (winnerBid?.playerId !== player.id && lot.merchantId !== player.id) {
           cardAuctionFeedback.get(player.id)?.push(`未拍到「${getCardDefinition(lot.cardId).name}」：出价不足或出现并列。`)
@@ -2016,6 +2064,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         if (seller) seller.items.push({ item: lot.item, roundIndex: lot.itemRoundIndex })
         assetAuctionResults.push({ lotId: lot.id, item: lot.item, sellerId: lot.sellerId, winnerId: null })
       }
+      spectatorMarketEvents.push({ roundIndex: session.roundIndex, type: 'assetSale', playerId: winner?.id, counterpartyPlayerId: lot.sellerId, bidUnits: winnerBid?.bidUnits, lotId: lot.id, summary: winner && winnerBid ? `${winner.name} 拍下 ${lot.item.name}` : `${lot.item.name} 未成交`, details: [winnerBid ? `成交价 ${formatCoins(winnerBid.bidUnits)} 金币` : `起拍价 ${formatCoins(lot.minimumBidUnits)} 金币`, `卖家 ${seller?.name ?? '未知'}`] })
     }
     const settled = settleRound({
       playersAfterBids: auctionPlayers,
@@ -2041,6 +2090,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const notices = [...auctionNotices, ...cardAuctionNotices, ...passivityNotices, ...feedbackNotices]
     const events = [...auctionEvents, ...settled.identityEvents]
     const attempt = settled.result.kidnapAttempt
+    const marketSpectatorPatch = appendSpectatorEvents(session, spectatorMarketEvents)
     if (attempt?.status === 'pending' && attempt.capturedPlayerId) {
       patch({
         roundAuctions: [],
@@ -2060,10 +2110,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         itemDeck: resolvedItemDeck,
         pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex),
         phase: 'kidnapNegotiation',
+        ...marketSpectatorPatch,
       })
       return
     }
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex), phase: 'roundResult' })
+    const resultSession = { ...session, ...marketSpectatorPatch, results: [...session.results, settled.result] }
+    const spectatorResult = createRoundResultSpectatorEvent(resultSession)
+    const spectatorPatch = spectatorResult ? appendSpectatorEvent(resultSession, spectatorResult) : marketSpectatorPatch
+    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex), phase: 'roundResult', ...spectatorPatch })
   }
   const resolveKidnapNegotiation = (payRansom: boolean) => {
     const negotiation = session.pendingKidnapNegotiation
@@ -2103,9 +2157,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     result.totalAssetUnitsAfter = Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits]))
     const events = [...negotiation.identityEvents.filter((event) => !( !payRansom && event.playerId === captured.id && event.identityId === 'collector' && event.roundIndex === session.roundIndex && event.title === '收藏家奖励')), ...result.identityEvents.slice(negotiation.result.identityEvents.length)]
     const feedback = result.identityEvents.slice(negotiation.result.identityEvents.length).map(identityFeedbackNotice)
-    patch({ players, cardDeck: negotiation.cardDeck, identityContracts: negotiation.identityContracts, pendingIdentityNotices: [...negotiation.pendingIdentityNotices.filter((notice) => !( !payRansom && notice.playerId === captured.id && notice.title === '收藏家奖励')), ...feedback], identityEvents: events, results: [...session.results, result], pendingKidnapNegotiation: null, phase: 'roundResult' })
+    const kidnapPatch = appendSpectatorEvent(session, { roundIndex: session.roundIndex, type: 'kidnap', playerId: captured.id, summary: `${captured.name}${payRansom ? '支付赎金保住拍品' : '放弃拍品'}`, details: [payRansom ? `支付 ${formatCoins(negotiation.ransomUnits)} 金币` : `${negotiation.item.emoji} ${negotiation.item.name} 转交绑匪`] })
+    const resultSession = { ...session, ...kidnapPatch, results: [...session.results, result] }
+    const resultEvent = createRoundResultSpectatorEvent(resultSession)
+    const spectatorPatch = resultEvent ? appendSpectatorEvent(resultSession, resultEvent) : kidnapPatch
+    if (session.spectatorTakeoverPlayerId === captured.id) setBotPaused(false)
+    patch({ players, cardDeck: negotiation.cardDeck, identityContracts: negotiation.identityContracts, pendingIdentityNotices: [...negotiation.pendingIdentityNotices.filter((notice) => !( !payRansom && notice.playerId === captured.id && notice.title === '收藏家奖励')), ...feedback], identityEvents: events, results: [...session.results, result], pendingKidnapNegotiation: null, phase: 'roundResult', spectatorTakeoverPlayerId: null, ...spectatorPatch })
   }
-  const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents) => {
+  const beginNormalRound = (roundIndex: number, basePlayers: Player[], baseDeck: CardId[], notices = session.pendingIdentityNotices, events = session.identityEvents, spectatorState: Partial<Pick<GameSession, 'spectatorEvents' | 'pendingSpectatorEvents'>> = {}) => {
     const eligiblePlayers = basePlayers.map((entry) => entry.identity && entry.identity.reverserFreeRoundIndex !== undefined && entry.identity.reverserFreeRoundIndex !== roundIndex
       ? { ...entry, identity: { ...entry.identity, reverserFreeRoundIndex: null } }
       : entry)
@@ -2174,7 +2233,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       title: '本轮拍品竞购',
       detail: roundAssetAuctions.map((lot) => `${categoryConfig(lot.item.category).name}藏品「${lot.item.emoji} ${lot.item.name}」正在竞购：固定资产加成 +${itemFixedAssetCoins(lot.item.value)}，起拍价 ${formatCoins(lot.minimumBidUnits)} 金币。`).join('\n'),
     }))
-    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: deck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices.filter((notice) => !rewardNoticeTitles.has(notice.title)), ...identityRewardNotices, ...cardAuctionNotices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: [], operationDeadlineAt: null })
+    patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: deck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices.filter((notice) => !rewardNoticeTitles.has(notice.title)), ...identityRewardNotices, ...cardAuctionNotices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: [], operationDeadlineAt: null, spectatorTakeoverPlayerId: null, ...spectatorState })
   }
   const nextRound = () => {
     if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult', finalReceiptIndex: null })
@@ -2197,8 +2256,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (!bidder || resolvedBidUnits < 0 || resolvedBidUnits > bidder.balanceUnits) return
     const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? appendBotRecord(player, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason, bidUnits: resolvedBidUnits }) : player) : session.players
     const bids = [...auction.bids, { playerId: bidder.id, bidUnits: resolvedBidUnits }]
+    if (session.spectatorTakeoverPlayerId === bidder.id) setBotPaused(false)
+    const bidSpectatorPatch = appendSpectatorEvent(session, { roundIndex: auction.roundIndex, type: 'auctionBid', playerId: bidder.id, lotId: `${auction.source}-${auction.cardId}`, bidUnits: resolvedBidUnits, summary: `${bidder.name} 已提交道具竞购报价`, details: [`${getCardDefinition(auction.cardId).name} · ${resolvedBidUnits > 0 ? `${formatCoins(resolvedBidUnits)} 金币` : '跳过'}`] })
     if (auction.bidderIndex < bidders.length - 1) {
-      patch({ players: recordedPlayers, merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, operationDeadlineAt: null, phase: 'auctionHandoff' })
+      patch({ players: recordedPlayers, merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, operationDeadlineAt: null, phase: 'auctionHandoff', spectatorTakeoverPlayerId: null, ...bidSpectatorPatch })
       return
     }
     const positive = bids.filter((bid) => bid.bidUnits > 0)
@@ -2251,11 +2312,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       }
     }
     const nextAuction = session.auctionQueue[0]
+    const resultSpectatorPatch = appendSpectatorEvent({ ...session, ...bidSpectatorPatch }, { roundIndex: auction.roundIndex, type: 'auctionResult', playerId: winnerBid?.playerId, counterpartyPlayerId: auction.merchantId ?? undefined, bidUnits: winnerBid?.bidUnits, lotId: `${auction.source}-${auction.cardId}`, summary: winnerBid ? `${playerName(players, winnerBid.playerId)} 拍下 ${getCardDefinition(auction.cardId).name}` : `${getCardDefinition(auction.cardId).name} 流拍`, details: [winnerBid ? `成交价 ${formatCoins(winnerBid.bidUnits)} 金币` : '没有唯一正报价'] })
     if (nextAuction) {
-      patch({ players, cardDeck: deck, pendingIdentityNotices: notices, identityEvents: events, merchantAuction: nextAuction, auctionQueue: session.auctionQueue.slice(1), operationDeadlineAt: null, phase: 'auctionIntro' })
-    } else beginNormalRound(auction.roundIndex, players, deck, notices, events)
+      patch({ players, cardDeck: deck, pendingIdentityNotices: notices, identityEvents: events, merchantAuction: nextAuction, auctionQueue: session.auctionQueue.slice(1), operationDeadlineAt: null, phase: 'auctionIntro', spectatorTakeoverPlayerId: null, ...resultSpectatorPatch })
+    } else beginNormalRound(auction.roundIndex, players, deck, notices, events, resultSpectatorPatch)
   }
   const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
+  const spectatorMode = session.spectatorMode && allBots
   const currentPlayer = session.players[session.currentTurnIndex]
   // Recovery guard: an older save may already have enough solved identities but
   // have missed the one-time offer during a previous state transition.
@@ -2267,27 +2330,50 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     patch({ pendingProphetCardOffers: [...session.pendingProphetCardOffers, { playerId: currentPlayer.id, offeredCardIds, chosenCardIds: [] }] })
   }, [currentPlayer, session])
   const auctionBidder = session.merchantAuction ? session.players[playerIndexForRoundPosition(session.merchantAuction.roundIndex, session.merchantAuction.bidderIndex, session.players.length)] : undefined
+  const spectatorActor = session.phase === 'identityHandoff' || session.phase === 'identityDraft' ? session.players[session.identityDraft?.playerIndex ?? 0]
+    : session.phase === 'auctionHandoff' || session.phase === 'auctionBid' ? auctionBidder
+      : session.phase === 'handoff' || session.phase === 'privateTurn' ? currentPlayer
+        : session.phase === 'kidnapNegotiation' ? session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
+          : undefined
+  const takeoverActive = Boolean(spectatorActor && session.spectatorTakeoverPlayerId === spectatorActor.id)
   const armTurnDeadline = () => {
     if (session.phase !== 'privateTurn' || !session.settings.turnTimerEnabled || !currentPlayer || isBot(currentPlayer) || session.operationDeadlineAt) return
     patch({ operationDeadlineAt: Date.now() + session.settings.turnTimeLimitSeconds * 1000 })
   }
   const takeOverBot = () => {
-    const target = session.phase === 'identityHandoff' || session.phase === 'identityDraft'
-      ? session.players[session.identityDraft?.playerIndex ?? 0]
-      : session.phase === 'auctionHandoff' || session.phase === 'auctionBid'
-        ? auctionBidder
-        : session.phase === 'roundResult' || session.phase === 'roundIntro'
-          ? session.players[0]
-          : session.phase === 'kidnapNegotiation'
-            ? session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
-            : currentPlayer
+    const target = spectatorActor
     if (!target || !isBot(target)) return
-    patch({ players: session.players.map((player) => player.id === target.id ? { ...player, controller: { kind: 'human' } } : player) })
-    setBotPaused(false)
+    if (session.spectatorTakeoverPlayerId === target.id) {
+      patch({ spectatorTakeoverPlayerId: null })
+      setBotPaused(false)
+      return
+    }
+    const phase = session.phase === 'identityHandoff' ? 'identityDraft' : session.phase === 'auctionHandoff' ? 'auctionBid' : session.phase === 'handoff' ? 'privateTurn' : session.phase
+    patch({ spectatorTakeoverPlayerId: target.id, phase })
+    setBotPaused(true)
+  }
+  const acknowledgeSpectatorEvent = () => {
+    if (!session.pendingSpectatorEvents.length) return
+    patch({ pendingSpectatorEvents: session.pendingSpectatorEvents.slice(1) })
+  }
+  const stepSpectator = () => {
+    if (session.pendingSpectatorEvents.length) acknowledgeSpectatorEvent()
+    else { setSpectatorStepPending(true); setBotPaused(false) }
   }
   useEffect(() => {
-    if (allBots && botPaused) return
-    if (allBots && session.phase === 'roundResult' && autoPausedRound !== session.roundIndex) {
+    if (!spectatorMode || !session.pendingSpectatorEvents.length || botPaused) return
+    const delay = Math.max(280, 1500 / botSpeed)
+    const timer = window.setTimeout(() => patch({ pendingSpectatorEvents: session.pendingSpectatorEvents.slice(1) }), delay)
+    return () => window.clearTimeout(timer)
+  }, [spectatorMode, session.pendingSpectatorEvents, botPaused, botSpeed])
+  useEffect(() => {
+    if (!spectatorMode || !spectatorStepPending || !session.pendingSpectatorEvents.length) return
+    setBotPaused(true)
+    setSpectatorStepPending(false)
+  }, [spectatorMode, spectatorStepPending, session.pendingSpectatorEvents.length])
+  useEffect(() => {
+    if (spectatorMode && (botPaused || session.pendingSpectatorEvents.length > 0 || takeoverActive)) return
+    if (spectatorMode && session.phase === 'roundResult' && autoPausedRound !== session.roundIndex) {
       setBotPaused(true)
       setAutoPausedRound(session.roundIndex)
       return
@@ -2417,16 +2503,16 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const negotiation = session.pendingKidnapNegotiation
         const captured = negotiation.players.find((player) => player.id === negotiation.capturedPlayerId)
         if (isBot(captured) && captured) resolveKidnapNegotiation(decideBotKidnapResponse({ player: captured, item: negotiation.item, ransomUnits: negotiation.ransomUnits, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
-      } else if (allBots && session.phase === 'revealReady') {
+      } else if (spectatorMode && session.phase === 'revealReady') {
         reveal()
-      } else if (allBots && session.phase === 'roundResult') {
+      } else if (spectatorMode && session.phase === 'roundResult') {
         nextRound()
-      } else if (allBots && session.phase === 'auctionIntro') {
+      } else if (spectatorMode && session.phase === 'auctionIntro') {
         patch({ phase: 'auctionHandoff' })
       }
-    }, allBots ? Math.max(45, 250 / botSpeed) : 250)
+    }, spectatorMode ? Math.max(45, 250 / botSpeed) : 250)
     return () => window.clearTimeout(timer)
-  }, [session, botPaused, botSpeed, autoPausedRound])
+  }, [session, botPaused, botSpeed, autoPausedRound, spectatorMode, takeoverActive])
   const acknowledgeGrant = (playerId: string) => patch({ pendingCardGrants: session.pendingCardGrants.map((grant) => grant.playerId === playerId ? { ...grant, announced: true } : grant) })
   const acknowledgeNotice = (noticeId: string) => patch({ pendingIdentityNotices: session.pendingIdentityNotices.filter((notice) => notice.id !== noticeId) })
   const acknowledgeFinalReceipt = () => {
@@ -2436,23 +2522,27 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     patch(index + 1 >= session.players.length ? { phase: 'finalResult', finalReceiptIndex: null, pendingIdentityNotices: notices } : { phase: 'finalReceiptHandoff', finalReceiptIndex: index + 1, pendingIdentityNotices: notices })
   }
   const result = session.results[session.results.length - 1]
+  const spectatorEvent = spectatorMode ? session.pendingSpectatorEvents[0] : undefined
+  const gameStage = spectatorEvent ? <SpectatorEventStage event={spectatorEvent} session={session} /> : <>
+    {session.phase === 'identityHandoff' && (spectatorMode ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots /> : <IdentityHandoff session={session} onReady={() => patch({ phase: 'identityDraft' })} />)}
+    {session.phase === 'identityDraft' && (!takeoverActive && isBot(session.players[session.identityDraft?.playerIndex ?? 0]) ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots={spectatorMode} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
+    {session.phase === 'auctionIntro' && <AuctionIntro session={session} onContinue={() => patch({ phase: 'auctionHandoff' })} />}
+    {session.phase === 'auctionHandoff' && (spectatorMode ? <BotThinking player={auctionBidder ?? session.players[0]} allBots /> : <AuctionHandoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'auctionBid', operationDeadlineAt: session.settings.turnTimerEnabled && !isBot(auctionBidder) ? session.operationDeadlineAt ?? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null }) }} />)}
+    {session.phase === 'auctionBid' && (!takeoverActive && isBot(auctionBidder) ? <BotThinking player={auctionBidder as Player} allBots={spectatorMode} /> : <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />)}
+    {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={spectatorMode} onContinue={() => patch({ phase: 'handoff' })} />}
+    {session.phase === 'handoff' && (spectatorMode ? <BotThinking player={currentPlayer} allBots /> : <Handoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'privateTurn' }) }} />)}
+    {session.phase === 'privateTurn' && (!takeoverActive && isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={spectatorMode} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onConfirmPrizeReroll={confirmPrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onOpenMerchantShop={openMerchantShop} onBuyMerchantShopCard={buyMerchantShopCard} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
+    {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
+    {session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation && (!takeoverActive && isBot(spectatorActor) ? <BotThinking player={spectatorActor as Player} allBots={spectatorMode} /> : <KidnapNegotiationPanel negotiation={session.pendingKidnapNegotiation} onResolve={resolveKidnapNegotiation} />)}
+    {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={() => { setBotPaused(false); nextRound() }} />}
+    {(session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') && <FinalReceipt session={session} onReady={() => patch({ phase: 'finalReceipt' })} onAcknowledge={acknowledgeFinalReceipt} />}
+    {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}
+  </>
   return (
     <AppShell quiet={session.phase === 'handoff' || session.phase === 'identityHandoff' || session.phase === 'auctionHandoff'}>
       {session.phase !== 'finalResult' && <GameHeader session={session} onExit={onExit} />}
-      {allBots && session.phase !== 'finalResult' && <SpectatorControls paused={botPaused} speed={botSpeed} onToggle={() => setBotPaused((value) => !value)} onSpeed={setBotSpeed} onTakeOver={takeOverBot} />}
-      {session.phase === 'identityHandoff' && <IdentityHandoff session={session} onReady={() => patch({ phase: 'identityDraft' })} />}
-      {session.phase === 'identityDraft' && (isBot(session.players[session.identityDraft?.playerIndex ?? 0]) ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots={allBots} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
-      {session.phase === 'auctionIntro' && <AuctionIntro session={session} onContinue={() => patch({ phase: 'auctionHandoff' })} />}
-      {session.phase === 'auctionHandoff' && <AuctionHandoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'auctionBid', operationDeadlineAt: session.settings.turnTimerEnabled && !isBot(auctionBidder) ? session.operationDeadlineAt ?? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null }) }} />}
-      {session.phase === 'auctionBid' && <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />}
-      {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={allBots} onContinue={() => patch({ phase: 'handoff' })} />}
-      {session.phase === 'handoff' && <Handoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'privateTurn' }) }} />}
-      {session.phase === 'privateTurn' && (isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={allBots} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onConfirmPrizeReroll={confirmPrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onOpenMerchantShop={openMerchantShop} onBuyMerchantShopCard={buyMerchantShopCard} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
-      {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
-      {session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation && <KidnapNegotiationPanel negotiation={session.pendingKidnapNegotiation} onResolve={resolveKidnapNegotiation} />}
-      {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={nextRound} />}
-      {(session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') && <FinalReceipt session={session} onReady={() => patch({ phase: 'finalReceipt' })} onAcknowledge={acknowledgeFinalReceipt} />}
-      {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}
+      {spectatorMode && session.phase !== 'finalResult' && <SpectatorControls paused={botPaused} speed={botSpeed} canTakeOver={Boolean(spectatorActor && !spectatorEvent)} takingOver={takeoverActive} onToggle={() => setBotPaused((value) => !value)} onStep={stepSpectator} onSpeed={setBotSpeed} onPanel={() => setSpectatorPanelOpen(true)} onTakeOver={takeOverBot} />}
+      {spectatorMode && session.phase !== 'finalResult' ? <div className="spectator-layout"><main>{gameStage}</main><SpectatorDashboard session={session} tab={spectatorPanelTab} open={spectatorPanelOpen} selectedPlayerId={spectatorPlayerId} eventFilter={spectatorEventFilter} onTab={setSpectatorPanelTab} onClose={() => setSpectatorPanelOpen(false)} onSelectPlayer={setSpectatorPlayerId} onFilter={setSpectatorEventFilter} /></div> : gameStage}
     </AppShell>
   )
 }
