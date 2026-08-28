@@ -3,7 +3,7 @@ import { defaultBotStrategy, emptyBotMemory } from './bots'
 import { cardInventoryCounts, createCardDeck, removeOneCard } from './cards'
 import { coinsToUnits } from './engine'
 import { ITEM_POOL } from './items'
-import { createDefaultSettings, createRematchSession, createSession, createTutorialSession, resolveRoundPrize, roundPlayerIndices, visibleRoundItem } from './session'
+import { activeOperator, createDefaultSettings, createRematchSession, createSession, createTutorialSession, relayOperatorForRound, resolveRoundPrize, roundPlayerIndices, visibleRoundItem } from './session'
 import type { PendingPrizeChange, RoundTurn } from './types'
 
 describe('轮转操作顺序', () => {
@@ -19,6 +19,56 @@ describe('轮转操作顺序', () => {
   })
 })
 
+describe('接力操作者调度', () => {
+  const human = { kind: 'human' as const }
+  const bot = { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const }
+  const relaySeats = [
+    { name: '甲队', operators: [{ id: 'a-1', name: '甲一', controller: human }, { id: 'a-2', name: '甲二', controller: bot }] },
+    { name: '乙队', operators: [{ id: 'b-1', name: '乙一', controller: human }] },
+    { name: '丙队', operators: [{ id: 'c-1', name: '丙一', controller: bot }, { id: 'c-2', name: '丙二', controller: bot }, { id: 'c-3', name: '丙三', controller: human }] },
+  ]
+
+  it('按回合轮换、单操作者固定，且资产仍只属于竞争玩家', () => {
+    const settings = createDefaultSettings(3); settings.rounds = 5
+    const session = createSession(relaySeats, settings, { mode: 'relay', relayMethod: 'rotation' })
+    const [a, b, c] = session.players
+    expect(session.mode).toBe('relay')
+    expect(relayOperatorForRound(a, 0, 5, 'rotation').name).toBe('甲一')
+    expect(relayOperatorForRound(a, 1, 5, 'rotation').name).toBe('甲二')
+    expect(relayOperatorForRound(a, 4, 5, 'rotation').name).toBe('甲一')
+    expect(relayOperatorForRound(b, 3, 5, 'rotation').name).toBe('乙一')
+    expect(relayOperatorForRound(c, 2, 5, 'rotation').name).toBe('丙三')
+    expect(a.items).toEqual([])
+    expect(a.relayOperators).toHaveLength(2)
+    expect(a.relayOperators?.[1].botMemory).toBeTruthy()
+  })
+
+  it('分段接力均分回合，余数优先给前面的操作者', () => {
+    const settings = createDefaultSettings(3); settings.rounds = 8
+    const session = createSession(relaySeats, settings, { mode: 'relay', relayMethod: 'segments' })
+    const a = session.players[0]
+    expect([0, 1, 2, 3].map((round) => relayOperatorForRound(a, round, 8, 'segments').id)).toEqual(['a-1', 'a-1', 'a-1', 'a-1'])
+    expect([4, 5, 6, 7].map((round) => relayOperatorForRound(a, round, 8, 'segments').id)).toEqual(['a-2', 'a-2', 'a-2', 'a-2'])
+    const c = session.players[2]
+    expect([0, 1, 2, 3, 4, 5, 6, 7].map((round) => relayOperatorForRound(c, round, 8, 'segments').id)).toEqual(['c-1', 'c-1', 'c-1', 'c-2', 'c-2', 'c-2', 'c-3', 'c-3'])
+    expect(activeOperator({ ...session, roundIndex: 6 }, c).id).toBe('c-3')
+  })
+
+  it('复仇局保留接力安排，并只把 Bot 操作者的恩怨映射到新竞争玩家', () => {
+    const settings = createDefaultSettings(3); settings.rounds = 4
+    const session = createSession(relaySeats, settings, { mode: 'relay', relayMethod: 'rotation' })
+    const botOperator = session.players[0].relayOperators?.[1]!
+    botOperator.botMemory = { ...emptyBotMemory(), grudgeByPlayerId: { [session.players[1].id]: 6 } }
+    const rematch = createRematchSession(session, true)
+    const rematchOperator = rematch.players[0].relayOperators?.[1]
+    expect(rematch.mode).toBe('relay')
+    expect(rematch.relayMethod).toBe('rotation')
+    expect(rematchOperator?.name).toBe('甲二')
+    expect(rematchOperator?.botMemory?.grudgeByPlayerId).toEqual({ [rematch.players[1].id]: 6 })
+    expect(rematchOperator?.botMemory?.decisionLog).toEqual([])
+  })
+})
+
 describe('实体道具库存', () => {
   it('同名道具可叠加，消耗时只移除一张', () => {
     const inventory = ['red', 'red', 'black'] as const
@@ -30,7 +80,7 @@ describe('实体道具库存', () => {
 describe('道具商人末局商店', () => {
   it('新对局会初始化可持久化的私密商店列表', () => {
     const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
-    expect(session.version).toBe(33)
+    expect(session.version).toBe(34)
     expect(session.merchantShops).toEqual([])
   })
 })

@@ -4,7 +4,7 @@ import { getProphetIdentityProgress } from './prophet'
 import { cloneSettings } from './presets'
 import { dealIdentityChoices, enabledIdentityIds, normalizeIdentitySettings } from './identities'
 import { emptyBotMemory, normalizeBotStrategy, strategyForController } from './bots'
-import type { CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RoundResult, SeatConfig, SpectatorEvent } from './types'
+import type { CardId, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, Player, ProphetDivination, RelayOperator, RelaySeatConfig, RoundResult, SeatConfig, SpectatorEvent } from './types'
 
 const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
@@ -26,14 +26,14 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = !migrated.spectatorMode && migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : !migrated.spectatorMode && migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : !migrated.spectatorMode && migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
           : migrated
-    if (parsed.version !== 33 || migrated.phase !== safeSession.phase || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !Array.isArray(parsed.spectatorEvents) || !Array.isArray(parsed.pendingSpectatorEvents) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 34 || migrated.phase !== safeSession.phase || parsed.mode === undefined || parsed.relayMethod === undefined || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !Array.isArray(parsed.spectatorEvents) || !Array.isArray(parsed.pendingSpectatorEvents) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -60,9 +60,22 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
     animationSpeed: oldSettings.animationSpeed ?? 'full',
     identitySettings: (session.version ?? 0) >= 4 ? normalizeIdentitySettings(oldSettings.identitySettings, true) : normalizeIdentitySettings(undefined, false),
   }
+  const mode = session.mode === 'relay' ? 'relay' as const : 'standard' as const
+  const relayMethod = session.relayMethod === 'segments' ? 'segments' as const : 'rotation' as const
   const players: Player[] = (session.players ?? []).map((player) => {
     const legacy = player as Player
     const identity = legacy.identity
+    const relayOperators: RelayOperator[] | undefined = mode === 'relay' && Array.isArray(legacy.relayOperators) && legacy.relayOperators.length > 0
+      ? legacy.relayOperators.map((operator, index) => {
+          const controller = operator.controller?.kind === 'bot' ? operator.controller : { kind: 'human' as const }
+          return {
+            id: typeof operator.id === 'string' ? operator.id : `${legacy.id}-operator-${index}`,
+            name: typeof operator.name === 'string' && operator.name.trim() ? operator.name.trim() : `${legacy.name} 操作者 ${index + 1}`,
+            controller,
+            ...(controller.kind === 'bot' ? { botMemory: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}:${operator.id ?? index}`, strategyForController(controller)), ...(operator.botMemory ?? {}), behavior: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}:${operator.id ?? index}`).behavior, ...(operator.botMemory?.behavior ?? {}) }, strategy: normalizeBotStrategy(operator.botMemory?.strategy ?? (controller.profileId === 'custom' ? controller.customProfile : undefined), controller.profileId), grudgeByPlayerId: { ...(operator.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(operator.botMemory?.decisionLog ?? [])], recentBidUnits: [...(operator.botMemory?.recentBidUnits ?? [])] } } : {}),
+          }
+        })
+      : undefined
     return {
       ...legacy,
       items: (legacy.items ?? []).map((won) => ({ ...won, item: normalizeItem(won.item) })),
@@ -83,6 +96,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         kidnapFreeRoundIndex: identity.kidnapFreeRoundIndex ?? null,
       } : undefined,
       controller: legacy.controller?.kind === 'bot' ? legacy.controller : { kind: 'human' },
+      ...(relayOperators ? { relayOperators } : {}),
       ...(legacy.controller?.kind === 'bot' ? { botMemory: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`, strategyForController(legacy.controller)), ...(legacy.botMemory ?? {}), behavior: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}`).behavior, ...(legacy.botMemory?.behavior ?? {}) }, strategy: normalizeBotStrategy(legacy.botMemory?.strategy ?? (legacy.controller.profileId === 'custom' ? legacy.controller.customProfile : undefined), legacy.controller.profileId), grudgeByPlayerId: { ...(legacy.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(legacy.botMemory?.decisionLog ?? [])], recentBidUnits: [...(legacy.botMemory?.recentBidUnits ?? [])] } } : {}),
     }
   })
@@ -128,7 +142,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   const pendingPrizeChanges = Array.isArray(session.pendingPrizeChanges)
     ? session.pendingPrizeChanges.map(normalizePendingPrizeChange)
     : session.pendingPrizeReroll ? [normalizePendingPrizeChange(session.pendingPrizeReroll)] : []
-  const spectatorMode = session.spectatorMode ?? (players.length > 0 && players.every((player) => player.controller?.kind === 'bot'))
+  const spectatorMode = session.spectatorMode ?? (players.length > 0 && players.every((player) => (player.relayOperators?.length ? player.relayOperators : [{ controller: player.controller }]).every((operator) => operator.controller?.kind === 'bot')))
   const existingSpectatorEvents = Array.isArray(session.spectatorEvents) ? session.spectatorEvents as SpectatorEvent[] : []
   const reconstructedEvents: SpectatorEvent[] = existingSpectatorEvents.length > 0 ? existingSpectatorEvents : results.map((result, index) => ({
     id: `spectator-migrated-result-${result.roundIndex}`,
@@ -140,7 +154,9 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   }))
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 33,
+    version: 34,
+    mode,
+    relayMethod,
     settings,
     players,
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
@@ -218,7 +234,17 @@ function cloneCustomBotProfile(profile: CustomBotProfile): CustomBotProfile {
 
 function normalizePreset(preset: GamePreset): GamePreset {
   const seats: SeatConfig[] = (preset.seats?.length ? preset.seats : preset.names.map((name) => ({ name, controller: { kind: 'human' as const } }))).map((seat) => ({ name: seat.name, controller: seat.controller?.kind === 'bot' ? { kind: 'bot' as const, profileId: seat.controller.profileId, difficulty: seat.controller.difficulty, ...(seat.controller.profileId === 'custom' && seat.controller.customProfile ? { customProfile: cloneCustomBotProfile(seat.controller.customProfile) } : {}) } : { kind: 'human' as const } }))
-  return { ...preset, names: seats.map((seat) => seat.name), seats, settings: cloneSettings(preset.settings) }
+  const relaySeats: RelaySeatConfig[] | undefined = preset.mode === 'relay' && Array.isArray(preset.relaySeats) && preset.relaySeats.length === seats.length
+    ? preset.relaySeats.map((seat, seatIndex) => ({
+        name: typeof seat.name === 'string' ? seat.name.slice(0, 12) : seats[seatIndex].name,
+        operators: Array.isArray(seat.operators) && seat.operators.length ? seat.operators.map((operator, operatorIndex) => ({
+          id: typeof operator.id === 'string' ? operator.id : `preset-${preset.id}-${seatIndex}-${operatorIndex}`,
+          name: typeof operator.name === 'string' && operator.name.trim() ? operator.name.slice(0, 12) : `操作者 ${operatorIndex + 1}`,
+          controller: operator.controller?.kind === 'bot' ? { ...operator.controller, ...(operator.controller.profileId === 'custom' && operator.controller.customProfile ? { customProfile: cloneCustomBotProfile(operator.controller.customProfile) } : {}) } : { kind: 'human' as const },
+        })) : [{ id: `preset-${preset.id}-${seatIndex}-0`, name: seats[seatIndex].name, controller: seats[seatIndex].controller }],
+      }))
+    : undefined
+  return { ...preset, names: seats.map((seat) => seat.name), seats, settings: cloneSettings(preset.settings), mode: relaySeats ? 'relay' : 'standard', relayMethod: preset.relayMethod === 'segments' ? 'segments' : 'rotation', ...(relaySeats ? { relaySeats } : {}) }
 }
 
 export function loadPresets(): GamePreset[] {

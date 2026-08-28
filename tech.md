@@ -1,5 +1,11 @@
 # 技术基线
 
+## 接力模式（v34）
+
+- `Player.relayOperators` 保存操作者队列；`GameSession.mode` 与 `relayMethod` 决定标准／接力以及轮换／分段调度。`relayOperatorForRound` 是唯一的回合解析入口，分段模式把余数优先分给排在前面的操作者。
+- `RoundTurn.operatorId` 和 `SpectatorEvent.operatorId` 记录实际操作者。运行时以操作者的控制器与 BotMemory 生成决策，但始终向竞争玩家写入资产、身份和结算结果。
+- v34 迁移为旧会话补齐标准模式；预设导出格式升至 v3，携带接力方式、操作者与 Bot 模板快照。复仇局重新创建会话，仅映射 Bot 操作者的 `grudgeByPlayerId`。
+
 ## 投资者分红倍率（v28 兼容）
 
 - `IdentitySettings.investorDividendMultiplier` 默认 `1.25`，归一化到 `1–3`、`0.05` 步长；加载旧会话与旧预设时自动补齐，并在下一次持久化写回。

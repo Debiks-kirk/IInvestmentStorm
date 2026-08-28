@@ -3,7 +3,7 @@ import { createCardDeck, drawCard, getCardDefinition } from './cards'
 import { emptyBotMemory, strategyForController } from './bots'
 import { createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, defaultIdentitySettings } from './identities'
 import { createItemDeck, ITEM_POOL, shuffle } from './items'
-import type { CardGrant, CardId, GameSession, GameSettings, Item, PendingPrizeChange, Player, RoundTurn, SeatConfig } from './types'
+import type { CardGrant, CardId, GameMode, GameSession, GameSettings, Item, PendingPrizeChange, Player, RelayMethod, RelayOperator, RelaySeatConfig, RoundTurn, SeatConfig } from './types'
 
 export const PLAYER_COLORS = ['#b65f55', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191', '#8a7857', '#697079']
 
@@ -62,17 +62,57 @@ function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function createSession(seatsOrNames: SeatConfig[] | string[], settings: GameSettings): GameSession {
+function cloneRelayOperator(operator: RelayOperator, seed: string): RelayOperator {
+  const controller = operator.controller.kind === 'bot'
+    ? { ...operator.controller, ...(operator.controller.customProfile ? { customProfile: { ...operator.controller.customProfile, identityPriority: [...operator.controller.customProfile.identityPriority] } } : {}) }
+    : { ...operator.controller }
+  return {
+    id: operator.id || createId('operator'),
+    name: operator.name.trim(),
+    controller,
+    ...(controller.kind === 'bot' ? { botMemory: emptyBotMemory(`${seed}:${operator.id}`, strategyForController(controller)) } : {}),
+  }
+}
+
+/** Resolve who is making a competitive player's decision in a particular round. */
+export function relayOperatorForRound(player: Player, roundIndex: number, totalRounds: number, method: RelayMethod = 'rotation'): RelayOperator {
+  const operators = player.relayOperators?.length ? player.relayOperators : [{ id: player.id, name: player.name, controller: player.controller ?? { kind: 'human' as const }, ...(player.botMemory ? { botMemory: player.botMemory } : {}) }]
+  if (operators.length === 1) return operators[0]
+  if (method === 'rotation') return operators[roundIndex % operators.length]
+  const base = Math.floor(totalRounds / operators.length)
+  const extra = totalRounds % operators.length
+  let start = 0
+  for (let index = 0; index < operators.length; index += 1) {
+    const span = base + (index < extra ? 1 : 0)
+    if (roundIndex < start + span) return operators[index]
+    start += span
+  }
+  return operators[operators.length - 1]
+}
+
+export function activeOperator(session: Pick<GameSession, 'players' | 'roundIndex' | 'settings' | 'relayMethod'>, player: Player, roundIndex = session.roundIndex): RelayOperator {
+  return relayOperatorForRound(player, roundIndex, session.settings.rounds, session.relayMethod)
+}
+
+export function allOperatorsAreBots(players: Player[]): boolean {
+  return players.length > 0 && players.every((player) => (player.relayOperators?.length ? player.relayOperators : [{ controller: player.controller }]).every((operator) => operator.controller?.kind === 'bot'))
+}
+
+export function createSession(seatsOrNames: SeatConfig[] | RelaySeatConfig[] | string[], settings: GameSettings, relay: { mode?: GameMode; relayMethod?: RelayMethod } = {}): GameSession {
   const now = new Date().toISOString()
   const gameId = createId('game')
   const initialItemDeck = createItemDeck(settings.rounds)
-  const seats: SeatConfig[] = seatsOrNames.map((seat) => typeof seat === 'string'
+  const mode: GameMode = relay.mode === 'relay' ? 'relay' : 'standard'
+  const seats: SeatConfig[] = (mode === 'relay' ? (seatsOrNames as RelaySeatConfig[]).map((seat) => ({ name: seat.name, controller: seat.operators[0]?.controller ?? { kind: 'human' } })) : (seatsOrNames as SeatConfig[] | string[]).map((seat) => typeof seat === 'string'
     ? { name: seat, controller: { kind: 'human' } }
     : { ...seat, controller: seat.controller.kind === 'bot'
       ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityPriority: [...seat.controller.customProfile.identityPriority] } } : {}) }
-      : { ...seat.controller } })
+      : { ...seat.controller } })) as SeatConfig[]
+  const relaySeats = mode === 'relay' ? (seatsOrNames as RelaySeatConfig[]).map((seat) => ({ ...seat, operators: seat.operators.length ? seat.operators : [{ id: createId('operator'), name: seat.name, controller: { kind: 'human' as const } }] })) : []
   const players: Player[] = seats.map((seat, index) => {
     const id = createId('player')
+    const relayOperators = mode === 'relay' ? relaySeats[index].operators.map((operator) => cloneRelayOperator(operator, `${gameId}:${id}`)) : undefined
+    const primaryController = relayOperators?.[0]?.controller ?? seat.controller
     return {
       id,
       name: seat.name.trim(),
@@ -81,8 +121,9 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
       items: [],
       cardInventory: [],
       passivityFeeCount: 0,
-      controller: seat.controller,
-      ...(seat.controller.kind === 'bot' ? { botMemory: emptyBotMemory(`${gameId}:${id}`, strategyForController(seat.controller)) } : {}),
+      controller: primaryController,
+      ...(mode === 'relay' && relayOperators ? { relayOperators } : {}),
+      ...(mode === 'standard' && primaryController.kind === 'bot' ? { botMemory: emptyBotMemory(`${gameId}:${id}`, strategyForController(primaryController)) } : {}),
     }
   })
   let cardDeck = createCardDeck(settings.disabledCardIds)
@@ -108,9 +149,11 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 33,
+    version: 34,
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
+    mode,
+    relayMethod: relay.relayMethod ?? 'rotation',
     settings: { ...settings, playerCount: seats.length, rewardMultipliers: [...settings.rewardMultipliers], disabledCardIds: [...settings.disabledCardIds], identitySettings: { ...settings.identitySettings, disabledIdentityIds: [...settings.identitySettings.disabledIdentityIds] } },
     players,
     itemDeck: initialItemDeck,
@@ -148,7 +191,7 @@ export function createSession(seatsOrNames: SeatConfig[] | string[], settings: G
     currentTurnIndex: 0,
     turns: [],
     results: [],
-    spectatorMode: players.length > 0 && players.every((player) => player.controller?.kind === 'bot'),
+    spectatorMode: allOperatorsAreBots(players),
     spectatorEvents: [],
     pendingSpectatorEvents: [],
     spectatorTakeoverPlayerId: null,
@@ -197,13 +240,37 @@ export function createRematchSession(previous: GameSession, keepBotGrudges = fal
     disabledCardIds: [...previous.settings.disabledCardIds],
     identitySettings: { ...previous.settings.identitySettings, disabledIdentityIds: [...previous.settings.identitySettings.disabledIdentityIds] },
   }
-  const next = createSession(seats, settings)
+  const relaySeats: RelaySeatConfig[] = previous.players.map((player) => ({
+    name: player.name,
+    operators: (player.relayOperators?.length ? player.relayOperators : [{ id: player.id, name: player.name, controller: player.controller ?? { kind: 'human' } }]).map((operator) => ({ id: operator.id, name: operator.name, controller: operator.controller.kind === 'bot' ? { ...operator.controller } : { kind: 'human' } })),
+  }))
+  const next = createSession(previous.mode === 'relay' ? relaySeats : seats, settings, { mode: previous.mode, relayMethod: previous.relayMethod })
   if (!keepBotGrudges) return next
   const oldToNewId = new Map(previous.players.map((player, index) => [player.id, next.players[index]?.id]))
   return {
     ...next,
     players: next.players.map((player, index) => {
       const previousPlayer = previous.players[index]
+      if (player.relayOperators?.length) {
+        const previousOperators = previousPlayer?.relayOperators ?? []
+        return {
+          ...player,
+          relayOperators: player.relayOperators.map((operator) => {
+            const previousOperator = previousOperators.find((entry) => entry.id === operator.id)
+            if (operator.controller.kind !== 'bot' || !previousOperator?.botMemory) return operator
+            const grudgeByPlayerId = Object.fromEntries(Object.entries(previousOperator.botMemory.grudgeByPlayerId)
+              .map(([oldId, score]) => [oldToNewId.get(oldId), score] as const)
+              .filter(([playerId]) => Boolean(playerId))) as Record<string, number>
+            return {
+              ...operator,
+              botMemory: {
+                ...(operator.botMemory ?? emptyBotMemory(`${next.id}:${operator.id}`)),
+                grudgeByPlayerId,
+              },
+            }
+          }),
+        }
+      }
       if (player.controller?.kind !== 'bot' || !previousPlayer?.botMemory) return player
       const grudgeByPlayerId = Object.fromEntries(Object.entries(previousPlayer.botMemory.grudgeByPlayerId)
         .map(([oldId, score]) => [oldToNewId.get(oldId), score] as const)

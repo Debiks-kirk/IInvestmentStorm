@@ -1,7 +1,7 @@
 import { defaultRewards } from './engine'
 import { createDefaultSettings } from './session'
 import { normalizeIdentitySettings } from './identities'
-import type { CustomBotProfile, GamePreset, GameSettings, SeatConfig } from './types'
+import type { CustomBotProfile, GameMode, GamePreset, GameSettings, RelayMethod, RelaySeatConfig, SeatConfig } from './types'
 
 export interface SystemPreset {
   id: string
@@ -14,9 +14,9 @@ export interface SystemPreset {
 
 export interface SharedPresetPayload {
   format: 'who-is-raising-preset'
-  version: 1 | 2
+  version: 1 | 2 | 3
   exportedAt: string
-  preset: Pick<GamePreset, 'name' | 'names' | 'seats' | 'settings'>
+  preset: Pick<GamePreset, 'name' | 'names' | 'seats' | 'settings' | 'mode' | 'relayMethod' | 'relaySeats'>
 }
 
 export function cloneSettings(settings: GameSettings): GameSettings {
@@ -52,7 +52,11 @@ function createId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | string[], settings: GameSettings, existing?: GamePreset): GamePreset {
+function cloneRelaySeats(relaySeats: RelaySeatConfig[]): RelaySeatConfig[] {
+  return relaySeats.map((seat) => ({ name: seat.name, operators: seat.operators.map((operator) => ({ id: operator.id, name: operator.name, controller: operator.controller.kind === 'bot' ? { ...operator.controller, ...(operator.controller.customProfile ? { customProfile: { ...operator.controller.customProfile, identityPriority: [...operator.controller.customProfile.identityPriority] } } : {}) } : { ...operator.controller } })) }))
+}
+
+export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | string[], settings: GameSettings, existing?: GamePreset, relay: { mode?: GameMode; relayMethod?: RelayMethod; relaySeats?: RelaySeatConfig[] } = {}): GamePreset {
   const now = new Date().toISOString()
   const seats = seatsOrNames.map((seat) => typeof seat === 'string' ? { name: seat, controller: { kind: 'human' as const } } : { ...seat, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityPriority: [...seat.controller.customProfile.identityPriority] } } : {}) } : { ...seat.controller } })
   return {
@@ -61,6 +65,9 @@ export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | stri
     names: seats.map((seat) => seat.name),
     seats,
     settings: cloneSettings(settings),
+    mode: relay.mode ?? 'standard',
+    relayMethod: relay.relayMethod ?? 'rotation',
+    ...(relay.mode === 'relay' && relay.relaySeats ? { relaySeats: cloneRelaySeats(relay.relaySeats) } : {}),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }
@@ -71,12 +78,13 @@ export function exportGamePreset(preset: GamePreset): string {
   const seats = preset.seats ?? preset.names.map((name) => ({ name, controller: { kind: 'human' as const } }))
   const payload: SharedPresetPayload = {
     format: 'who-is-raising-preset',
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     preset: {
       name: preset.name,
       names: [...preset.names],
       seats: seats.map((seat) => ({ name: seat.name, controller: seat.controller.kind === 'bot' ? { ...seat.controller, ...(seat.controller.customProfile ? { customProfile: { ...seat.controller.customProfile, identityPriority: [...seat.controller.customProfile.identityPriority] } } : {}) } : { ...seat.controller } })),
+      ...(preset.mode === 'relay' && preset.relaySeats ? { mode: 'relay' as const, relayMethod: preset.relayMethod ?? 'rotation', relaySeats: cloneRelaySeats(preset.relaySeats) } : { mode: 'standard' as const }),
       settings: cloneSettings(preset.settings),
     },
   }
@@ -84,10 +92,10 @@ export function exportGamePreset(preset: GamePreset): string {
 }
 
 /** Parses an exported setup into safe, normalized configuration data. It never imports IDs or timestamps. */
-export function importGamePreset(raw: string): { name: string; seats: SeatConfig[]; settings: GameSettings; customProfiles: CustomBotProfile[] } | null {
+export function importGamePreset(raw: string): { name: string; seats: SeatConfig[]; settings: GameSettings; customProfiles: CustomBotProfile[]; mode: GameMode; relayMethod: RelayMethod; relaySeats: RelaySeatConfig[] } | null {
   try {
     const payload = JSON.parse(raw) as Partial<SharedPresetPayload>
-    if (payload.format !== 'who-is-raising-preset' || (payload.version !== 1 && payload.version !== 2) || !payload.preset || typeof payload.preset.name !== 'string' || !payload.preset.settings) return null
+    if (payload.format !== 'who-is-raising-preset' || (payload.version !== 1 && payload.version !== 2 && payload.version !== 3) || !payload.preset || typeof payload.preset.name !== 'string' || !payload.preset.settings) return null
     const sourceSeats = Array.isArray(payload.preset.seats) && payload.preset.seats.length > 0
       ? payload.preset.seats
       : Array.isArray(payload.preset.names) ? payload.preset.names.map((name) => ({ name, controller: { kind: 'human' as const } })) : []
@@ -110,8 +118,12 @@ export function importGamePreset(raw: string): { name: string; seats: SeatConfig
       disabledCardIds: Array.isArray(sourceSettings.disabledCardIds) ? sourceSettings.disabledCardIds : defaults.disabledCardIds,
       identitySettings: { ...defaults.identitySettings, ...(sourceSettings.identitySettings ?? {}) },
     })
-    const customProfiles = seats.flatMap((seat) => seat.controller.kind === 'bot' && seat.controller.customProfile ? [seat.controller.customProfile] : [])
-    return { name: payload.preset.name.trim().slice(0, 20), seats, settings, customProfiles }
+    const rawRelaySeats = Array.isArray((payload.preset as GamePreset).relaySeats) ? (payload.preset as GamePreset).relaySeats as RelaySeatConfig[] : []
+    const mode: GameMode = (payload.preset as GamePreset).mode === 'relay' && rawRelaySeats.length === seats.length ? 'relay' : 'standard'
+    const relaySeats = mode === 'relay' ? rawRelaySeats.map((seat, index) => ({ name: typeof seat.name === 'string' ? seat.name.slice(0, 12) : seats[index].name, operators: Array.isArray(seat.operators) && seat.operators.length ? seat.operators.map((operator, operatorIndex) => ({ id: typeof operator.id === 'string' ? operator.id : `operator-${index}-${operatorIndex}`, name: typeof operator.name === 'string' ? operator.name.slice(0, 12) : `操作者 ${operatorIndex + 1}`, controller: operator.controller?.kind === 'bot' ? { ...operator.controller } : { kind: 'human' as const } })) : [{ id: `operator-${index}-0`, name: seats[index].name, controller: seats[index].controller }] })) : []
+    const relayProfiles = relaySeats.flatMap((seat) => seat.operators.flatMap((operator) => operator.controller.kind === 'bot' && operator.controller.customProfile ? [operator.controller.customProfile] : []))
+    const customProfiles = [...seats.flatMap((seat) => seat.controller.kind === 'bot' && seat.controller.customProfile ? [seat.controller.customProfile] : []), ...relayProfiles]
+    return { name: payload.preset.name.trim().slice(0, 20), seats, settings, customProfiles, mode, relayMethod: (payload.preset as GamePreset).relayMethod === 'segments' ? 'segments' : 'rotation', relaySeats }
   } catch {
     return null
   }

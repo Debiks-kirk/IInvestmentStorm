@@ -51,7 +51,7 @@ describe('配置预设存储', () => {
     settings.identitySettings.identityChoiceCount = 3
     const source = createGamePreset('社区三人局', [{ name: '甲', controller: { kind: 'human' } }, { name: '乙', controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'expert' } }, { name: '丙', controller: { kind: 'human' } }], settings)
     const raw = exportGamePreset(source)
-    expect(JSON.parse(raw)).toMatchObject({ format: 'who-is-raising-preset', version: 2, preset: { name: '社区三人局' } })
+    expect(JSON.parse(raw)).toMatchObject({ format: 'who-is-raising-preset', version: 3, preset: { name: '社区三人局' } })
     expect(importGamePreset(raw)).toMatchObject({ name: '社区三人局', seats: [{ name: '甲' }, { name: '乙', controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'expert' } }, { name: '丙' }], settings: { playerCount: 3, identitySettings: { identityChoiceCount: 3 } } })
   })
 
@@ -95,6 +95,20 @@ describe('对局存档迁移', () => {
     expect(loaded?.players[0].items).toEqual([])
   })
 
+  it('接力预设会保留操作者、接力方式与 Bot 模板快照', () => {
+    const settings = createDefaultSettings(3)
+    const relaySeats = [
+      { name: '甲队', operators: [{ id: 'a1', name: '阿甲', controller: { kind: 'human' as const } }, { id: 'a2', name: '机器人甲', controller: { kind: 'bot' as const, profileId: 'collectorBot' as const, difficulty: 'expert' as const } }] },
+      { name: '乙队', operators: [{ id: 'b1', name: '阿乙', controller: { kind: 'human' as const } }] },
+      { name: '丙队', operators: [{ id: 'c1', name: '机器人丙', controller: { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } }] },
+    ]
+    const preset = createGamePreset('接力局', relaySeats.map((seat) => ({ name: seat.name, controller: seat.operators[0].controller })), settings, undefined, { mode: 'relay', relayMethod: 'segments', relaySeats })
+    const imported = importGamePreset(exportGamePreset(preset))
+    expect(imported).toMatchObject({ mode: 'relay', relayMethod: 'segments' })
+    expect(imported?.relaySeats[0].operators.map((operator) => operator.name)).toEqual(['阿甲', '机器人甲'])
+    expect(imported?.relaySeats[0].operators[1].controller).toMatchObject({ kind: 'bot', profileId: 'collectorBot', difficulty: 'expert' })
+  })
+
   it('自定义 Bot 模板会独立保存，并随分享配置携带座位快照', () => {
     const now = '2026-08-26T00:00:00.000Z'
     const custom = { id: 'studio-bot', name: '藏品猎手', createdAt: now, updatedAt: now, ...defaultBotStrategy('collectorBot'), collection: 93 }
@@ -135,7 +149,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 33, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
+    expect(loadSession()).toMatchObject({ version: 34, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -152,7 +166,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(33)
+    expect(first?.version).toBe(34)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -173,7 +187,7 @@ describe('对局存档迁移', () => {
     delete strategy.identityPriority
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(33)
+    expect(migrated?.version).toBe(34)
     expect(migrated?.players[0].botMemory?.strategy.identityPriority[0]).toBe(legacy.players[0].botMemory.strategy.identityTactics ? Object.keys(legacy.players[0].botMemory.strategy.identityTactics).find((identityId) => legacy.players[0].botMemory.strategy.identityTactics[identityId] === 100) : undefined)
   })
 
@@ -187,7 +201,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(33)
+    expect(migrated?.version).toBe(34)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

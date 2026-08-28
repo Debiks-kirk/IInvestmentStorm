@@ -5,13 +5,13 @@ import { createAssetTrajectories, createGameHighlights, createRoundBulletin } fr
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
-import { createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, resolveRoundPrize, roundStartPlayerIndex, validateNames, visibleRoundItem } from './game/session'
+import { activeOperator, allOperatorsAreBots, createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, resolveRoundPrize, roundStartPlayerIndex, validateNames, visibleRoundItem } from './game/session'
 import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
 import { appendSpectatorEvent, appendSpectatorEvents, createRoundResultSpectatorEvent, createSpectatorChart, createSpectatorPlayerStats, createTurnSpectatorEvent, type SpectatorChartKey, type SpectatorEventInput } from './game/spectator'
-import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
+import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GameMode, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RelayMethod, RelayOperator, RelaySeatConfig, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'collection' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
@@ -29,6 +29,50 @@ const MEDALS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', '
 
 function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ')
+}
+
+function uiId(prefix: string): string {
+  return typeof crypto !== 'undefined' && crypto.randomUUID ? `${prefix}-${crypto.randomUUID()}` : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function relaySeatsFromSeats(seats: SeatConfig[]): RelaySeatConfig[] {
+  return seats.map((seat) => ({ name: seat.name, operators: [{ id: uiId('operator'), name: seat.name, controller: seat.controller.kind === 'bot' ? { ...seat.controller } : { kind: 'human' } }] }))
+}
+
+function relayScheduleLabel(operators: RelayOperator[], method: RelayMethod, rounds: number): string {
+  if (operators.length <= 1) return `全 ${rounds} 轮`
+  if (method === 'rotation') return `轮流接力 · 每 ${operators.length} 轮循环`
+  const base = Math.floor(rounds / operators.length); const extra = rounds % operators.length
+  return operators.map((operator, index) => {
+    const start = Array.from({ length: index }, (_, itemIndex) => base + (itemIndex < extra ? 1 : 0)).reduce((sum, value) => sum + value, 0) + 1
+    const length = base + (index < extra ? 1 : 0)
+    return `${operator.name || `操作者 ${index + 1}`} ${start}${length > 1 ? `–${start + length - 1}` : ''}`
+  }).join(' · ')
+}
+
+/** Give Bot planners a view of the shared competitive player through the active operator's personality. */
+function playerForOperator(player: Player, operator: RelayOperator): Player {
+  return { ...player, controller: operator.controller, ...(operator.botMemory ? { botMemory: operator.botMemory } : {}) }
+}
+
+function recordOperatorBotAction(player: Player, operatorId: string | undefined, record: Parameters<typeof appendBotRecord>[1]): Player {
+  if (!operatorId || !player.relayOperators?.length) return appendBotRecord(player, record)
+  const operator = player.relayOperators.find((entry) => entry.id === operatorId)
+  if (!operator || operator.controller.kind !== 'bot') return player
+  const updated = appendBotRecord(playerForOperator(player, operator), record)
+  return { ...player, relayOperators: player.relayOperators.map((entry) => entry.id === operatorId ? { ...entry, botMemory: updated.botMemory } : entry) }
+}
+
+function updateOperatorBotGrudges(players: Player[], result: RoundResult): Player[] {
+  const operatorByPlayer = new Map(result.turns.map((turn) => [turn.playerId, turn.operatorId]))
+  return players.map((player) => {
+    const operatorId = operatorByPlayer.get(player.id)
+    if (!operatorId || !player.relayOperators?.length) return updateBotGrudges([player], result)[0]
+    const operator = player.relayOperators.find((entry) => entry.id === operatorId)
+    if (!operator || operator.controller.kind !== 'bot') return player
+    const updated = updateBotGrudges([playerForOperator(player, operator)], result)[0]
+    return { ...player, relayOperators: player.relayOperators.map((entry) => entry.id === operatorId ? { ...entry, botMemory: updated.botMemory } : entry) }
+  })
 }
 
 function identityFeedbackNotice(event: IdentityEvent, index: number) {
@@ -342,6 +386,9 @@ function CustomBotManager({ profiles, onChange, onClose }: { profiles: CustomBot
 function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void }) {
   const [settings, setSettings] = useState<GameSettings>(() => createDefaultSettings())
   const [seats, setSeats] = useState<SeatConfig[]>(() => ['玩家 1', '玩家 2', '玩家 3'].map((name) => ({ name, controller: { kind: 'human' } })))
+  const [mode, setMode] = useState<GameMode>('standard')
+  const [relayMethod, setRelayMethod] = useState<RelayMethod>('rotation')
+  const [relaySeats, setRelaySeats] = useState<RelaySeatConfig[]>(() => relaySeatsFromSeats(['玩家 1', '玩家 2', '玩家 3'].map((name) => ({ name, controller: { kind: 'human' } }))))
   const [advanced, setAdvanced] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
   const [presetName, setPresetName] = useState('')
@@ -355,6 +402,10 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
 
   const applyConfiguration = (nextSeats: SeatConfig[], nextSettings: GameSettings, preset?: GamePreset) => {
     setSeats(nextSeats.map((seat) => ({ ...seat, controller: { ...seat.controller } })))
+    const nextMode = preset?.mode === 'relay' && preset.relaySeats?.length === nextSeats.length ? 'relay' : 'standard'
+    setMode(nextMode)
+    setRelayMethod(preset?.relayMethod === 'segments' ? 'segments' : 'rotation')
+    setRelaySeats(nextMode === 'relay' ? preset!.relaySeats!.map((seat) => ({ ...seat, operators: seat.operators.map((operator) => ({ ...operator, controller: operator.controller.kind === 'bot' ? { ...operator.controller } : { ...operator.controller } })) })) : relaySeatsFromSeats(nextSeats))
     setSettings(cloneSettings({ ...nextSettings, playerCount: nextSeats.length }))
     setPresetName(preset?.name ?? '')
     setActivePresetId(preset?.id ?? null)
@@ -363,6 +414,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
 
   const setPlayerCount = (count: number) => {
     setSeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: `玩家 ${index + 1}`, controller: { kind: 'human' } }))
+    setRelaySeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: `玩家 ${index + 1}`, operators: [{ id: uiId('operator'), name: `玩家 ${index + 1}`, controller: { kind: 'human' } }] }))
     setSettings((current) => ({ ...current, playerCount: count, rewardMultipliers: defaultRewards(count) }))
   }
   const setRewardCount = (count: number) => {
@@ -372,19 +424,24 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     })
   }
   const submit = () => {
-    const nextErrors = [...validateNames(seats.map((seat) => seat.name)), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const gameNames = mode === 'relay' ? relaySeats.map((seat) => seat.name) : seats.map((seat) => seat.name)
+    const relayErrors = mode === 'relay' ? relaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : []) : []
+    const nextErrors = [...validateNames(gameNames), ...relayErrors, ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     setErrors(nextErrors)
-    if (nextErrors.length === 0) onStart(createSession(seats, settings))
+    if (nextErrors.length === 0) onStart(createSession(mode === 'relay' ? relaySeats : seats, settings, { mode, relayMethod }))
   }
   const saveCurrentPreset = () => {
-    const nextErrors = [...validateNames(seats.map((seat) => seat.name)), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const gameNames = mode === 'relay' ? relaySeats.map((seat) => seat.name) : seats.map((seat) => seat.name)
+    const relayErrors = mode === 'relay' ? relaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : []) : []
+    const nextErrors = [...validateNames(gameNames), ...relayErrors, ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     if (!presetName.trim()) nextErrors.push('请为这套配置填写名称')
     setErrors(nextErrors)
     if (nextErrors.length > 0) return
     const existing = presets.find((preset) => preset.id === activePresetId)
-    const preset = createGamePreset(presetName, seats, settings, existing)
+    const sourceSeats = mode === 'relay' ? relaySeats.map((seat) => ({ name: seat.name, controller: seat.operators[0]?.controller ?? { kind: 'human' as const } })) : seats
+    const preset = createGamePreset(presetName, sourceSeats, settings, existing, { mode, relayMethod, relaySeats })
     onSavePresets(existing ? presets.map((entry) => entry.id === preset.id ? preset : entry) : [...presets, preset])
     setActivePresetId(preset.id)
     setPresetName(preset.name)
@@ -443,7 +500,17 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
           },
         }
       : seat)
-    const next = createGamePreset(imported.name, importedSeats, imported.settings)
+    const importedRelaySeats = imported.mode === 'relay'
+      ? imported.relaySeats.map((seat) => ({
+          ...seat,
+          operators: seat.operators.map((operator) => {
+            if (operator.controller.kind !== 'bot' || operator.controller.profileId !== 'custom' || !operator.controller.customProfile) return operator
+            const source = profileIdMap.get(operator.controller.customProfile.id) ?? operator.controller.customProfile
+            return { ...operator, controller: { ...operator.controller, customProfile: { ...source, identityPriority: [...source.identityPriority] } } }
+          }),
+        }))
+      : []
+    const next = createGamePreset(imported.name, importedSeats, imported.settings, undefined, { mode: imported.mode, relayMethod: imported.relayMethod, relaySeats: importedRelaySeats })
     onSavePresets([...presets, next])
     applyConfiguration(next.seats ?? next.names.map((name) => ({ name, controller: { kind: 'human' as const } })), next.settings, next)
     setImportOpen(false)
@@ -454,14 +521,33 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     if (!file) return
     try { setImportText(await file.text()); setImportError('') } catch { setImportError('无法读取这个文件。') }
   }
+  const switchMode = (nextMode: GameMode) => {
+    if (nextMode === mode) return
+    if (nextMode === 'relay') {
+      setRelaySeats((current) => current.length === seats.length ? current : relaySeatsFromSeats(seats))
+    } else {
+      setSeats((current) => current.map((seat, index) => {
+        const first = relaySeats[index]?.operators[0]
+        return first ? { ...seat, name: relaySeats[index].name, controller: first.controller } : seat
+      }))
+    }
+    setMode(nextMode)
+    setErrors([])
+  }
+  const updateRelaySeat = (seatIndex: number, patch: Partial<RelaySeatConfig>) => setRelaySeats((current) => current.map((seat, index) => index === seatIndex ? { ...seat, ...patch } : seat))
+  const updateRelayOperator = (seatIndex: number, operatorIndex: number, patch: Partial<RelayOperator>) => setRelaySeats((current) => current.map((seat, index) => index !== seatIndex ? seat : { ...seat, operators: seat.operators.map((operator, itemIndex) => itemIndex === operatorIndex ? { ...operator, ...patch } : operator) }))
+  const addRelayOperator = (seatIndex: number) => setRelaySeats((current) => current.map((seat, index) => index === seatIndex ? { ...seat, operators: [...seat.operators, { id: uiId('operator'), name: `操作者 ${seat.operators.length + 1}`, controller: { kind: 'human' } }] } : seat))
+  const removeRelayOperator = (seatIndex: number, operatorIndex: number) => setRelaySeats((current) => current.map((seat, index) => index !== seatIndex || seat.operators.length <= 1 ? seat : { ...seat, operators: seat.operators.filter((_, itemIndex) => itemIndex !== operatorIndex) }))
 
   return (
     <AppShell>
       <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回">←</button><Brand /><span /></header>
       <section className="setup-page">
         <div className="section-heading"><div><p className="eyebrow">新对局</p><h1>谁会上桌？</h1></div><p>只需填名字，其他保持默认就能玩。</p></div>
+        <div className="game-mode-switch" role="group" aria-label="对局模式"><button className={cx(mode === 'standard' && 'is-active')} onClick={() => switchMode('standard')}><span>标准模式</span><small>一位玩家，一位操作者</small></button><button className={cx(mode === 'relay' && 'is-active')} onClick={() => switchMode('relay')}><span>接力模式</span><small>多人接手同一位玩家</small></button></div>
         <div className="setup-grid">
           <div className="panel">
+            {mode === 'standard' ? <>
             <label className="field-label" htmlFor="player-count">玩家人数 <strong>{settings.playerCount}</strong></label>
             <input id="player-count" className="range" type="range" min="3" max="10" value={settings.playerCount} onChange={(event) => setPlayerCount(Number(event.target.value))} />
             <div className="name-grid">
@@ -485,6 +571,13 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
               ))}
             </div>
             {seats.some((seat) => seat.controller.kind === 'bot') && <div className="bot-setup-note"><span>Bot 的性格、难度和策略在开局后保持隐藏；高手每轮可能得到一次模糊投资情报。</span><button className="text-button" onClick={() => setCustomBotsOpen(true)}>管理自定义 Bot</button></div>}
+            </> : <div className="relay-setup">
+              <div className="relay-setup__head"><label className="field-label" htmlFor="relay-player-count">游戏玩家 <strong>{settings.playerCount}</strong></label><div className="relay-method-toggle" role="group" aria-label="接力方式"><button className={cx(relayMethod === 'rotation' && 'is-active')} onClick={() => setRelayMethod('rotation')}>轮流接力</button><button className={cx(relayMethod === 'segments' && 'is-active')} onClick={() => setRelayMethod('segments')}>分段接力</button></div></div>
+              <input id="relay-player-count" className="range" type="range" min="3" max="10" value={settings.playerCount} onChange={(event) => setPlayerCount(Number(event.target.value))} />
+              <p className="relay-setup__hint">游戏内只显示玩家名；操作者姓名只用于交接设备。{relayMethod === 'rotation' ? '每轮自动换下一位操作者。' : '回合连续均分，前面的操作者多负责一轮。'}</p>
+              <div className="relay-seat-list">{relaySeats.map((relaySeat, seatIndex) => <section className="relay-seat-card" key={seatIndex}><header><span>{seatIndex + 1}</span><label>游戏玩家<input value={relaySeat.name} maxLength={12} aria-label={`接力玩家 ${seatIndex + 1} 名字`} onChange={(event) => updateRelaySeat(seatIndex, { name: event.target.value })} /></label><small>{relayScheduleLabel(relaySeat.operators, relayMethod, settings.rounds)}</small></header><div className="relay-operator-list">{relaySeat.operators.map((operator, operatorIndex) => { const botController = operator.controller.kind === 'bot' ? operator.controller : null; return <article key={operator.id} className="relay-operator"><b>{operatorIndex + 1}</b><input value={operator.name} maxLength={12} aria-label={`${relaySeat.name || `玩家 ${seatIndex + 1}`} 操作者 ${operatorIndex + 1} 名字`} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { name: event.target.value })} /><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} 类型`} value={operator.controller.kind} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { controller: event.target.value === 'bot' ? { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } : { kind: 'human' } })}><option value="human">真人</option><option value="bot">Bot</option></select>{botController && <><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} Bot 性格`} value={botController.profileId === 'custom' ? `custom:${botController.customProfile?.id ?? ''}` : botController.profileId} onChange={(event) => { const selected = event.target.value; const template = selected.startsWith('custom:') ? customBotProfiles.find((profile) => profile.id === selected.slice(7)) : undefined; updateRelayOperator(seatIndex, operatorIndex, { controller: template ? { ...botController, profileId: 'custom', customProfile: { ...template, identityPriority: [...template.identityPriority] } } : { ...botController, profileId: selected as BotProfileId, customProfile: undefined } }) }}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`}>{profile.name}</option>)}</optgroup>}</select><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} Bot 难度`} value={botController.difficulty} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { controller: { ...botController, difficulty: event.target.value as BotDifficulty } })}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></>}<button className="icon-button" aria-label={`移除${operator.name || '操作者'}`} disabled={relaySeat.operators.length <= 1} onClick={() => removeRelayOperator(seatIndex, operatorIndex)}>×</button></article> })}</div><button className="relay-add-operator" onClick={() => addRelayOperator(seatIndex)}>＋ 添加操作者</button></section>)}</div>
+              {relaySeats.some((seat) => seat.operators.some((operator) => operator.controller.kind === 'bot')) && <div className="bot-setup-note"><span>每位 Bot 操作者都有独立性格与记忆；多人共用同一资产时也会做出不同选择。</span><button className="text-button" onClick={() => setCustomBotsOpen(true)}>管理自定义 Bot</button></div>}
+            </div>}
           </div>
           <div className="panel settings-panel">
             <div className="setting-row"><label htmlFor="rounds">轮数</label><div><input id="rounds" type="number" min="1" max="12" value={settings.rounds} onChange={(event) => setSettings({ ...settings, rounds: Number(event.target.value) })} /><span>轮</span></div></div>
@@ -627,12 +720,13 @@ function RoundIntro({ session, onContinue, auto = false }: { session: GameSessio
 
 function Handoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
   const player = session.players[session.currentTurnIndex]
+  const operator = activeOperator(session, player)
   return (
     <section className="handoff screen-center">
       <div className="privacy-seal"><span>私</span></div>
       <p className="eyebrow">请把设备交给</p>
-      <h1 style={{ color: player.color }}>{player.name}</h1>
-      <p className="lead">其他人请移开视线。准备好后，由本人点击进入。</p>
+      <h1 style={{ color: player.color }}>{operator.name}</h1>
+      <p className="lead">本回合替 <strong>{player.name}</strong> 操作。其他人请移开视线。</p>
       <button className="handoff-enter" onClick={onReady}>进入私密操作 <span>→</span></button>
       <small className="privacy-note">点击后请立即开始自己的私密操作</small>
     </section>
@@ -641,14 +735,15 @@ function Handoff({ session, onReady }: { session: GameSession; onReady: () => vo
 
 function FinalReceipt({ session, onReady, onAcknowledge }: { session: GameSession; onReady: () => void; onAcknowledge: () => void }) {
   const player = session.players[session.finalReceiptIndex ?? 0]
+  const operator = player ? activeOperator(session, player, session.settings.rounds - 1) : null
   const receipt = player ? session.pendingIdentityNotices.find((notice) => notice.playerId === player.id && notice.title === '本轮拍品结果') : undefined
   if (!player) return null
-  if (session.phase === 'finalReceiptHandoff') return <section className="handoff screen-center"><div className="privacy-seal"><span>密</span></div><p className="eyebrow">终局前的私人回执</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">请由本人确认最后一轮的拍品结果。</p><button className="handoff-enter" onClick={onReady}>查看我的结果 <span>→</span></button></section>
+  if (session.phase === 'finalReceiptHandoff') return <section className="handoff screen-center"><div className="privacy-seal"><span>密</span></div><p className="eyebrow">终局前的私人回执</p><h1 style={{ color: player.color }}>{operator?.name ?? player.name}</h1><p className="lead">请替 <strong>{player.name}</strong> 确认最后一轮的拍品结果。</p><button className="handoff-enter" onClick={onReady}>查看结果 <span>→</span></button></section>
   return <section className="handoff screen-center"><div className="card-grant-sheet"><span>{receipt?.detail.includes('获得了') ? '★' : '○'}</span><p className="eyebrow">本轮拍品结果</p><h2>{receipt?.detail ?? '本轮没有拍品回执。'}</h2><button className="button button--primary" onClick={onAcknowledge}>知道了</button></div></section>
 }
 
-function BotThinking({ player, allBots }: { player: Player; allBots: boolean }) {
-  return <section className="bot-thinking screen-center"><div className="privacy-seal"><span>✦</span></div><p className="eyebrow">Bot 正在行动</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">正在分析拍品、局势与可用技能。</p><div className="bot-thinking__dots" aria-label="Bot 正在思考"><i /><i /><i /></div>{allBots && <small className="privacy-note">观战模式会自动推进至终局</small>}</section>
+function BotThinking({ player, allBots, operatorName }: { player: Player; allBots: boolean; operatorName?: string }) {
+  return <section className="bot-thinking screen-center"><div className="privacy-seal"><span>✦</span></div><p className="eyebrow">Bot 正在行动</p><h1 style={{ color: player.color }}>{operatorName ?? player.name}</h1><p className="lead">{operatorName ? `正在替 ${player.name} 分析拍品、局势与可用技能。` : '正在分析拍品、局势与可用技能。'}</p><div className="bot-thinking__dots" aria-label="Bot 正在思考"><i /><i /><i /></div>{allBots && <small className="privacy-note">观战模式会自动推进至终局</small>}</section>
 }
 
 function SpectatorControls({ paused, speed, canTakeOver, takingOver, onToggle, onStep, onSpeed, onPanel, onTakeOver }: { paused: boolean; speed: number; canTakeOver: boolean; takingOver: boolean; onToggle: () => void; onStep: () => void; onSpeed: (speed: number) => void; onPanel: () => void; onTakeOver: () => void }) {
@@ -658,10 +753,11 @@ function SpectatorControls({ paused, speed, canTakeOver, takingOver, onToggle, o
 function SpectatorEventStage({ event, session }: { event: SpectatorEvent; session: GameSession }) {
   const player = event.playerId ? session.players.find((entry) => entry.id === event.playerId) : null
   const identity = player?.identity ? getIdentityDefinition(player.identity.id) : null
-  const controller = player?.controller?.kind === 'bot' ? player.controller : null
+  const operator = player && event.operatorId ? player.relayOperators?.find((entry) => entry.id === event.operatorId) : null
+  const controller = operator?.controller.kind === 'bot' ? operator.controller : player?.controller?.kind === 'bot' ? player.controller : null
   const profile = controller ? BOT_PROFILES.find((entry) => entry.id === controller.profileId) : null
   const icon = event.type === 'identityChoice' ? identity?.symbol ?? '◇' : event.type === 'roundResult' ? '✓' : event.type === 'kidnap' ? '⛓' : event.type.includes('auction') || event.type === 'assetSale' ? '◈' : '●'
-  return <section className={`spectator-event-stage spectator-event-stage--${event.type}`} aria-live="polite" data-testid="spectator-event"><div className="spectator-event-stage__pulse" aria-hidden="true" /><article><div className="spectator-event-stage__icon" style={player ? { '--player-color': player.color } as React.CSSProperties : undefined}>{icon}</div><p className="eyebrow">第 {event.roundIndex + 1} 轮 · {event.type === 'identityChoice' ? '身份确认' : event.type === 'roundResult' ? '回合落定' : '行动确认'}</p><h1>{event.summary}</h1>{player && <div className="spectator-event-stage__profile"><span style={{ background: player.color }}>{player.name.slice(0, 1)}</span><div><strong>{player.name} · {identity?.name ?? '未选身份'}</strong><small>{profile?.name ?? '自定义'} · {controller?.difficulty === 'expert' ? '高手' : controller?.difficulty === 'easy' ? '简单' : '标准'}</small></div></div>}<div className="spectator-event-stage__details">{event.details.map((detail, index) => <span key={`${detail}-${index}`}>{detail}</span>)}</div></article></section>
+  return <section className={`spectator-event-stage spectator-event-stage--${event.type}`} aria-live="polite" data-testid="spectator-event"><div className="spectator-event-stage__pulse" aria-hidden="true" /><article><div className="spectator-event-stage__icon" style={player ? { '--player-color': player.color } as React.CSSProperties : undefined}>{icon}</div><p className="eyebrow">第 {event.roundIndex + 1} 轮 · {event.type === 'identityChoice' ? '身份确认' : event.type === 'roundResult' ? '回合落定' : '行动确认'}</p><h1>{event.summary}</h1>{player && <div className="spectator-event-stage__profile"><span style={{ background: player.color }}>{player.name.slice(0, 1)}</span><div><strong>{player.name} · {identity?.name ?? '未选身份'}</strong><small>{operator ? `${operator.name} 操作 · ` : ''}{profile?.name ?? '自定义'} · {controller?.difficulty === 'expert' ? '高手' : controller?.difficulty === 'easy' ? '简单' : '标准'}</small></div></div>}<div className="spectator-event-stage__details">{event.details.map((detail, index) => <span key={`${detail}-${index}`}>{detail}</span>)}</div></article></section>
 }
 
 function SpectatorChart({ session, chartKey }: { session: GameSession; chartKey: SpectatorChartKey }) {
@@ -685,7 +781,8 @@ function SpectatorDashboard({ session, tab, open, selectedPlayerId, eventFilter,
 
 function IdentityHandoff({ session, onReady }: { session: GameSession; onReady: () => void }) {
   const player = session.players[session.identityDraft?.playerIndex ?? 0]
-  return <section className="handoff screen-center"><div className="privacy-seal"><span>身</span></div><p className="eyebrow">请把设备交给</p><h1 style={{ color: player.color }}>{player.name}</h1><p className="lead">只有你会看到 {session.identityDraft?.choiceIds.length ?? session.settings.identitySettings.identityChoiceCount} 张身份卡。选好并完成准备后，再传给下一位。</p><button className="handoff-enter" onClick={onReady}>选择身份 <span>→</span></button><small className="privacy-note">其他人请移开视线</small></section>
+  const operator = activeOperator(session, player, 0)
+  return <section className="handoff screen-center"><div className="privacy-seal"><span>身</span></div><p className="eyebrow">请把设备交给</p><h1 style={{ color: player.color }}>{operator.name}</h1><p className="lead">你将替 <strong>{player.name}</strong> 选择身份。只有你会看到 {session.identityDraft?.choiceIds.length ?? session.settings.identitySettings.identityChoiceCount} 张身份卡。</p><button className="handoff-enter" onClick={onReady}>选择身份 <span>→</span></button><small className="privacy-note">其他人请移开视线</small></section>
 }
 
 function IdentityDraft({ session, onChoose, onConfirm }: { session: GameSession; onChoose: (identityId: IdentityId) => void; onConfirm: (config: { targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId }) => void }) {
@@ -1522,6 +1619,14 @@ function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: Ga
   const nextStanding = reversedStandings[revealedCount]
   const medalists = [standings[2], standings[1], standings[0]].filter(Boolean)
   const highlights = createGameHighlights(session)
+  const botArchives = session.players.flatMap((player) => {
+    const operators = player.relayOperators?.length
+      ? player.relayOperators
+      : [{ id: player.id, name: player.name, controller: player.controller, botMemory: player.botMemory }]
+    return operators
+      .filter((operator) => operator.controller?.kind === 'bot')
+      .map((operator) => ({ player, operator }))
+  })
 
   useEffect(() => {
     if (reducedMotion || fullyRevealed) return
@@ -1541,7 +1646,7 @@ function FinalResult({ session, onNewGame, onRematch, onRevenge }: { session: Ga
       {fullyRevealed && <details className="game-highlights panel"><summary><span>✦</span><div><small>终局收官</small><strong>本局名场面 · 5 张</strong></div><i>展开</i></summary><div className="game-highlights__grid">{highlights.map((highlight) => <article key={highlight.id}><span>{highlight.symbol}</span><div><strong>{highlight.title}</strong><p>{highlight.detail}</p></div></article>)}</div></details>}
       {fullyRevealed && <SubLeaderboards session={session} />}
       {fullyRevealed && session.settings.identitySettings.enabled && <section className="identity-final panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>身份公开</h2></div><span>所有身份与开局配置</span></div><div>{session.players.map((player) => { const identity = player.identity ? getIdentityDefinition(player.identity.id) : null; const config = player.identity?.id === 'thief' && player.identity.targetPlayerId ? `目标：${playerName(session.players, player.identity.targetPlayerId)}` : player.identity?.collectorCategory ? `收藏类别：${categoryConfig(player.identity.collectorCategory).name}` : ''; return <article key={player.id}><span>{identity?.symbol ?? '—'}</span><div><strong>{player.name} · {identity?.name ?? '未选择身份'}</strong><small>{identity?.summary ?? '本局未启用身份。'}{config ? ` ${config}` : ''}</small></div></article> })}</div></section>}
-      {fullyRevealed && session.players.some((player) => isBot(player)) && <section className="bot-reveal panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>Bot 档案</h2></div><span>性格、难度和本局恩怨</span></div>{session.players.filter((player) => player.controller?.kind === 'bot').map((player) => { const controller = player.controller as Extract<Player['controller'], { kind: 'bot' }>; const profile = BOT_PROFILES.find((entry) => entry.id === controller.profileId); const grudges = Object.entries(player.botMemory?.grudgeByPlayerId ?? {}).filter(([, score]) => score > 0).sort((a, b) => b[1] - a[1]); return <article key={player.id}><strong>{player.name} · {profile?.name}</strong><small>{profile?.summary} · {controller.difficulty === 'easy' ? '简单' : controller.difficulty === 'expert' ? '高手' : '标准'}难度</small><p>{grudges.length ? `本局最在意：${grudges.slice(0, 2).map(([id]) => playerName(session.players, id)).join('、')}` : '本局没有形成明显恩怨。'}</p></article> })}</section>}
+      {fullyRevealed && botArchives.length > 0 && <section className="bot-reveal panel"><div className="panel-title"><div><p className="eyebrow">终局揭示</p><h2>Bot 档案</h2></div><span>性格、难度和本局恩怨</span></div>{botArchives.map(({ player, operator }) => { const controller = operator.controller as Extract<Player['controller'], { kind: 'bot' }>; const profile = BOT_PROFILES.find((entry) => entry.id === controller.profileId); const grudges = Object.entries(operator.botMemory?.grudgeByPlayerId ?? {}).filter(([, score]) => score > 0).sort((a, b) => b[1] - a[1]); return <article key={operator.id}><strong>{operator.name} · 替 {player.name} 出战 · {profile?.name}</strong><small>{profile?.summary} · {controller.difficulty === 'easy' ? '简单' : controller.difficulty === 'expert' ? '高手' : '标准'}难度</small><p>{grudges.length ? `本局最在意：${grudges.slice(0, 2).map(([id]) => playerName(session.players, id)).join('、')}` : '本局没有形成明显恩怨。'}</p></article> })}</section>}
       {fullyRevealed && <><RoundReview session={session} /><div className="final-note">固定资产不会进入每轮余额；同总资产玩家共享同一名次。</div><div className="final-actions"><button className="button button--paper button--large" onClick={onRematch}>原班再来一局</button><button className="button button--primary button--large" onClick={onRevenge}>复仇局 <span>⚡</span></button><button className="text-button" onClick={onNewGame}>重新设置</button></div><small className="rematch-note">复仇局沿用座位与规则，只继承 Bot 对公开事件形成的恩怨。</small></>}
     </section>
   )
@@ -1648,9 +1753,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       pendingAwards.push({ playerId: session.players[draft.playerIndex].id, cardId: config.merchantCardId })
     }
     const draftPlayer = session.players[draft.playerIndex]
-    const players = session.players.map((player, index) => index === draft.playerIndex ? (botRecord ? appendBotRecord({ ...player, identity: createPlayerIdentity(identityId, config) }, { stage: 'identity', roundIndex: 0, mode: botRecord.mode, reason: botRecord.reason }) : { ...player, identity: createPlayerIdentity(identityId, config) }) : player)
-    const spectatorPatch = appendSpectatorEvent(session, { roundIndex: 0, type: 'identityChoice', playerId: draftPlayer.id, identityId, identityChoiceIds: [...draft.choiceIds], summary: `${draftPlayer.name} 选择了 ${getIdentityDefinition(identityId).name}`, details: [`候选：${draft.choiceIds.map((id) => getIdentityDefinition(id).name).join(' / ')}`, config.collectorCategory ? `专精 ${categoryConfig(config.collectorCategory).name}` : config.targetPlayerId ? `目标 ${playerName(session.players, config.targetPlayerId)}` : '身份配置完成'] })
-    if (session.spectatorTakeoverPlayerId === draftPlayer.id) setBotPaused(false)
+    const draftOperator = activeOperator(session, draftPlayer, 0)
+    const players = session.players.map((player, index) => index === draft.playerIndex ? (botRecord ? recordOperatorBotAction({ ...player, identity: createPlayerIdentity(identityId, config) }, draftOperator.id, { stage: 'identity', roundIndex: 0, mode: botRecord.mode, reason: botRecord.reason }) : { ...player, identity: createPlayerIdentity(identityId, config) }) : player)
+    const spectatorPatch = appendSpectatorEvent(session, { roundIndex: 0, type: 'identityChoice', playerId: draftPlayer.id, operatorId: draftOperator.id, identityId, identityChoiceIds: [...draft.choiceIds], summary: `${draftPlayer.name} 选择了 ${getIdentityDefinition(identityId).name}`, details: [`候选：${draft.choiceIds.map((id) => getIdentityDefinition(id).name).join(' / ')}`, config.collectorCategory ? `专精 ${categoryConfig(config.collectorCategory).name}` : config.targetPlayerId ? `目标 ${playerName(session.players, config.targetPlayerId)}` : '身份配置完成'] })
+    if (session.spectatorTakeoverPlayerId === draftOperator.id) setBotPaused(false)
     const selectedIds = players.flatMap((candidate) => candidate.identity ? [candidate.identity.id] : [])
     const nextIndex = draft.playerIndex + 1
     if (nextIndex >= players.length) {
@@ -1802,6 +1908,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     return use
   }
   const submitTurn = (turn: RoundTurn, botRecord?: { mode: import('./game/types').StrategyMode; reason: string; intel?: string }, timedOut = false) => {
+    const scheduledPlayer = session.players[session.currentTurnIndex]
+    if (!scheduledPlayer || scheduledPlayer.id !== turn.playerId) return false
+    const scheduledOperator = activeOperator(session, scheduledPlayer)
+    if (turn.operatorId && turn.operatorId !== scheduledOperator.id) return false
+    turn = { ...turn, operatorId: scheduledOperator.id }
+    const scheduledActor = playerForOperator(scheduledPlayer, scheduledOperator)
     let playersBeforeSubmit = session.players.map((player) => ({ ...player, cardInventory: [...player.cardInventory] }))
     const submittedFateCoin = turnCardUses(turn).find((use) => use.cardId === 'fateCoin')
     const pendingFateCoin = session.pendingFateCoinUse?.playerId === turn.playerId && session.pendingFateCoinUse.roundIndex === session.roundIndex ? session.pendingFateCoinUse.use : null
@@ -1810,7 +1922,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         if (submittedFateCoin.coinResult !== pendingFateCoin.coinResult || submittedFateCoin.fateDeltaUnits !== pendingFateCoin.fateDeltaUnits) return false
       } else {
         const fatePlayer = playersBeforeSubmit.find((player) => player.id === turn.playerId)
-        if (!fatePlayer || !isBot(fatePlayer) || !fatePlayer.cardInventory.includes('fateCoin') || (submittedFateCoin.coinResult !== 'heads' && submittedFateCoin.coinResult !== 'tails')) return false
+        if (!fatePlayer || !isBot(scheduledActor) || !fatePlayer.cardInventory.includes('fateCoin') || (submittedFateCoin.coinResult !== 'heads' && submittedFateCoin.coinResult !== 'tails')) return false
         const fateDeltaUnits = submittedFateCoin.coinResult === 'heads' ? 20 : 0
         fatePlayer.balanceUnits = Math.max(0, fatePlayer.balanceUnits + fateDeltaUnits)
         fatePlayer.cardInventory = removeOneCard(fatePlayer.cardInventory, 'fateCoin')
@@ -1898,7 +2010,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     for (const use of cardUses) {
       if (use.cardId === 'reflectShield') return false
       const isLockedPrizeReroll = lockedPrizeChanges.some((change) => use.cardId === change.cardId)
-      const isLockedFateCoin = use.cardId === 'fateCoin' && Boolean(pendingFateCoin || isBot(currentPlayer))
+      const isLockedFateCoin = use.cardId === 'fateCoin' && Boolean(pendingFateCoin || isBot(scheduledActor))
       if (!isLockedPrizeReroll && !isLockedFateCoin && !currentPlayer.cardInventory.includes(use.cardId)) return false
       const targetScope = cardTargetScope(use.cardId)
       const targetIsPrevious = session.turns.some((submitted) => submitted.playerId === use.targetPlayerId)
@@ -1914,7 +2026,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         balanceUnits: player.balanceUnits - turn.bidUnits - (turn.identityAction?.type === 'invest' ? turn.identityAction.investmentUnits : 0),
         cardInventory: cardUses.filter((use) => !lockedPrizeChanges.some((change) => change.cardId === use.cardId)).reduce((inventory, use) => removeOneCard(inventory, use.cardId), player.cardInventory),
       }
-      return botRecord ? appendBotRecord(updated, { stage: 'turn', roundIndex: session.roundIndex, mode: botRecord.mode, reason: botRecord.reason, intel: botRecord.intel, bidUnits: turn.bidUnits }) : updated
+      return botRecord ? recordOperatorBotAction(updated, scheduledOperator.id, { stage: 'turn', roundIndex: session.roundIndex, mode: botRecord.mode, reason: botRecord.reason, intel: botRecord.intel, bidUnits: turn.bidUnits }) : updated
     })
     if (turn.identityAction?.type === 'nightwalkerDoubleBid') {
       const nightwalker = players.find((player) => player.id === turn.playerId)
@@ -1978,7 +2090,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const timedOutItemDeck = autoConfirmedPrizeChanges.filter((change) => change.cardId === 'prizeReroll').reduce((deck, change) => replacePrizeAt(deck, change.targetRoundIndex, change.offeredItems.find((item) => item.id === change.confirmedItemId) ?? change.offeredItems[0]), session.itemDeck)
     const retainedPrizeChanges = session.pendingPrizeChanges.filter((change) => !(change.playerId === turn.playerId && change.roundIndex === session.roundIndex && change.cardId !== 'prizeSwap'))
     const spectatorPatch = appendSpectatorEvent(session, createTurnSpectatorEvent(session, resolvedTurn))
-    if (session.spectatorTakeoverPlayerId === turn.playerId) setBotPaused(false)
+    if (session.spectatorTakeoverPlayerId === turn.operatorId) setBotPaused(false)
     patch({ players, turns, identityContracts, merchantAuction, auctionQueue, cardDeck, merchantShops, pendingAssetAuctions, pendingMerchantOffers: session.pendingMerchantOffers.filter((offer) => !(offer.playerId === turn.playerId && offer.roundIndex === session.roundIndex)), pendingFateCoinUse: null, pendingPrizeReroll: null, pendingPrizeChanges: retainedPrizeChanges, ...(autoConfirmedPrizeChanges.length > 0 ? { itemDeck: timedOutItemDeck } : {}), operationDeadlineAt: null, phase: isLast ? 'revealReady' : 'handoff', currentTurnIndex: isLast ? session.currentTurnIndex : nextTurnIndex, spectatorTakeoverPlayerId: null, ...spectatorPatch })
     return true
   }
@@ -2100,7 +2212,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           capturedPlayerId: attempt.capturedPlayerId,
           item: settled.result.item,
           ransomUnits: attempt.ransomUnits,
-          players: updateBotGrudges(settled.players, settled.result),
+          players: updateOperatorBotGrudges(settled.players, settled.result),
           result: settled.result,
           identityContracts: settled.identityContracts,
           identityEvents: events,
@@ -2117,7 +2229,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const resultSession = { ...session, ...marketSpectatorPatch, results: [...session.results, settled.result] }
     const spectatorResult = createRoundResultSpectatorEvent(resultSession)
     const spectatorPatch = spectatorResult ? appendSpectatorEvent(resultSession, spectatorResult) : marketSpectatorPatch
-    patch({ players: updateBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex), phase: 'roundResult', ...spectatorPatch })
+    patch({ players: updateOperatorBotGrudges(settled.players, settled.result), cardDeck: auctionDeck, itemDeck: resolvedItemDeck, roundAuctions: [], roundAssetAuctions: [], identityContracts: settled.identityContracts, pendingIdentityNotices: notices, identityEvents: events, results: [...session.results, settled.result], pendingPrizeChanges: session.pendingPrizeChanges.filter((change) => change.roundIndex !== session.roundIndex), phase: 'roundResult', ...spectatorPatch })
   }
   const resolveKidnapNegotiation = (payRansom: boolean) => {
     const negotiation = session.pendingKidnapNegotiation
@@ -2251,13 +2363,14 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (!auction) return
     const bidders = session.players
     const bidder = bidders[playerIndexForRoundPosition(auction.roundIndex, auction.bidderIndex, bidders.length)]
+    const bidderOperator = bidder ? activeOperator(session, bidder, auction.roundIndex) : undefined
     const merchantLocked = auction.source === 'merchant' && auction.merchantId === bidder?.id
     const resolvedBidUnits = merchantLocked ? 0 : bidUnits
     if (!bidder || resolvedBidUnits < 0 || resolvedBidUnits > bidder.balanceUnits) return
-    const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? appendBotRecord(player, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason, bidUnits: resolvedBidUnits }) : player) : session.players
+    const recordedPlayers = botRecord ? session.players.map((player) => player.id === bidder.id ? recordOperatorBotAction(player, bidderOperator?.id, { stage: 'merchantAuction', roundIndex: auction.roundIndex, mode: botRecord.mode, reason: botRecord.reason, bidUnits: resolvedBidUnits }) : player) : session.players
     const bids = [...auction.bids, { playerId: bidder.id, bidUnits: resolvedBidUnits }]
-    if (session.spectatorTakeoverPlayerId === bidder.id) setBotPaused(false)
-    const bidSpectatorPatch = appendSpectatorEvent(session, { roundIndex: auction.roundIndex, type: 'auctionBid', playerId: bidder.id, lotId: `${auction.source}-${auction.cardId}`, bidUnits: resolvedBidUnits, summary: `${bidder.name} 已提交道具竞购报价`, details: [`${getCardDefinition(auction.cardId).name} · ${resolvedBidUnits > 0 ? `${formatCoins(resolvedBidUnits)} 金币` : '跳过'}`] })
+    if (session.spectatorTakeoverPlayerId === bidderOperator?.id) setBotPaused(false)
+    const bidSpectatorPatch = appendSpectatorEvent(session, { roundIndex: auction.roundIndex, type: 'auctionBid', playerId: bidder.id, operatorId: bidderOperator?.id, lotId: `${auction.source}-${auction.cardId}`, bidUnits: resolvedBidUnits, summary: `${bidder.name} 已提交道具竞购报价`, details: [`${getCardDefinition(auction.cardId).name} · ${resolvedBidUnits > 0 ? `${formatCoins(resolvedBidUnits)} 金币` : '跳过'}`] })
     if (auction.bidderIndex < bidders.length - 1) {
       patch({ players: recordedPlayers, merchantAuction: { ...auction, bidderIndex: auction.bidderIndex + 1, bids }, operationDeadlineAt: null, phase: 'auctionHandoff', spectatorTakeoverPlayerId: null, ...bidSpectatorPatch })
       return
@@ -2317,9 +2430,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       patch({ players, cardDeck: deck, pendingIdentityNotices: notices, identityEvents: events, merchantAuction: nextAuction, auctionQueue: session.auctionQueue.slice(1), operationDeadlineAt: null, phase: 'auctionIntro', spectatorTakeoverPlayerId: null, ...resultSpectatorPatch })
     } else beginNormalRound(auction.roundIndex, players, deck, notices, events, resultSpectatorPatch)
   }
-  const allBots = session.players.length > 0 && session.players.every((player) => isBot(player))
+  const allBots = allOperatorsAreBots(session.players)
   const spectatorMode = session.spectatorMode && allBots
   const currentPlayer = session.players[session.currentTurnIndex]
+  const currentOperator = currentPlayer ? activeOperator(session, currentPlayer) : undefined
+  const currentActor = currentPlayer && currentOperator ? playerForOperator(currentPlayer, currentOperator) : undefined
+  const isCurrentBot = Boolean(currentActor && isBot(currentActor))
   // Recovery guard: an older save may already have enough solved identities but
   // have missed the one-time offer during a previous state transition.
   useEffect(() => {
@@ -2330,26 +2446,39 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     patch({ pendingProphetCardOffers: [...session.pendingProphetCardOffers, { playerId: currentPlayer.id, offeredCardIds, chosenCardIds: [] }] })
   }, [currentPlayer, session])
   const auctionBidder = session.merchantAuction ? session.players[playerIndexForRoundPosition(session.merchantAuction.roundIndex, session.merchantAuction.bidderIndex, session.players.length)] : undefined
-  const spectatorActor = session.phase === 'identityHandoff' || session.phase === 'identityDraft' ? session.players[session.identityDraft?.playerIndex ?? 0]
-    : session.phase === 'auctionHandoff' || session.phase === 'auctionBid' ? auctionBidder
-      : session.phase === 'handoff' || session.phase === 'privateTurn' ? currentPlayer
-        : session.phase === 'kidnapNegotiation' ? session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
+  const auctionOperator = auctionBidder && session.merchantAuction ? activeOperator(session, auctionBidder, session.merchantAuction.roundIndex) : undefined
+  const auctionActor = auctionBidder && auctionOperator ? playerForOperator(auctionBidder, auctionOperator) : undefined
+  const draftPlayer = session.players[session.identityDraft?.playerIndex ?? 0]
+  const draftOperator = draftPlayer ? activeOperator(session, draftPlayer, 0) : undefined
+  const draftActor = draftPlayer && draftOperator ? playerForOperator(draftPlayer, draftOperator) : undefined
+  const capturedPlayer = session.players.find((player) => player.id === session.pendingKidnapNegotiation?.capturedPlayerId)
+  const capturedOperator = capturedPlayer ? activeOperator(session, capturedPlayer) : undefined
+  const capturedActor = capturedPlayer && capturedOperator ? playerForOperator(capturedPlayer, capturedOperator) : undefined
+  const spectatorActor = session.phase === 'identityHandoff' || session.phase === 'identityDraft' ? draftActor
+    : session.phase === 'auctionHandoff' || session.phase === 'auctionBid' ? auctionActor
+      : session.phase === 'handoff' || session.phase === 'privateTurn' ? currentActor
+        : session.phase === 'kidnapNegotiation' ? capturedActor
           : undefined
-  const takeoverActive = Boolean(spectatorActor && session.spectatorTakeoverPlayerId === spectatorActor.id)
+  const spectatorActorId = session.phase === 'identityHandoff' || session.phase === 'identityDraft' ? draftOperator?.id
+    : session.phase === 'auctionHandoff' || session.phase === 'auctionBid' ? auctionOperator?.id
+      : session.phase === 'handoff' || session.phase === 'privateTurn' ? currentOperator?.id
+        : session.phase === 'kidnapNegotiation' ? capturedOperator?.id
+          : undefined
+  const takeoverActive = Boolean(spectatorActorId && session.spectatorTakeoverPlayerId === spectatorActorId)
   const armTurnDeadline = () => {
-    if (session.phase !== 'privateTurn' || !session.settings.turnTimerEnabled || !currentPlayer || isBot(currentPlayer) || session.operationDeadlineAt) return
+    if (session.phase !== 'privateTurn' || !session.settings.turnTimerEnabled || !currentPlayer || isCurrentBot || session.operationDeadlineAt) return
     patch({ operationDeadlineAt: Date.now() + session.settings.turnTimeLimitSeconds * 1000 })
   }
   const takeOverBot = () => {
     const target = spectatorActor
     if (!target || !isBot(target)) return
-    if (session.spectatorTakeoverPlayerId === target.id) {
+    if (session.spectatorTakeoverPlayerId === spectatorActorId) {
       patch({ spectatorTakeoverPlayerId: null })
       setBotPaused(false)
       return
     }
     const phase = session.phase === 'identityHandoff' ? 'identityDraft' : session.phase === 'auctionHandoff' ? 'auctionBid' : session.phase === 'handoff' ? 'privateTurn' : session.phase
-    patch({ spectatorTakeoverPlayerId: target.id, phase })
+    patch({ spectatorTakeoverPlayerId: spectatorActorId ?? target.id, phase })
     setBotPaused(true)
   }
   const acknowledgeSpectatorEvent = () => {
@@ -2380,30 +2509,28 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     }
     const timer = window.setTimeout(() => {
       if (session.phase === 'identityHandoff') {
-        const draftPlayer = session.players[session.identityDraft?.playerIndex ?? 0]
-        if (isBot(draftPlayer)) patch({ phase: 'identityDraft' })
+        if (draftActor && isBot(draftActor)) patch({ phase: 'identityDraft' })
       } else if (session.phase === 'identityDraft') {
         const draft = session.identityDraft
-        const draftPlayer = session.players[draft?.playerIndex ?? 0]
-        if (!draft || !isBot(draftPlayer)) return
+        if (!draft || !draftPlayer || !draftActor || !isBot(draftActor)) return
         if (!draft.selectedIdentityId) {
-          const decision = decideBotIdentity({ choices: draft.choiceIds, player: draftPlayer, players: session.players })
+          const decision = decideBotIdentity({ choices: draft.choiceIds, player: draftActor, players: session.players })
           chooseIdentity(decision.identityId)
         } else {
-          const decision = decideBotIdentity({ choices: [draft.selectedIdentityId], player: draftPlayer, players: session.players, cardOfferIds: draft.merchantCardOfferIds })
+          const decision = decideBotIdentity({ choices: [draft.selectedIdentityId], player: draftActor, players: session.players, cardOfferIds: draft.merchantCardOfferIds })
           confirmIdentity(decision, { mode: decision.mode, reason: decision.reason })
         }
-      } else if (session.phase === 'handoff' && isBot(currentPlayer)) {
+      } else if (session.phase === 'handoff' && isCurrentBot) {
         patch({ phase: 'privateTurn' })
-      } else if (session.phase === 'privateTurn' && isBot(currentPlayer)) {
+      } else if (session.phase === 'privateTurn' && currentPlayer && currentActor && currentOperator && isCurrentBot) {
         try {
-        const controller = currentPlayer.controller as Extract<Player['controller'], { kind: 'bot' }>
+        const controller = currentActor.controller as Extract<Player['controller'], { kind: 'bot' }>
         const observation = buildBotObservation(session, currentPlayer.id)
         const merchantShop = session.merchantShops.find((shop) => shop.playerId === currentPlayer.id && shop.roundIndex === session.roundIndex)
         const merchantShopWindow = currentPlayer.identity?.id === 'merchant'
         const merchantAuctionWindow = merchantShopWindow && session.roundIndex < session.settings.rounds - 2
         const merchantShopRoll = [...`${session.id}:${currentPlayer.id}:${session.roundIndex}`].reduce((total, character) => (total * 31 + character.charCodeAt(0)) % 100, 0)
-        const merchantShopThreshold = 18 + Math.round((currentPlayer.botMemory?.strategy.cards ?? 50) * .14) + Math.max(0, Math.round((currentPlayer.botMemory?.behavior.cardBias ?? 0) * 8))
+        const merchantShopThreshold = 18 + Math.round((currentActor.botMemory?.strategy.cards ?? 50) * .14) + Math.max(0, Math.round((currentActor.botMemory?.behavior.cardBias ?? 0) * 8))
         const botChoosesShop = !merchantAuctionWindow || merchantShopRoll < merchantShopThreshold
         if (merchantShopWindow && botChoosesShop && !merchantShop && currentPlayer.balanceUnits >= MERCHANT_SHOP_ENTRY_FEE_UNITS) {
           if (openMerchantShop(currentPlayer.id)) return
@@ -2419,16 +2546,16 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         const pendingPrizeChange = session.pendingPrizeChanges.find((change) => change.playerId === currentPlayer.id && change.roundIndex === session.roundIndex && !change.confirmedItemId)
         if (pendingPrizeChange) {
           if (!pendingPrizeChange.chosenItemId) {
-            const choice = decideBotPrizeReroll(currentPlayer, pendingPrizeChange.offeredItems, session.roundIndex, session.id) ?? pendingPrizeChange.offeredItems[0]
+            const choice = decideBotPrizeReroll(currentActor, pendingPrizeChange.offeredItems, session.roundIndex, session.id) ?? pendingPrizeChange.offeredItems[0]
             if (choice && choosePrizeReroll(pendingPrizeChange.cardId, choice.id)) return
           } else {
             if (confirmPrizeReroll(pendingPrizeChange.cardId)) return
           }
         }
-        const memory = currentPlayer.botMemory ?? emptyBotMemory(`${session.id}:${currentPlayer.id}`)
+        const memory = currentActor.botMemory ?? emptyBotMemory(`${session.id}:${currentPlayer.id}:${currentOperator.id}`)
         const merchantOffer = session.pendingMerchantOffers.find((offer) => offer.playerId === currentPlayer.id && offer.roundIndex === session.roundIndex)
         if (merchantOffer && !merchantOffer.chosenCardId) {
-          const cardId = decideBotMerchantOffer(currentPlayer, merchantOffer.offeredCardIds, session.roundIndex, session.id) ?? merchantOffer.offeredCardIds[0]
+          const cardId = decideBotMerchantOffer(currentActor, merchantOffer.offeredCardIds, session.roundIndex, session.id) ?? merchantOffer.offeredCardIds[0]
           if (cardId && chooseMerchantOffer(cardId)) return
         }
         const prophetOffer = session.pendingProphetCardOffers.find((offer) => offer.playerId === currentPlayer.id && offer.chosenCardIds.length < 2)
@@ -2448,7 +2575,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           const divination = decideBotProphetAction(observation, memory, 'main')
           if (divination && useProphetDivination(currentPlayer.id, divination.mode, divination.targetPlayerId, divination.identityId)) return
         }
-        const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, currentPlayer.botMemory ?? emptyBotMemory())
+        const decision = decideBotTurn(observation, controller.profileId, controller.difficulty, memory)
         if (decision.identityAction?.type === 'merchantAuction' && !merchantOffer) {
           if (startMerchantOffer(currentPlayer.id)) return
         }
@@ -2473,13 +2600,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         let auctionBudget = Math.max(0, currentPlayer.balanceUnits + fateGain - decision.bidUnits - plannedIdentityCost)
         const auctionBids = (session.roundAuctions ?? []).map((lot) => {
           if (lot.merchantId === currentPlayer.id) return { lotId: lot.id, bidUnits: 0 }
-          const quote = decideBotMerchantBid({ ...currentPlayer, balanceUnits: auctionBudget }, lot.cardId).bidUnits
+          const quote = decideBotMerchantBid({ ...currentActor, balanceUnits: auctionBudget }, lot.cardId).bidUnits
           const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
           auctionBudget -= bidUnits
           return { lotId: lot.id, bidUnits }
-        }).concat(decideBotAssetAuctionBids({ player: currentPlayer, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id, observation }))
+        }).concat(decideBotAssetAuctionBids({ player: currentActor, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id, observation }))
         const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
-        const assetAuctionOffer = decideBotAssetAuctionOffer({ player: currentPlayer, observation, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id })
+        const assetAuctionOffer = decideBotAssetAuctionOffer({ player: currentActor, observation, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id })
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffers: [assetAuctionOffer] } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)
         // 防线：动作或道具失效时保留原本的竞拍判断，只撤销不合法的附加动作；不能因为一张失效卡把整回合降成 0 投资。
         if (!accepted) {
@@ -2491,18 +2618,17 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
           console.error('Bot 自动决策异常，已使用恢复方案。', error)
           submitBotRecoveryTurn(currentPlayer, Math.floor(currentPlayer.balanceUnits * 0.3), '自动决策出现异常，已改用保守竞拍方案。')
         }
-      } else if (session.phase === 'auctionHandoff' && isBot(auctionBidder)) {
+      } else if (session.phase === 'auctionHandoff' && auctionActor && isBot(auctionActor)) {
         patch({ phase: 'auctionBid' })
-      } else if (session.phase === 'auctionBid' && isBot(auctionBidder) && session.merchantAuction) {
+      } else if (session.phase === 'auctionBid' && auctionBidder && auctionActor && isBot(auctionActor) && session.merchantAuction) {
         const mustPass = session.merchantAuction.source === 'merchant' && session.merchantAuction.merchantId === auctionBidder?.id
         const decision = mustPass
           ? { bidUnits: 0, mode: 'cards' as const, reason: '本次竞购由自己发起，按规则经过报价流程但只能报 0。' }
-          : decideBotMerchantBid(auctionBidder as Player, session.merchantAuction.cardId)
+          : decideBotMerchantBid(auctionActor, session.merchantAuction.cardId)
         submitAuctionBid(decision.bidUnits, decision)
       } else if (session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation) {
         const negotiation = session.pendingKidnapNegotiation
-        const captured = negotiation.players.find((player) => player.id === negotiation.capturedPlayerId)
-        if (isBot(captured) && captured) resolveKidnapNegotiation(decideBotKidnapResponse({ player: captured, item: negotiation.item, ransomUnits: negotiation.ransomUnits, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
+        if (capturedActor && isBot(capturedActor)) resolveKidnapNegotiation(decideBotKidnapResponse({ player: capturedActor, item: negotiation.item, ransomUnits: negotiation.ransomUnits, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id }))
       } else if (spectatorMode && session.phase === 'revealReady') {
         reveal()
       } else if (spectatorMode && session.phase === 'roundResult') {
@@ -2525,13 +2651,13 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   const spectatorEvent = spectatorMode ? session.pendingSpectatorEvents[0] : undefined
   const gameStage = spectatorEvent ? <SpectatorEventStage event={spectatorEvent} session={session} /> : <>
     {session.phase === 'identityHandoff' && (spectatorMode ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots /> : <IdentityHandoff session={session} onReady={() => patch({ phase: 'identityDraft' })} />)}
-    {session.phase === 'identityDraft' && (!takeoverActive && isBot(session.players[session.identityDraft?.playerIndex ?? 0]) ? <BotThinking player={session.players[session.identityDraft?.playerIndex ?? 0]} allBots={spectatorMode} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
+    {session.phase === 'identityDraft' && (!takeoverActive && draftActor && isBot(draftActor) ? <BotThinking player={draftActor} operatorName={draftOperator?.name} allBots={spectatorMode} /> : <IdentityDraft key={session.identityDraft?.playerIndex} session={session} onChoose={chooseIdentity} onConfirm={confirmIdentity} />)}
     {session.phase === 'auctionIntro' && <AuctionIntro session={session} onContinue={() => patch({ phase: 'auctionHandoff' })} />}
-    {session.phase === 'auctionHandoff' && (spectatorMode ? <BotThinking player={auctionBidder ?? session.players[0]} allBots /> : <AuctionHandoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'auctionBid', operationDeadlineAt: session.settings.turnTimerEnabled && !isBot(auctionBidder) ? session.operationDeadlineAt ?? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null }) }} />)}
-    {session.phase === 'auctionBid' && (!takeoverActive && isBot(auctionBidder) ? <BotThinking player={auctionBidder as Player} allBots={spectatorMode} /> : <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />)}
+    {session.phase === 'auctionHandoff' && (spectatorMode ? <BotThinking player={auctionActor ?? auctionBidder ?? session.players[0]} operatorName={auctionOperator?.name} allBots /> : <AuctionHandoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'auctionBid', operationDeadlineAt: session.settings.turnTimerEnabled && auctionActor && !isBot(auctionActor) ? session.operationDeadlineAt ?? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null }) }} />)}
+    {session.phase === 'auctionBid' && (!takeoverActive && auctionActor && isBot(auctionActor) ? <BotThinking player={auctionActor} operatorName={auctionOperator?.name} allBots={spectatorMode} /> : <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />)}
     {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={spectatorMode} onContinue={() => patch({ phase: 'handoff' })} />}
     {session.phase === 'handoff' && (spectatorMode ? <BotThinking player={currentPlayer} allBots /> : <Handoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'privateTurn' }) }} />)}
-    {session.phase === 'privateTurn' && (!takeoverActive && isBot(currentPlayer) ? <BotThinking player={currentPlayer} allBots={spectatorMode} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onConfirmPrizeReroll={confirmPrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onOpenMerchantShop={openMerchantShop} onBuyMerchantShopCard={buyMerchantShopCard} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
+    {session.phase === 'privateTurn' && (!takeoverActive && isCurrentBot && currentActor ? <BotThinking player={currentActor} operatorName={currentOperator?.name} allBots={spectatorMode} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onConfirmPrizeReroll={confirmPrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onOpenMerchantShop={openMerchantShop} onBuyMerchantShopCard={buyMerchantShopCard} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
     {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
     {session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation && (!takeoverActive && isBot(spectatorActor) ? <BotThinking player={spectatorActor as Player} allBots={spectatorMode} /> : <KidnapNegotiationPanel negotiation={session.pendingKidnapNegotiation} onResolve={resolveKidnapNegotiation} />)}
     {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={() => { setBotPaused(false); nextRound() }} />}

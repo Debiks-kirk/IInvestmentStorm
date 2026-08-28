@@ -52,7 +52,7 @@ export function createTurnSpectatorEvent(session: GameSession, turn: RoundTurn):
   if (cardQuotes.length) details.push(`道具竞购 ${cardQuotes.length} 项 · 合计报价 ${formatCoins(cardQuotes.reduce((sum, bid) => sum + bid.bidUnits, 0))}`)
   if (itemQuotes.length) details.push(`拍品竞购 ${itemQuotes.length} 项 · 合计报价 ${formatCoins(itemQuotes.reduce((sum, bid) => sum + bid.bidUnits, 0))}`)
   if (turn.assetAuctionOffers?.length) details.push(`挂牌 ${turn.assetAuctionOffers.length} 件拍品`)
-  return { roundIndex: session.roundIndex, type: 'turn', playerId: turn.playerId, turn, summary: `${player?.name ?? 'Bot'} 已确认本轮操作`, details }
+  return { roundIndex: session.roundIndex, type: 'turn', playerId: turn.playerId, operatorId: turn.operatorId, turn, summary: `${player?.name ?? 'Bot'} 已确认本轮操作`, details }
 }
 
 export function createRoundResultSpectatorEvent(session: GameSession): SpectatorEventInput | null {

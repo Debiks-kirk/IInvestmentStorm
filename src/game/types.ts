@@ -25,6 +25,24 @@ export type PlayerController =
   | { kind: 'human' }
   | { kind: 'bot'; profileId: BotProfileSelection; difficulty: BotDifficulty; customProfile?: CustomBotProfile }
 
+/** The competitive seat stays the same; relay operators merely take turns making its decisions. */
+export type GameMode = 'standard' | 'relay'
+export type RelayMethod = 'rotation' | 'segments'
+
+export interface RelayOperator {
+  id: string
+  /** Shown only while handing the shared device to the next decision maker. */
+  name: string
+  controller: PlayerController
+  /** A Bot operator keeps its own personality and grudges even when sharing one competitive player. */
+  botMemory?: BotMemory
+}
+
+export interface RelaySeatConfig {
+  name: string
+  operators: RelayOperator[]
+}
+
 /** Persistent knobs for a reusable custom Bot template. Every number is 0–100. */
 export interface BotStrategyConfig {
   risk: number
@@ -341,10 +359,14 @@ export interface Player {
   identity?: PlayerIdentity
   controller?: PlayerController
   botMemory?: BotMemory
+  /** Present only in relay games. Assets and identity remain on this Player. */
+  relayOperators?: RelayOperator[]
 }
 
 export interface RoundTurn {
   playerId: string
+  /** The configured relay operator that committed this turn. */
+  operatorId?: string
   bidUnits: number
   predictedPlayerId: string | null
   cardUses?: CardUse[]
@@ -505,6 +527,7 @@ export interface SpectatorEvent {
   roundIndex: number
   type: SpectatorEventType
   playerId?: string
+  operatorId?: string
   /** Merchant or seller on market events. */
   counterpartyPlayerId?: string
   identityId?: IdentityId
@@ -517,9 +540,12 @@ export interface SpectatorEvent {
 }
 
 export interface GameSession {
-  version: 33
+  version: 34
   id: string
   phase: GamePhase
+  mode: GameMode
+  /** Ignored by standard sessions. All relay players use the same assignment method. */
+  relayMethod: RelayMethod
   settings: GameSettings
   players: Player[]
   itemDeck: Item[]
@@ -623,6 +649,9 @@ export interface GamePreset {
   createdAt: string
   updatedAt: string
   seats?: SeatConfig[]
+  mode?: GameMode
+  relayMethod?: RelayMethod
+  relaySeats?: RelaySeatConfig[]
 }
 
 /** A read-only snapshot captured when a game reaches its final leaderboard. */
