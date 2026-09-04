@@ -51,6 +51,38 @@ async function assertNoHorizontalOverflow(page, label) {
   if (sizes.scrollWidth > sizes.width) throw new Error(`${label} 存在横向溢出：${sizes.scrollWidth}px > ${sizes.width}px。`)
 }
 
+async function runSetupLayoutFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.getByLabel('玩家 1 类型').selectOption('bot')
+  await assertNoHorizontalOverflow(page, '标准模式设置页')
+  const standardControlsFit = await page.locator('.setup-roster-panel').evaluate((panel) => {
+    const panelRect = panel.getBoundingClientRect()
+    return [...panel.querySelectorAll('input, select, button')].filter((element) => {
+      const style = getComputedStyle(element)
+      return style.display !== 'none' && style.visibility !== 'hidden'
+    }).every((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.left >= panelRect.left - 1 && rect.right <= panelRect.right + 1
+    })
+  })
+  if (!standardControlsFit) throw new Error('标准模式设置控件超出玩家卡片。')
+  await page.getByRole('button', { name: '接力模式' }).click()
+  await page.locator('.relay-seat-card').first().getByRole('button', { name: /添加操作者/ }).click()
+  await page.getByLabel(/操作者 2 类型/).first().selectOption('bot')
+  await assertNoHorizontalOverflow(page, '接力模式设置页')
+  const relayControlsFit = await page.locator('.relay-seat-card').first().evaluate((card) => {
+    const cardRect = card.getBoundingClientRect()
+    return [...card.querySelectorAll('input, select, button')].every((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.left >= cardRect.left - 1 && rect.right <= cardRect.right + 1
+    })
+  })
+  if (!relayControlsFit) throw new Error('接力模式设置控件超出玩家卡片。')
+}
+
 async function finishFinalReveal(page, expectedCount, waitForAnimation = false) {
   if (waitForAnimation) {
     await page.locator('.podium-list article').nth(expectedCount - 1).waitFor({ timeout: 8000 })
@@ -466,7 +498,7 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
   await setRange(page.locator('#player-count'), playerCount)
   await page.locator('#rounds').fill('1')
   await page.getByRole('button', { name: /高级规则/ }).click()
-  await page.locator('#motion').selectOption(inspectControls ? 'normal' : 'reduced')
+  await page.locator('#motion').selectOption(inspectControls ? 'full' : 'reduced')
   for (let index = 1; index <= playerCount; index += 1) await page.getByLabel(`玩家 ${index} 类型`).selectOption('bot')
   await finishAdvancedSettings(page)
   await page.getByRole('button', { name: /开始这局/ }).click()
@@ -698,7 +730,10 @@ try {
   browser = await chromium.launch({ executablePath, headless: true })
   const page = await browser.newPage({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'lobbyist') {
+  if (process.env.SMOKE_ONLY === 'setup') {
+    await runSetupLayoutFlow(page)
+    console.log('标准与接力模式设置页移动端布局冒烟测试通过。')
+  } else if (process.env.SMOKE_ONLY === 'lobbyist') {
     await runLobbyistTaskFlow(page)
     console.log('说客任务流程冒烟测试通过。')
   } else if (process.env.SMOKE_ONLY === 'bot') {
@@ -711,6 +746,7 @@ try {
     await runBalanceRevealFlow(page)
     console.log('余额翻牌流程冒烟测试通过。')
   } else {
+    await runSetupLayoutFlow(page)
     await runGame(page, 3, true)
     await runGame(page, 6, false, 'fast')
     await runGame(page, 10)
