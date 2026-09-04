@@ -10,7 +10,40 @@ const STORAGE_KEY = 'who-is-raising:session:v1'
 const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
 const HISTORY_STORAGE_KEY = 'who-is-raising:history:v1'
 const CUSTOM_BOTS_STORAGE_KEY = 'who-is-raising:custom-bots:v1'
+const REGISTERED_PLAYERS_STORAGE_KEY = 'auction-battle:registered-players:v1'
 const HISTORY_LIMIT = 12
+
+function normalizedRegisteredPlayers(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'string') return []
+    const name = entry.trim().slice(0, 12)
+    const key = name.toLocaleLowerCase()
+    if (!name || seen.has(key)) return []
+    seen.add(key)
+    return [name]
+  }).slice(0, 100)
+}
+
+export function loadRegisteredPlayers(): string[] {
+  try {
+    const raw = localStorage.getItem(REGISTERED_PLAYERS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { players?: unknown } | unknown[]
+    return normalizedRegisteredPlayers(Array.isArray(parsed) ? parsed : parsed.players)
+  } catch {
+    return []
+  }
+}
+
+export function saveRegisteredPlayers(players: string[]): void {
+  try {
+    localStorage.setItem(REGISTERED_PLAYERS_STORAGE_KEY, JSON.stringify({ version: 1, players: normalizedRegisteredPlayers(players) }))
+  } catch {
+    // The setup page remains usable when local storage is unavailable.
+  }
+}
 
 export function saveSession(session: GameSession): void {
   try {

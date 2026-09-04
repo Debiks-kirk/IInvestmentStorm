@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
-import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets } from './storage'
+import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers } from './storage'
 import { defaultBotStrategy } from './bots'
 import { createCardDeck } from './cards'
 
@@ -22,6 +22,11 @@ afterEach(() => {
 })
 
 describe('配置预设存储', () => {
+  it('本机玩家名册会清理空名、重复名与过长名字', () => {
+    saveRegisteredPlayers([' 阿青 ', '阿青', '火花', '', '这是一个超过十二个字的玩家名字'])
+    expect(loadRegisteredPlayers()).toEqual(['阿青', '火花', '这是一个超过十二个字的玩'])
+  })
+
   it('新局默认值包含更高小偷成功率与更低的指定任务加价', () => {
     expect(createDefaultSettings(3)).toMatchObject({ turnTimeLimitSeconds: 20, turnTimerEnabled: false })
     expect(createDefaultSettings(3)).toMatchObject({ wrongPredictionMultiplier: 1.5, identitySettings: { lobbyistFailurePaymentCoins: 5, lobbyistSpecifiedTaskFeeCoins: 3, thiefActivationCoins: 0, thiefSuccessProbability: 100, gamblerCorrectBonusMultiplier: .33, gamblerWrongPenaltyMultiplier: .5, gamblerSkipPenaltyMultiplier: .5, prophetDivinationCoins: 0, merchantAuctionLimit: 1, nightwalkerUseLimit: 2 } })

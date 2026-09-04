@@ -57,6 +57,13 @@ async function runSetupLayoutFlow(page) {
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByLabel('玩家 1 类型').selectOption('bot')
+  await page.locator('.seat-field').first().getByText('小算盘', { exact: true }).waitFor()
+  const secondPlayer = page.getByLabel('玩家 2 名字')
+  await secondPlayer.fill('阿青')
+  await page.locator('.seat-field').nth(1).locator('.registered-player-create').click()
+  await secondPlayer.fill('青')
+  await page.locator('.seat-field').nth(1).locator('.registered-player-results button').filter({ hasText: '阿青' }).click()
+  if (await secondPlayer.inputValue() !== '阿青') throw new Error('真人玩家搜索未能选择已登记姓名。')
   await assertNoHorizontalOverflow(page, '标准模式设置页')
   const standardControlsFit = await page.locator('.setup-roster-panel').evaluate((panel) => {
     const panelRect = panel.getBoundingClientRect()
@@ -111,6 +118,20 @@ async function disableFirstRoundSystemAuction(page) {
 async function finishAdvancedSettings(page) {
   const close = page.getByRole('button', { name: '完成高级设置' })
   if (await close.count() > 0) await close.click()
+  const pickers = page.locator('.registered-player-picker:visible')
+  for (let index = 0; index < await pickers.count(); index += 1) {
+    const picker = pickers.nth(index)
+    const input = picker.locator('input')
+    let name = (await input.inputValue()).trim()
+    if (!name) {
+      name = `测试玩家${index + 1}`
+      await input.fill(name)
+    } else {
+      await input.focus()
+    }
+    const register = picker.getByRole('option', { name: new RegExp(`登记“${name}”`) })
+    if (await register.count() > 0) await register.click()
+  }
 }
 
 async function dismissPrivateNotices(page) {

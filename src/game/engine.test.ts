@@ -585,6 +585,6 @@ describe('固定资产与默认配置', () => {
     expect(createDefaultSettings()).toMatchObject({ rounds: 5, initialCoins: 30, wrongPredictionMultiplier: 1.5, cardGrantProbability: 100, revealBalanceLeader: false, systemAuctionCardsPerRound: 2 })
     expect(SYSTEM_PRESETS.filter((preset) => preset.settings.playerCount === 10).every((preset) => preset.settings.systemAuctionCardsPerRound === 3)).toBe(true)
     expect(SYSTEM_PRESETS.map((preset) => [preset.settings.playerCount, preset.settings.rounds, preset.settings.initialCoins])).toEqual([[3, 5, 30], [3, 5, 30], [6, 8, 30], [6, 8, 30], [10, 10, 30], [10, 10, 30]])
-    expect(SYSTEM_PRESETS.filter((preset) => preset.id.startsWith('bot-')).map((preset) => [preset.seats.filter((seat) => seat.controller.kind === 'human').length, preset.seats.filter((seat) => seat.controller.kind === 'bot').map((seat) => seat.name)])).toEqual([[1, ['机器人1', '机器人2']], [1, ['机器人1', '机器人2', '机器人3', '机器人4', '机器人5']], [1, ['机器人1', '机器人2', '机器人3', '机器人4', '机器人5', '机器人6', '机器人7', '机器人8', '机器人9']]])
+    expect(SYSTEM_PRESETS.filter((preset) => preset.id.startsWith('bot-')).map((preset) => [preset.seats.filter((seat) => seat.controller.kind === 'human').length, preset.seats.filter((seat) => seat.controller.kind === 'bot').map((seat) => seat.name)])).toEqual([[1, ['变色龙', '小算盘']], [1, ['变色龙', '小算盘', '火花', '馆长', '狐狸']], [1, ['变色龙', '小算盘', '火花', '馆长', '狐狸', '刺球', '戏法师', '演员', '追风']]])
   })
 })

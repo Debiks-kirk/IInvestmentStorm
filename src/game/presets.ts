@@ -25,9 +25,13 @@ export function cloneSettings(settings: GameSettings): GameSettings {
 
 function systemPreset(id: string, name: string, playerCount: number, withBots = false): SystemPreset {
   const settings = createDefaultSettings(playerCount)
+  const systemBots = [
+    ['adaptive', '变色龙'], ['steady', '小算盘'], ['aggressive', '火花'], ['collectorBot', '馆长'], ['observer', '狐狸'],
+    ['revenge', '刺球'], ['cards', '戏法师'], ['identityBot', '演员'], ['comeback', '追风'], ['blocker', '守门员'],
+  ] as const
   const seats: SeatConfig[] = Array.from({ length: playerCount }, (_, index) => index === 0 || !withBots
     ? { name: `玩家 ${index + 1}`, controller: { kind: 'human' } }
-    : { name: `机器人${index}`, controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } })
+    : { name: systemBots[index - 1][1], controller: { kind: 'bot', profileId: systemBots[index - 1][0], difficulty: 'standard' } })
   return {
     id,
     name,

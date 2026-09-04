@@ -6,10 +6,10 @@ import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentit
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { activeOperator, allOperatorsAreBots, createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, resolveRoundPrize, roundStartPlayerIndex, validateNames, visibleRoundItem } from './game/session'
-import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveSession } from './game/storage'
+import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers, saveSession } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
-import { BOT_PROFILES, appendBotRecord, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
+import { BOT_PROFILES, appendBotRecord, botProfile, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
 import { appendSpectatorEvent, appendSpectatorEvents, createRoundResultSpectatorEvent, createSpectatorChart, createSpectatorPlayerStats, createTurnSpectatorEvent, type SpectatorChartKey, type SpectatorEventInput } from './game/spectator'
 import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotProfileId, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GameMode, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RelayMethod, RelayOperator, RelaySeatConfig, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
 
@@ -384,12 +384,34 @@ function CustomBotManager({ profiles, onChange, onClose }: { profiles: CustomBot
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="custom-bot-title"><section className="custom-bot-sheet"><header><div><p className="eyebrow">Bot 工坊</p><h2 id="custom-bot-title">自定义 Bot</h2><small>模板会保存到本机；开局后自动复制为本局策略快照。</small></div><button className="icon-button" aria-label="关闭自定义 Bot" onClick={onClose}>×</button></header><div className="custom-bot-layout"><aside><button className="button button--primary" onClick={create}>新建模板</button><div className="custom-bot-list">{profiles.map((profile) => <button key={profile.id} className={cx(profile.id === selected?.id && 'is-selected')} onClick={() => setSelectedId(profile.id)}><strong>{profile.name}</strong><small>风险 {profile.risk} · 收藏 {profile.collection}</small></button>)}</div></aside>{selected ? <main><div className="custom-bot-name-row"><label>模板名称<input maxLength={20} value={selected.name} onChange={(event) => update({ name: event.target.value })} /></label><button className="text-button" onClick={duplicate}>复制</button><button className="text-button danger" onClick={remove}>删除</button></div><p className="custom-bot-hint">核心参数影响平时的打法；身份顺序只影响开局抽到候选时更想选谁。</p><div className="custom-bot-sliders">{BOT_STRATEGY_FIELDS.map((field) => <label key={field.key}><span>{field.label}<b>{selected[field.key]}</b></span><input type="range" min="0" max="100" value={selected[field.key]} onChange={(event) => update({ [field.key]: Number(event.target.value) } as Partial<CustomBotProfile>)} /></label>)}</div><section className="custom-bot-priority"><header><div><strong>身份优先顺序</strong><small>按住 ⠿ 拖到新位置；越靠前，抽到时越优先选择。</small></div></header><ol>{selected.identityPriority.map((identityId, index) => { const identity = getIdentityDefinition(identityId); const isDragging = draggingPriorityId === identityId; const isDropTarget = dragOverPriorityId === identityId && draggingPriorityId !== identityId; return <li key={identityId} data-identity-priority-id={identityId} className={cx(isDragging && 'is-dragging', isDropTarget && 'is-drop-target')} onDragOver={(event) => { event.preventDefault(); setDragOverPriorityId(identityId) }} onDrop={(event) => { event.preventDefault(); const dragged = event.dataTransfer.getData('text/identity-priority') as IdentityId; if (dragged) reorderPriority(dragged, identityId); setDraggingPriorityId(null); setDragOverPriorityId(null) }}><b>{index + 1}</b><span>{identity.symbol}</span><strong>{identity.name}</strong><button className="priority-drag-handle" type="button" aria-label={`拖动调整${identity.name}的优先顺序`} draggable onDragStart={(event) => { event.dataTransfer.setData('text/identity-priority', identityId); event.dataTransfer.effectAllowed = 'move'; setDraggingPriorityId(identityId) }} onDragEnd={() => { setDraggingPriorityId(null); setDragOverPriorityId(null) }} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setDraggingPriorityId(identityId); setDragOverPriorityId(identityId) }} onPointerMove={(event) => { if (draggingPriorityId !== identityId) return; const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-identity-priority-id]')?.dataset.identityPriorityId as IdentityId | undefined; if (target) setDragOverPriorityId(target) }} onPointerUp={() => finishPriorityDrag(identityId)} onPointerCancel={() => { setDraggingPriorityId(null); setDragOverPriorityId(null) }} onKeyDown={(event) => { if (event.key === 'ArrowUp' && index > 0) { event.preventDefault(); reorderPriority(identityId, selected.identityPriority[index - 1]) } if (event.key === 'ArrowDown' && index < selected.identityPriority.length - 1) { event.preventDefault(); reorderPriority(identityId, selected.identityPriority[index + 1]) } }}>⠿</button></li> })}</ol></section></main> : <main className="empty-state"><h3>还没有模板</h3><p>新建一个 Bot，再把它放到任意座位。</p></main>}</div><footer><button className="button button--primary" onClick={onClose}>完成</button></footer></section></div>
 }
 
-function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void }) {
+function botDisplayName(controller: Extract<SeatConfig['controller'], { kind: 'bot' }>): string {
+  return controller.profileId === 'custom' && controller.customProfile?.name.trim()
+    ? controller.customProfile.name.trim().slice(0, 12)
+    : botProfile(controller.profileId).name
+}
+
+function RegisteredPlayerPicker({ value, players, label, onChange, onRegister }: { value: string; players: string[]; label: string; onChange: (name: string) => void; onRegister: (name: string) => string | null }) {
+  const [open, setOpen] = useState(false)
+  const query = value.trim()
+  const matching = players.filter((name) => !query || name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice(0, 8)
+  const registered = players.find((name) => name.toLocaleLowerCase() === query.toLocaleLowerCase())
+  return <div className={cx('registered-player-picker', open && 'is-open')} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}>
+    <div className="registered-player-picker__input"><input value={value} maxLength={12} autoComplete="off" aria-label={label} aria-expanded={open} aria-haspopup="listbox" placeholder="搜索或登记玩家" onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value); setOpen(true) }} />{registered && <span title="已登记" aria-label="已登记">✓</span>}</div>
+    {open && <div className="registered-player-results" role="listbox" aria-label="本机玩家">
+      {matching.map((name) => <button type="button" role="option" aria-selected={registered === name} key={name} onClick={() => { onChange(name); setOpen(false) }}><span>{name.slice(0,1)}</span><strong>{name}</strong>{registered === name && <em>当前</em>}</button>)}
+      {query && !registered && <button type="button" className="registered-player-create" onClick={() => { const name = onRegister(query); if (name) { onChange(name); setOpen(false) } }}><span>＋</span><strong>登记“{query}”</strong><em>并选择</em></button>}
+      {!query && matching.length === 0 && <p>输入名字，登记第一位玩家。</p>}
+      {!query && matching.length > 0 && <p>输入文字可以快速筛选。</p>}
+    </div>}
+  </div>
+}
+
+function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles, registeredPlayers, onSaveRegisteredPlayers }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void; registeredPlayers: string[]; onSaveRegisteredPlayers: (players: string[]) => void }) {
   const [settings, setSettings] = useState<GameSettings>(() => createDefaultSettings())
-  const [seats, setSeats] = useState<SeatConfig[]>(() => ['玩家 1', '玩家 2', '玩家 3'].map((name) => ({ name, controller: { kind: 'human' } })))
+  const [seats, setSeats] = useState<SeatConfig[]>(() => Array.from({ length: 3 }, () => ({ name: '', controller: { kind: 'human' } })))
   const [mode, setMode] = useState<GameMode>('standard')
   const [relayMethod, setRelayMethod] = useState<RelayMethod>('rotation')
-  const [relaySeats, setRelaySeats] = useState<RelaySeatConfig[]>(() => relaySeatsFromSeats(['玩家 1', '玩家 2', '玩家 3'].map((name) => ({ name, controller: { kind: 'human' } }))))
+  const [relaySeats, setRelaySeats] = useState<RelaySeatConfig[]>(() => Array.from({ length: 3 }, (_, index) => ({ name: `接力玩家 ${index + 1}`, operators: [{ id: uiId('operator'), name: '', controller: { kind: 'human' } }] })))
   const [advanced, setAdvanced] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
   const [presetName, setPresetName] = useState('')
@@ -401,12 +423,45 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
   const [importError, setImportError] = useState('')
   const [customBotsOpen, setCustomBotsOpen] = useState(false)
 
+  const registerPlayer = (rawName: string): string | null => {
+    const name = rawName.trim().slice(0, 12)
+    if (!name) return null
+    const existing = registeredPlayers.find((entry) => entry.toLocaleLowerCase() === name.toLocaleLowerCase())
+    if (existing) return existing
+    onSaveRegisteredPlayers([...registeredPlayers, name])
+    return name
+  }
+  const isRegisteredPlayer = (name: string) => registeredPlayers.some((entry) => entry.toLocaleLowerCase() === name.trim().toLocaleLowerCase())
+  const resolvedSeats = seats.map((seat) => seat.controller.kind === 'bot' ? { ...seat, name: botDisplayName(seat.controller) } : { ...seat, name: seat.name.trim() })
+  const resolvedRelaySeats = relaySeats.map((seat) => ({
+    ...seat,
+    name: seat.name.trim(),
+    operators: seat.operators.map((operator) => operator.controller.kind === 'bot' ? { ...operator, name: botDisplayName(operator.controller) } : { ...operator, name: operator.name.trim() }),
+  }))
+  const firstAvailableBotController = (current: SeatConfig[], seatIndex: number): Extract<SeatConfig['controller'], { kind: 'bot' }> => {
+    const used = new Set(current.flatMap((seat, index) => index !== seatIndex && seat.controller.kind === 'bot' ? [seat.controller.profileId === 'custom' ? `custom:${seat.controller.customProfile?.id ?? ''}` : seat.controller.profileId] : []))
+    const profile = BOT_PROFILES.find((entry) => !used.has(entry.id)) ?? BOT_PROFILES[0]
+    return { kind: 'bot', profileId: profile.id, difficulty: 'standard' }
+  }
+
   const applyConfiguration = (nextSeats: SeatConfig[], nextSettings: GameSettings, preset?: GamePreset) => {
-    setSeats(nextSeats.map((seat) => ({ ...seat, controller: { ...seat.controller } })))
+    const usedBots = new Set<string>()
+    const normalizedSeats = nextSeats.map((seat) => {
+      if (seat.controller.kind !== 'bot') return { ...seat, controller: { ...seat.controller } }
+      let controller = { ...seat.controller }
+      let key = controller.profileId === 'custom' ? `custom:${controller.customProfile?.id ?? ''}` : controller.profileId
+      if (usedBots.has(key)) {
+        const replacement = BOT_PROFILES.find((profile) => !usedBots.has(profile.id))
+        if (replacement) { controller = { kind: 'bot', profileId: replacement.id, difficulty: controller.difficulty }; key = replacement.id }
+      }
+      usedBots.add(key)
+      return { ...seat, name: botDisplayName(controller), controller }
+    })
+    setSeats(normalizedSeats)
     const nextMode = preset?.mode === 'relay' && preset.relaySeats?.length === nextSeats.length ? 'relay' : 'standard'
     setMode(nextMode)
     setRelayMethod(preset?.relayMethod === 'segments' ? 'segments' : 'rotation')
-    setRelaySeats(nextMode === 'relay' ? preset!.relaySeats!.map((seat) => ({ ...seat, operators: seat.operators.map((operator) => ({ ...operator, controller: operator.controller.kind === 'bot' ? { ...operator.controller } : { ...operator.controller } })) })) : relaySeatsFromSeats(nextSeats))
+    setRelaySeats(nextMode === 'relay' ? preset!.relaySeats!.map((seat) => ({ ...seat, operators: seat.operators.map((operator) => ({ ...operator, name: operator.controller.kind === 'bot' ? botDisplayName(operator.controller) : operator.name, controller: operator.controller.kind === 'bot' ? { ...operator.controller } : { ...operator.controller } })) })) : relaySeatsFromSeats(normalizedSeats))
     setSettings(cloneSettings({ ...nextSettings, playerCount: nextSeats.length }))
     setPresetName(preset?.name ?? '')
     setActivePresetId(preset?.id ?? null)
@@ -414,8 +469,8 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
   }
 
   const setPlayerCount = (count: number) => {
-    setSeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: `玩家 ${index + 1}`, controller: { kind: 'human' } }))
-    setRelaySeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: `玩家 ${index + 1}`, operators: [{ id: uiId('operator'), name: `玩家 ${index + 1}`, controller: { kind: 'human' } }] }))
+    setSeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: '', controller: { kind: 'human' } }))
+    setRelaySeats((current) => Array.from({ length: count }, (_, index) => current[index] ?? { name: `接力玩家 ${index + 1}`, operators: [{ id: uiId('operator'), name: '', controller: { kind: 'human' } }] }))
     setSettings((current) => ({ ...current, playerCount: count, rewardMultipliers: defaultRewards(count) }))
   }
   const setRewardCount = (count: number) => {
@@ -425,24 +480,26 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     })
   }
   const submit = () => {
-    const gameNames = mode === 'relay' ? relaySeats.map((seat) => seat.name) : seats.map((seat) => seat.name)
-    const relayErrors = mode === 'relay' ? relaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : []) : []
-    const nextErrors = [...validateNames(gameNames), ...relayErrors, ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const gameNames = mode === 'relay' ? resolvedRelaySeats.map((seat) => seat.name) : resolvedSeats.map((seat) => seat.name)
+    const relayErrors = mode === 'relay' ? resolvedRelaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : seat.operators.some((operator) => operator.controller.kind === 'human' && !isRegisteredPlayer(operator.name)) ? [`${seat.name || `玩家 ${index + 1}`} 的真人操作者需先登记`] : []) : []
+    const registryErrors = mode === 'standard' ? resolvedSeats.flatMap((seat, index) => seat.controller.kind === 'human' && seat.name && !isRegisteredPlayer(seat.name) ? [`第 ${index + 1} 位真人玩家需先登记`] : []) : []
+    const nextErrors = [...validateNames(gameNames), ...registryErrors, ...relayErrors, ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     setErrors(nextErrors)
-    if (nextErrors.length === 0) onStart(createSession(mode === 'relay' ? relaySeats : seats, settings, { mode, relayMethod }))
+    if (nextErrors.length === 0) onStart(createSession(mode === 'relay' ? resolvedRelaySeats : resolvedSeats, settings, { mode, relayMethod }))
   }
   const saveCurrentPreset = () => {
-    const gameNames = mode === 'relay' ? relaySeats.map((seat) => seat.name) : seats.map((seat) => seat.name)
-    const relayErrors = mode === 'relay' ? relaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : []) : []
-    const nextErrors = [...validateNames(gameNames), ...relayErrors, ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const gameNames = mode === 'relay' ? resolvedRelaySeats.map((seat) => seat.name) : resolvedSeats.map((seat) => seat.name)
+    const relayErrors = mode === 'relay' ? resolvedRelaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : seat.operators.some((operator) => operator.controller.kind === 'human' && !isRegisteredPlayer(operator.name)) ? [`${seat.name || `玩家 ${index + 1}`} 的真人操作者需先登记`] : []) : []
+    const registryErrors = mode === 'standard' ? resolvedSeats.flatMap((seat, index) => seat.controller.kind === 'human' && seat.name && !isRegisteredPlayer(seat.name) ? [`第 ${index + 1} 位真人玩家需先登记`] : []) : []
+    const nextErrors = [...validateNames(gameNames), ...registryErrors, ...relayErrors, ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     if (!presetName.trim()) nextErrors.push('请为这套配置填写名称')
     setErrors(nextErrors)
     if (nextErrors.length > 0) return
     const existing = presets.find((preset) => preset.id === activePresetId)
-    const sourceSeats = mode === 'relay' ? relaySeats.map((seat) => ({ name: seat.name, controller: seat.operators[0]?.controller ?? { kind: 'human' as const } })) : seats
-    const preset = createGamePreset(presetName, sourceSeats, settings, existing, { mode, relayMethod, relaySeats })
+    const sourceSeats = mode === 'relay' ? resolvedRelaySeats.map((seat) => ({ name: seat.name, controller: seat.operators[0]?.controller ?? { kind: 'human' as const } })) : resolvedSeats
+    const preset = createGamePreset(presetName, sourceSeats, settings, existing, { mode, relayMethod, relaySeats: resolvedRelaySeats })
     onSavePresets(existing ? presets.map((entry) => entry.id === preset.id ? preset : entry) : [...presets, preset])
     setActivePresetId(preset.id)
     setPresetName(preset.name)
@@ -537,7 +594,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
   }
   const updateRelaySeat = (seatIndex: number, patch: Partial<RelaySeatConfig>) => setRelaySeats((current) => current.map((seat, index) => index === seatIndex ? { ...seat, ...patch } : seat))
   const updateRelayOperator = (seatIndex: number, operatorIndex: number, patch: Partial<RelayOperator>) => setRelaySeats((current) => current.map((seat, index) => index !== seatIndex ? seat : { ...seat, operators: seat.operators.map((operator, itemIndex) => itemIndex === operatorIndex ? { ...operator, ...patch } : operator) }))
-  const addRelayOperator = (seatIndex: number) => setRelaySeats((current) => current.map((seat, index) => index === seatIndex ? { ...seat, operators: [...seat.operators, { id: uiId('operator'), name: `操作者 ${seat.operators.length + 1}`, controller: { kind: 'human' } }] } : seat))
+  const addRelayOperator = (seatIndex: number) => setRelaySeats((current) => current.map((seat, index) => index === seatIndex ? { ...seat, operators: [...seat.operators, { id: uiId('operator'), name: '', controller: { kind: 'human' } }] } : seat))
   const removeRelayOperator = (seatIndex: number, operatorIndex: number) => setRelaySeats((current) => current.map((seat, index) => index !== seatIndex || seat.operators.length <= 1 ? seat : { ...seat, operators: seat.operators.filter((_, itemIndex) => itemIndex !== operatorIndex) }))
 
   return (
@@ -551,23 +608,29 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
             {mode === 'standard' ? <>
             <div className="setup-panel-title"><div><p className="eyebrow">座位</p><h2>玩家与控制方式</h2></div><strong>{settings.playerCount} 人</strong></div>
             <div className="player-count-control"><button type="button" aria-label="减少玩家" disabled={settings.playerCount <= 3} onClick={() => setPlayerCount(settings.playerCount - 1)}>−</button><input id="player-count" className="range" aria-label="玩家人数" type="range" min="3" max="10" value={settings.playerCount} onChange={(event) => setPlayerCount(Number(event.target.value))} /><button type="button" aria-label="增加玩家" disabled={settings.playerCount >= 10} onClick={() => setPlayerCount(settings.playerCount + 1)}>＋</button></div>
+            <p className="player-registry-note">真人搜索或登记姓名 · 本机已有 {registeredPlayers.length} 人</p>
             <div className="name-grid">
               {seats.map((seat, index) => (
                 <div className="seat-field" key={index} style={{ '--player-color': `var(--player-${index + 1})` } as React.CSSProperties}>
                   <span>{index + 1}</span>
-                  <input value={seat.name} maxLength={12} aria-label={`玩家 ${index + 1} 名字`} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name: event.target.value } : value))} />
-                  <select aria-label={`玩家 ${index + 1} 类型`} value={seat.controller.kind} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index ? value : event.target.value === 'bot' ? { ...value, controller: { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } } : { ...value, controller: { kind: 'human' } }))}>
+                  {seat.controller.kind === 'human'
+                    ? <RegisteredPlayerPicker value={seat.name} players={registeredPlayers} label={`玩家 ${index + 1} 名字`} onRegister={registerPlayer} onChange={(name) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name } : value))} />
+                    : <div className="seat-bot-name"><span>{botDisplayName(seat.controller).slice(0,1)}</span><strong>{botDisplayName(seat.controller)}</strong></div>}
+                  <select aria-label={`玩家 ${index + 1} 类型`} value={seat.controller.kind} onChange={(event) => setSeats((current) => { const controller = event.target.value === 'bot' ? firstAvailableBotController(current, index) : { kind: 'human' as const }; return current.map((value, itemIndex) => itemIndex !== index ? value : { ...value, name: controller.kind === 'bot' ? botDisplayName(controller) : '', controller }) })}>
                     <option value="human">真人</option><option value="bot">Bot</option>
                   </select>
-                  {seat.controller.kind === 'bot' && <div className="bot-seat-controls"><label><span>性格</span><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 性格`} value={seat.controller.profileId === 'custom' ? `custom:${seat.controller.customProfile?.id ?? ''}` : seat.controller.profileId} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => {
+                  {seat.controller.kind === 'bot' && <div className="bot-seat-controls"><label><span>选择 Bot</span><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 性格`} value={seat.controller.profileId === 'custom' ? `custom:${seat.controller.customProfile?.id ?? ''}` : seat.controller.profileId} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => {
                     if (itemIndex !== index || value.controller.kind !== 'bot') return value
                     const selected = event.target.value
                     if (selected.startsWith('custom:')) {
                       const template = customBotProfiles.find((profile) => profile.id === selected.slice('custom:'.length))
-                      return template ? { ...value, controller: { ...value.controller, profileId: 'custom', customProfile: { ...template, identityPriority: [...template.identityPriority] } } } : value
+                      if (!template) return value
+                      const controller = { ...value.controller, profileId: 'custom' as const, customProfile: { ...template, identityPriority: [...template.identityPriority] } }
+                      return { ...value, name: botDisplayName(controller), controller }
                     }
-                    return { ...value, controller: { ...value.controller, profileId: selected as BotProfileId, customProfile: undefined } }
-                  }))}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.summary}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义模板">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`}>{profile.name} · 自定义</option>)}</optgroup>}</select></label><label><span>难度</span><select aria-label={`${seat.name || `玩家 ${index + 1}`} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></label></div>}
+                    const controller = { ...value.controller, profileId: selected as BotProfileId, customProfile: undefined }
+                    return { ...value, name: botDisplayName(controller), controller }
+                  }))}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id} disabled={seats.some((other, otherIndex) => otherIndex !== index && other.controller.kind === 'bot' && other.controller.profileId === profile.id)}>{profile.name} · {profile.summary}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义模板">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`} disabled={seats.some((other, otherIndex) => otherIndex !== index && other.controller.kind === 'bot' && other.controller.profileId === 'custom' && other.controller.customProfile?.id === profile.id)}>{profile.name} · 自定义</option>)}</optgroup>}</select></label><label><span>难度</span><select aria-label={`${botDisplayName(seat.controller)} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></label></div>}
                 </div>
               ))}
             </div>
@@ -576,7 +639,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
               <div className="relay-setup__head"><div><p className="eyebrow">接力座位</p><h2>玩家与操作者</h2></div><div className="relay-method-toggle" role="group" aria-label="接力方式"><button className={cx(relayMethod === 'rotation' && 'is-active')} onClick={() => setRelayMethod('rotation')}>轮流接力</button><button className={cx(relayMethod === 'segments' && 'is-active')} onClick={() => setRelayMethod('segments')}>分段接力</button></div></div>
               <div className="player-count-control"><button type="button" aria-label="减少游戏玩家" disabled={settings.playerCount <= 3} onClick={() => setPlayerCount(settings.playerCount - 1)}>−</button><input id="relay-player-count" className="range" aria-label="游戏玩家人数" type="range" min="3" max="10" value={settings.playerCount} onChange={(event) => setPlayerCount(Number(event.target.value))} /><button type="button" aria-label="增加游戏玩家" disabled={settings.playerCount >= 10} onClick={() => setPlayerCount(settings.playerCount + 1)}>＋</button><strong>{settings.playerCount} 人</strong></div>
               <p className="relay-setup__hint">游戏内只显示玩家名；操作者姓名只用于交接设备。{relayMethod === 'rotation' ? '每轮自动换下一位操作者。' : '回合连续均分，前面的操作者多负责一轮。'}</p>
-              <div className="relay-seat-list">{relaySeats.map((relaySeat, seatIndex) => <section className="relay-seat-card" key={seatIndex}><header><span>{seatIndex + 1}</span><label>游戏玩家<input value={relaySeat.name} maxLength={12} aria-label={`接力玩家 ${seatIndex + 1} 名字`} onChange={(event) => updateRelaySeat(seatIndex, { name: event.target.value })} /></label><small>{relayScheduleLabel(relaySeat.operators, relayMethod, settings.rounds)}</small></header><div className="relay-operator-list">{relaySeat.operators.map((operator, operatorIndex) => { const botController = operator.controller.kind === 'bot' ? operator.controller : null; return <article key={operator.id} className="relay-operator"><b>{operatorIndex + 1}</b><input value={operator.name} maxLength={12} aria-label={`${relaySeat.name || `玩家 ${seatIndex + 1}`} 操作者 ${operatorIndex + 1} 名字`} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { name: event.target.value })} /><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} 类型`} value={operator.controller.kind} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { controller: event.target.value === 'bot' ? { kind: 'bot', profileId: 'adaptive', difficulty: 'standard' } : { kind: 'human' } })}><option value="human">真人</option><option value="bot">Bot</option></select>{botController && <><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} Bot 性格`} value={botController.profileId === 'custom' ? `custom:${botController.customProfile?.id ?? ''}` : botController.profileId} onChange={(event) => { const selected = event.target.value; const template = selected.startsWith('custom:') ? customBotProfiles.find((profile) => profile.id === selected.slice(7)) : undefined; updateRelayOperator(seatIndex, operatorIndex, { controller: template ? { ...botController, profileId: 'custom', customProfile: { ...template, identityPriority: [...template.identityPriority] } } : { ...botController, profileId: selected as BotProfileId, customProfile: undefined } }) }}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`}>{profile.name}</option>)}</optgroup>}</select><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} Bot 难度`} value={botController.difficulty} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { controller: { ...botController, difficulty: event.target.value as BotDifficulty } })}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></>}<button className="icon-button" aria-label={`移除${operator.name || '操作者'}`} disabled={relaySeat.operators.length <= 1} onClick={() => removeRelayOperator(seatIndex, operatorIndex)}>×</button></article> })}</div><button className="relay-add-operator" onClick={() => addRelayOperator(seatIndex)}>＋ 添加操作者</button></section>)}</div>
+              <div className="relay-seat-list">{relaySeats.map((relaySeat, seatIndex) => <section className="relay-seat-card" key={seatIndex}><header><span>{seatIndex + 1}</span><label>游戏玩家<input value={relaySeat.name} maxLength={12} aria-label={`接力玩家 ${seatIndex + 1} 名字`} onChange={(event) => updateRelaySeat(seatIndex, { name: event.target.value })} /></label><small>{relayScheduleLabel(relaySeat.operators, relayMethod, settings.rounds)}</small></header><div className="relay-operator-list">{relaySeat.operators.map((operator, operatorIndex) => { const botController = operator.controller.kind === 'bot' ? operator.controller : null; return <article key={operator.id} className="relay-operator"><b>{operatorIndex + 1}</b>{operator.controller.kind === 'human' ? <RegisteredPlayerPicker value={operator.name} players={registeredPlayers} label={`${relaySeat.name || `玩家 ${seatIndex + 1}`} 操作者 ${operatorIndex + 1} 名字`} onRegister={registerPlayer} onChange={(name) => updateRelayOperator(seatIndex, operatorIndex, { name })} /> : <div className="relay-bot-name"><span>{botDisplayName(operator.controller).slice(0,1)}</span><strong>{botDisplayName(operator.controller)}</strong></div>}<select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} 类型`} value={operator.controller.kind} onChange={(event) => { const controller = event.target.value === 'bot' ? { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } : { kind: 'human' as const }; updateRelayOperator(seatIndex, operatorIndex, { name: controller.kind === 'bot' ? botDisplayName(controller) : '', controller }) }}><option value="human">真人</option><option value="bot">Bot</option></select>{botController && <><select aria-label={`${botDisplayName(botController)} Bot 性格`} value={botController.profileId === 'custom' ? `custom:${botController.customProfile?.id ?? ''}` : botController.profileId} onChange={(event) => { const selected = event.target.value; const template = selected.startsWith('custom:') ? customBotProfiles.find((profile) => profile.id === selected.slice(7)) : undefined; const controller = template ? { ...botController, profileId: 'custom' as const, customProfile: { ...template, identityPriority: [...template.identityPriority] } } : { ...botController, profileId: selected as BotProfileId, customProfile: undefined }; updateRelayOperator(seatIndex, operatorIndex, { name: botDisplayName(controller), controller }) }}>{BOT_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}{customBotProfiles.length > 0 && <optgroup label="自定义">{customBotProfiles.map((profile) => <option key={profile.id} value={`custom:${profile.id}`}>{profile.name}</option>)}</optgroup>}</select><select aria-label={`${botDisplayName(botController)} Bot 难度`} value={botController.difficulty} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { controller: { ...botController, difficulty: event.target.value as BotDifficulty } })}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select></>}<button className="icon-button" aria-label={`移除${operator.name || '操作者'}`} disabled={relaySeat.operators.length <= 1} onClick={() => removeRelayOperator(seatIndex, operatorIndex)}>×</button></article> })}</div><button className="relay-add-operator" onClick={() => addRelayOperator(seatIndex)}>＋ 添加操作者</button></section>)}</div>
               {relaySeats.some((seat) => seat.operators.some((operator) => operator.controller.kind === 'bot')) && <div className="bot-setup-note"><span>每位 Bot 操作者都有独立性格与记忆；多人共用同一资产时也会做出不同选择。</span><button className="text-button" onClick={() => setCustomBotsOpen(true)}>管理自定义 Bot</button></div>}
             </div>}
           </div>
@@ -2722,6 +2785,7 @@ export default function App() {
   const [saved, setSaved] = useState<GameSession | null>(() => loadSession())
   const [presets, setPresets] = useState<GamePreset[]>(() => loadPresets())
   const [customBotProfiles, setCustomBotProfiles] = useState<CustomBotProfile[]>(() => loadCustomBotProfiles())
+  const [registeredPlayers, setRegisteredPlayers] = useState<string[]>(() => loadRegisteredPlayers())
   const [history, setHistory] = useState<GameHistoryEntry[]>(() => loadGameHistory())
   const [historyEntry, setHistoryEntry] = useState<GameHistoryEntry | null>(null)
   const [session, setSession] = useState<GameSession | null>(null)
@@ -2742,13 +2806,14 @@ export default function App() {
   const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const persistCustomBotProfiles = (next: CustomBotProfile[]) => { setCustomBotProfiles(next); saveCustomBotProfiles(next) }
+  const persistRegisteredPlayers = (next: string[]) => { setRegisteredPlayers(next); saveRegisteredPlayers(next) }
   const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
   const rematch = (keepBotGrudges: boolean) => { if (session) begin(createRematchSession(session, keepBotGrudges)) }
 
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
-  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} customBotProfiles={customBotProfiles} onSaveCustomBotProfiles={persistCustomBotProfiles} />
+  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} customBotProfiles={customBotProfiles} onSaveCustomBotProfiles={persistCustomBotProfiles} registeredPlayers={registeredPlayers} onSaveRegisteredPlayers={persistRegisteredPlayers} />
   if (historyEntry) return <HistoryDetail entry={historyEntry} onBack={() => { setHistoryEntry(null); setScreen('history') }} />
   if (screen === 'history') return <History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} />
   if (screen === 'collection') return <CollectionBook onBack={() => setScreen('home')} />
