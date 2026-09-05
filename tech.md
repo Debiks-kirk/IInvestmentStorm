@@ -2,6 +2,9 @@
 
 ## 玩家名册与设置模式隔离
 
+- `moveRelayOperator` 是纯函数，按操作者 ID 从原数组移除并插入目标位置，保留完整控制器和模板快照；空席位继续由开局及保存校验拦截。`useRelayDrag` 使用 320ms 长按、Pointer Capture、命中检测与边缘滚动；松手提交，Escape、pointercancel 或失焦取消。
+- Bot 配置入口由 `SetupBotPicker` 共用：名称按钮直接打开带头像、说明和选中态的小弹窗；标准模式沿用同 Bot 禁选规则，接力支持多个 Bot 操作者。名称、类型、难度在一行内显示。
+
 - 真人名册保存在 `auction-battle:registered-players:v1`。`registeredPlayerNamesFromPreset` 按预设类型提取真人：旧 `names` 配置按标准真人兼容，标准座位只取 `human`，接力配置只取真人操作者；`mergeRegisteredPlayers` 负责清理和大小写不敏感去重。
 - `Setup` 以 `settingsByMode`、独立座位数据和按模式保存的配置编辑状态维护两套草稿；底层预设仍使用同一版本化存储数组，但所有加载、覆盖和展示均由 `GamePreset.mode` 严格分流。
 - 玩家选择器支持搜索、登记；输入框右侧图标用 Portal 打开居中小弹窗，支持筛选、Escape、焦点循环及返回入口，并通过 `inert` 锁定背景。输入联想仍采用独立下拉列表。
