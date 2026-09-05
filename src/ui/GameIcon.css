@@ -1,0 +1,38 @@
+/* Fixed light backing is intentional, including inside dark effects and themes. */
+.game-art {
+  display: inline-block;
+  width: 1.7em;
+  height: 1.7em;
+  max-width: 100%;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  object-fit: contain;
+  border-radius: 22%;
+  background: #f3eee3;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.game-art-slot {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+/* Override legacy colored symbol tiles, without changing their layout dimensions. */
+.game-art-slot.game-art-slot {
+  padding: 0;
+  background: #f3eee3 !important;
+  color: #34332f;
+}
+
+.game-art-slot > .game-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}

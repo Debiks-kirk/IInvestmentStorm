@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { chromium } from 'playwright-core'
+import { runIconFlow } from './icon-smoke.mjs'
 
 const chromeCandidates = process.platform === 'win32'
   ? [
@@ -910,9 +911,18 @@ let browser
 try {
   await waitForServer()
   browser = await chromium.launch({ executablePath, headless: true })
-  const page = await browser.newPage({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
+  // Disposable context: fixtures only clear storage created by this test run.
+  // Never attach to a user's browser or pass a persistent profile directory.
+  const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
+  const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'relay-drag') {
+  if (process.env.SMOKE_ONLY === 'icons') {
+    await runIconFlow(page)
+    await runCardFlow(page)
+    await runIdentityFlow(page)
+    await runSystemAuctionFlow(page)
+    console.log('图标资源、透明背景、明暗底衬、移动端布局与身份／道具／竞购冒烟通过。')
+  } else if (process.env.SMOKE_ONLY === 'relay-drag') {
     await runRelayDragFlow(page)
     console.log('接力长按拖动、跨席位移动、Bot 单行选择与配置保存冒烟通过。')
   } else if (process.env.SMOKE_ONLY === 'setup') {
