@@ -1,0 +1,163 @@
+[
+  {
+    "id": "prophet",
+    "type": "identity",
+    "name": "预言家",
+    "file": "roles/prophet.png",
+    "subject": "A charcoal crystal ball on a brick-red short pedestal, a single antique-gold four-point star centered inside the ball. Simple solid silhouettes, no eyes."
+  },
+  {
+    "id": "gambler",
+    "type": "identity",
+    "name": "赌徒",
+    "file": "roles/gambler.png",
+    "subject": "One brick-red rounded square die with three large circular gold pips, slightly tilted, backed by a single charcoal spade silhouette. Two shapes only."
+  },
+  {
+    "id": "collector",
+    "type": "identity",
+    "name": "收藏家",
+    "file": "roles/collector.png",
+    "subject": "A charcoal open display box cradling a single large antique-gold faceted diamond, short brick-red interior base. Front view, simple bold jewel silhouette."
+  },
+  {
+    "id": "thief",
+    "type": "identity",
+    "name": "小偷",
+    "file": "roles/thief.png",
+    "subject": "A charcoal drawstring money pouch with a brick-red tied cord at the neck, one antique-gold coin peeking out the opening. No mask, hands or face."
+  },
+  {
+    "id": "merchant",
+    "type": "identity",
+    "name": "道具商人",
+    "file": "roles/merchant.png",
+    "subject": "A tiny charcoal shop stall with a brick-red awning of three broad scallops and one antique-gold card in the shop window. Minimal front-facing kiosk silhouette."
+  },
+  {
+    "id": "reverser",
+    "type": "identity",
+    "name": "逆转者",
+    "file": "roles/reverser.png",
+    "subject": "A bold charcoal hourglass with antique-gold triangular sand, a single thick brick-red curved turning arrow beside it. Simple recognizable hourglass, no numbers."
+  },
+  {
+    "id": "lobbyist",
+    "type": "identity",
+    "name": "说客",
+    "file": "roles/lobbyist.png",
+    "subject": "A brick-red closed envelope, charcoal flap line, and one small antique-gold speech bubble overlapping the upper right. Simple large geometric shapes."
+  },
+  {
+    "id": "nightwalker",
+    "type": "identity",
+    "name": "夜行者",
+    "file": "roles/nightwalker.png",
+    "subject": "A large antique-gold crescent moon with two parallel charcoal stepped shadows beneath it, one shadow accented brick red. Clean geometric symbol of two possible paths at night."
+  },
+  {
+    "id": "investor",
+    "type": "identity",
+    "name": "投资者",
+    "file": "roles/investor.png",
+    "subject": "Two chunky charcoal rising bars with a brick-red upward diagonal arrow, one antique-gold coin at their base. Simple compact growth investment symbol, no numbers."
+  },
+  {
+    "id": "red",
+    "type": "card",
+    "name": "红卡",
+    "file": "cards/red.png",
+    "subject": "One upright brick-red rounded rectangular card, centered large antique-gold diamond emblem. Small charcoal offset edge visible behind, not a second full card. Extremely simple."
+  },
+  {
+    "id": "peek",
+    "type": "card",
+    "name": "偷看底牌",
+    "file": "cards/peek.png",
+    "subject": "One charcoal tilted playing card partially tucked behind a brick-red lower card edge, a large antique-gold stylized eye centered on the charcoal card. No human face."
+  },
+  {
+    "id": "swap",
+    "type": "card",
+    "name": "偷天换日",
+    "file": "cards/swap.png",
+    "subject": "A bold antique-gold sun at upper right and charcoal crescent at lower left connected by two short brick-red opposing horizontal arrows. Simple sky exchange symbol, no playing cards."
+  },
+  {
+    "id": "redistribute",
+    "type": "card",
+    "name": "劫富济贫",
+    "file": "cards/redistribute.png",
+    "subject": "A charcoal balance scale with a brick-red vertical support and antique-gold shallow pans, three broad stacked coins in one pan and one in the other. Minimal thick geometry."
+  },
+  {
+    "id": "doubleBid",
+    "type": "card",
+    "name": "反客为主",
+    "file": "cards/doubleBid.png",
+    "subject": "Two thick parallel upward arrows, one brick red and one antique gold, rising from a charcoal base. Compact power-up symbol, no numbers or text."
+  },
+  {
+    "id": "black",
+    "type": "card",
+    "name": "黑卡",
+    "file": "cards/black.png",
+    "subject": "One upright charcoal rounded rectangular card, centered large antique-gold circle half blocked with charcoal so it reads as a half disc. Small brick-red offset edge behind. Extremely simple."
+  },
+  {
+    "id": "reverseRank",
+    "type": "card",
+    "name": "逆转排名",
+    "file": "cards/reverseRank.png",
+    "subject": "A charcoal three-step winners podium with a brick-red curved downward-return arrow over it and a small antique-gold crown on its lower step. Bold simple shapes, no numbers."
+  },
+  {
+    "id": "fateCoin",
+    "type": "card",
+    "name": "命运硬币",
+    "file": "cards/fateCoin.png",
+    "subject": "One large antique-gold round coin with a charcoal crescent-shaped side edge and a brick-red four-point star cut into its face. One short curved charcoal motion stroke beside it suggests flipping. Minimal."
+  },
+  {
+    "id": "bananaPeel",
+    "type": "card",
+    "name": "香蕉皮",
+    "file": "cards/bananaPeel.png",
+    "subject": "A single opened antique-gold banana peel with three broad flaps splayed out and a short upright stem. Charcoal contour details and tiny brick-red accent at stem. Instantly recognizable flat peel silhouette."
+  },
+  {
+    "id": "reflectShield",
+    "type": "card",
+    "name": "反弹护盾",
+    "file": "cards/reflectShield.png",
+    "subject": "A bold charcoal shield with a thick antique-gold border and a single brick-red bent arrow rebounding upward from its center. Flat simple symmetrical shield silhouette."
+  },
+  {
+    "id": "prizeReroll",
+    "type": "card",
+    "name": "改拍令",
+    "file": "cards/prizeReroll.png",
+    "subject": "One brick-red auction gavel above a charcoal base encircled on one side by one thick antique-gold refresh arrow. Minimal simple icon, no playing cards."
+  },
+  {
+    "id": "legendaryLoot",
+    "type": "card",
+    "name": "夺宝令",
+    "file": "cards/legendaryLoot.png",
+    "subject": "A single large antique-gold crown above a brick-red faceted diamond held by a charcoal claw-like curved hook. Three simple shapes, commanding treasure seizure emblem, no hands or body."
+  },
+  {
+    "id": "assassin",
+    "type": "identity",
+    "name": "绑匪",
+    "file": "roles/assassin.png",
+    "subject": "A charcoal domino mask with transparent eye cutouts, a brick-red bandana knot at one side and an antique-gold coin overlapping its lower right."
+  },
+  {
+    "id": "prizeSwap",
+    "type": "card",
+    "name": "调包令",
+    "file": "cards/prizeSwap.png",
+    "subject": "Two overlapping rounded playing cards, charcoal and brick red, with gold curved swapping arrows and large diamond cutouts."
+  }
+]
