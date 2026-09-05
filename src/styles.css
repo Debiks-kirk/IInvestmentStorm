@@ -315,16 +315,13 @@ em { color: var(--red); font-style: normal; }
 .setup-page--lobby .relay-seat-list { display: grid; gap: 16px; }
 .setup-page--lobby .relay-seat-card { position: relative; overflow: visible; border: 1px solid rgba(126,115,93,.21); border-radius: 18px; background: rgba(255,255,255,.62); box-shadow: inset 4px 0 0 var(--player-color),0 9px 26px rgba(66,53,37,.07); transition: border-color .16s ease, box-shadow .16s ease; }
 .setup-page--lobby .relay-seat-card:focus-within { z-index: 35; border-color: color-mix(in srgb,var(--player-color) 48%,var(--line)); box-shadow: inset 4px 0 0 var(--player-color),0 15px 34px rgba(66,53,37,.13); }
-.setup-page--lobby .relay-seat-card__head { display: grid; grid-template-columns: minmax(140px,.8fr) minmax(150px,1.15fr) auto; grid-template-areas: "title name count"; align-items: end; gap: 12px; padding: 15px 16px 13px 18px; border-bottom: 1px solid rgba(126,115,93,.13); border-radius: 17px 17px 0 0; background: linear-gradient(115deg,color-mix(in srgb,var(--player-color) 8%,#fffdf8),rgba(255,255,255,.5)); }
-.setup-page--lobby .relay-seat-card__title { grid-area: title; display: grid; grid-template-columns: 38px minmax(0,1fr); align-items: center; gap: 10px; min-width: 0; }
+.setup-page--lobby .relay-seat-card__head { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; grid-template-areas: "title name count"; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid rgba(126,115,93,.13); border-radius: 17px 17px 0 0; background: linear-gradient(115deg,color-mix(in srgb,var(--player-color) 8%,#fffdf8),rgba(255,255,255,.5)); }
+.setup-page--lobby .relay-seat-card__title { grid-area: title; min-width: 0; }
 .setup-page--lobby .relay-seat-card__title > span { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: #fff; background: var(--player-color); box-shadow: 0 5px 12px color-mix(in srgb,var(--player-color) 25%,transparent); font-size: 13px; font-weight: 900; }
-.setup-page--lobby .relay-seat-card__title small, .setup-page--lobby .relay-seat-card__title strong { display: block; min-width: 0; }
-.setup-page--lobby .relay-seat-card__title small { color: var(--muted); font-size: 10px; }
-.setup-page--lobby .relay-seat-card__title strong { margin-top: 2px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .setup-page--lobby .relay-seat-name { grid-area: name; display: grid; grid-template-columns: 1fr; gap: 5px; min-width: 0; color: var(--muted); font-size: 10px; font-weight: 800; }
 .setup-page--lobby .relay-seat-name > span { padding-left: 2px; }
 .setup-page--lobby .relay-seat-name input { width: 100%; min-width: 0; height: 42px; padding: 0 10px; border: 1px solid rgba(126,115,93,.2); border-radius: 10px; background: #fffdf8; color: var(--ink); font: inherit; font-size: 13px; font-weight: 750; }
-.setup-page--lobby .relay-seat-card__head > em { grid-area: count; align-self: end; margin-bottom: 8px; padding: 5px 8px; border-radius: 999px; color: var(--green); background: rgba(85,127,116,.1); font-size: 10px; font-style: normal; font-weight: 800; white-space: nowrap; }
+.setup-page--lobby .relay-seat-card__head > em { grid-area: count; margin: 0; padding: 5px 8px; border-radius: 999px; color: var(--green); background: rgba(85,127,116,.1); font-size: 10px; font-style: normal; font-weight: 800; white-space: nowrap; }
 .setup-page--lobby .relay-schedule { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: start; gap: 8px; margin: 11px 13px 0 16px; padding: 9px 11px; border: 1px solid rgba(85,127,116,.13); border-radius: 11px; background: rgba(85,127,116,.055); }
 .setup-page--lobby .relay-schedule > span { padding: 3px 7px; border-radius: 999px; color: #416f65; background: rgba(85,127,116,.12); font-size: 10px; font-weight: 850; line-height: 1.35; }
 .setup-page--lobby .relay-schedule p { min-width: 0; margin: 1px 0 0; color: #5f6d67; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
@@ -432,8 +429,7 @@ em { color: var(--red); font-style: normal; }
   .setup-page--lobby .relay-method-toggle button small { font-size: 9px; }
   .setup-page--lobby .relay-setup__hint { align-items: flex-start; padding: 9px 10px; }
   .setup-page--lobby .relay-seat-list { gap: 13px; }
-  .setup-page--lobby .relay-seat-card__head { grid-template-columns: minmax(0,1fr) auto; grid-template-areas: "title count" "name name"; align-items: center; gap: 10px 8px; padding: 13px 13px 12px 16px; }
-  .setup-page--lobby .relay-seat-card__title { grid-template-columns: 35px minmax(0,1fr); gap: 8px; }
+  .setup-page--lobby .relay-seat-card__head { grid-template-columns: 33px minmax(0,1fr) auto; grid-template-areas: "title name count"; gap: 7px; padding: 10px; }
   .setup-page--lobby .relay-seat-card__title > span { width: 33px; height: 33px; border-radius: 10px; }
   .setup-page--lobby .relay-seat-card__head > em { align-self: center; margin: 0; }
   .setup-page--lobby .relay-seat-name { width: 100%; }

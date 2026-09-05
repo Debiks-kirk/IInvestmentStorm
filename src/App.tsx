@@ -712,8 +712,8 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                 {relaySeats.map((relaySeat, seatIndex) => (
                   <section className={cx('relay-seat-card', drag?.drop?.seat === seatIndex && 'is-drop-target')} data-relay-seat={seatIndex} key={seatIndex} style={{ '--player-color': `var(--player-${seatIndex + 1})` } as React.CSSProperties}>
                     <header className="relay-seat-card__head">
-                      <div className="relay-seat-card__title"><span>{seatIndex + 1}</span><div><small>游戏席位</small><strong>{relaySeat.name || `接力玩家 ${seatIndex + 1}`}</strong></div></div>
-                      <label className="relay-seat-name"><span>对局名称</span><input value={relaySeat.name} maxLength={12} aria-label={`接力玩家 ${seatIndex + 1} 名字`} onChange={(event) => updateRelaySeat(seatIndex, { name: event.target.value })} /></label>
+                      <div className="relay-seat-card__title" title={`游戏席位 ${seatIndex + 1}`} aria-label={`游戏席位 ${seatIndex + 1}`}><span>{seatIndex + 1}</span></div>
+                      <label className="relay-seat-name"><input value={relaySeat.name} placeholder="对局名称" maxLength={12} aria-label={`接力玩家 ${seatIndex + 1} 名字`} onChange={(event) => updateRelaySeat(seatIndex, { name: event.target.value })} /></label>
                       <em>{relaySeat.operators.length} 位操作者</em>
                     </header>
                     <div className="relay-schedule"><span>排班</span><p>{relayScheduleLabel(relaySeat.operators, relayMethod, settings.rounds)}</p></div>
