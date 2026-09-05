@@ -1,5 +1,11 @@
 # 技术基线
 
+## 玩家名册与设置模式隔离
+
+- 真人名册保存在 `auction-battle:registered-players:v1`。`registeredPlayerNamesFromPreset` 按预设类型提取真人：旧 `names` 配置按标准真人兼容，标准座位只取 `human`，接力配置只取真人操作者；`mergeRegisteredPlayers` 负责清理和大小写不敏感去重。
+- `Setup` 以 `settingsByMode`、独立座位数据和按模式保存的配置编辑状态维护两套草稿；底层预设仍使用同一版本化存储数组，但所有加载、覆盖和展示均由 `GamePreset.mode` 严格分流。
+- 玩家选择器支持搜索、登记与直接打开完整名册；窄屏名册使用固定底部面板，接力操作者使用显式网格区域，避免条件渲染 Bot 控件后发生按钮重叠或横向溢出。
+
 ## 接力模式（v34）
 
 - `Player.relayOperators` 保存操作者队列；`GameSession.mode` 与 `relayMethod` 决定标准／接力以及轮换／分段调度。`relayOperatorForRound` 是唯一的回合解析入口，分段模式把余数优先分给排在前面的操作者。

@@ -58,12 +58,18 @@ async function runSetupLayoutFlow(page) {
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByLabel('玩家 1 类型').selectOption('bot')
   await page.locator('.seat-field').first().getByText('小算盘', { exact: true }).waitFor()
-  const secondPlayer = page.getByLabel('玩家 2 名字')
+  const secondPlayer = page.getByRole('textbox', { name: '玩家 2 名字', exact: true })
   await secondPlayer.fill('阿青')
   await page.locator('.seat-field').nth(1).locator('.registered-player-create').click()
   await secondPlayer.fill('青')
   await page.locator('.seat-field').nth(1).locator('.registered-player-results button').filter({ hasText: '阿青' }).click()
   if (await secondPlayer.inputValue() !== '阿青') throw new Error('真人玩家搜索未能选择已登记姓名。')
+  const thirdPlayer = page.getByRole('textbox', { name: '玩家 3 名字', exact: true })
+  await page.getByRole('button', { name: '玩家 3 名字：打开玩家名册', exact: true }).click()
+  await page.locator('.seat-field').nth(2).locator('.registered-player-results button').filter({ hasText: '阿青' }).click()
+  if (await thirdPlayer.inputValue() !== '阿青') throw new Error('玩家名册快捷入口未能直接选择已登记姓名。')
+  await setRange(page.locator('#player-count'), 4)
+  await page.locator('#rounds').fill('7')
   await assertNoHorizontalOverflow(page, '标准模式设置页')
   const standardControlsFit = await page.locator('.setup-roster-panel').evaluate((panel) => {
     const panelRect = panel.getBoundingClientRect()
@@ -76,8 +82,12 @@ async function runSetupLayoutFlow(page) {
     })
   })
   if (!standardControlsFit) throw new Error('标准模式设置控件超出玩家卡片。')
+  await page.screenshot({ path: '.artifacts/standard-setup-mobile.png', fullPage: true })
   await page.getByRole('button', { name: '接力模式' }).click()
-  await page.locator('.relay-seat-card').first().getByRole('button', { name: /添加操作者/ }).click()
+  if (await page.locator('#relay-player-count').inputValue() !== '3' || await page.locator('#rounds').inputValue() !== '5') throw new Error('接力模式错误继承了标准模式的人数或轮数。')
+  await setRange(page.locator('#relay-player-count'), 5)
+  await page.locator('#rounds').fill('6')
+  await page.locator('.relay-seat-card').first().getByRole('button', { name: /添加.*操作者/ }).click()
   await page.getByLabel(/操作者 2 类型/).first().selectOption('bot')
   await assertNoHorizontalOverflow(page, '接力模式设置页')
   const relayControlsFit = await page.locator('.relay-seat-card').first().evaluate((card) => {
@@ -88,6 +98,19 @@ async function runSetupLayoutFlow(page) {
     })
   })
   if (!relayControlsFit) throw new Error('接力模式设置控件超出玩家卡片。')
+  await page.getByRole('button', { name: '标准模式' }).click()
+  if (await page.locator('#player-count').inputValue() !== '4' || await page.locator('#rounds').inputValue() !== '7') throw new Error('切回标准模式后草稿被接力模式污染。')
+  if (await secondPlayer.inputValue() !== '阿青') throw new Error('切换模式后标准玩家草稿丢失。')
+  await page.getByRole('button', { name: '接力模式' }).click()
+  if (await page.locator('#relay-player-count').inputValue() !== '5' || await page.locator('#rounds').inputValue() !== '6') throw new Error('切回接力模式后草稿未独立保留。')
+  if (await page.locator('.relay-seat-card').first().locator('.relay-operator').count() !== 2) throw new Error('切换模式后接力操作者草稿丢失。')
+  await page.screenshot({ path: '.artifacts/relay-setup-mobile.png', fullPage: true })
+  for (const viewport of [{ width: 844, height: 390, label: '手机横屏' }, { width: 1024, height: 768, label: '平板' }, { width: 1366, height: 768, label: '桌面' }]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await assertNoHorizontalOverflow(page, `${viewport.label}接力设置页`)
+    if (viewport.width === 1366) await page.screenshot({ path: '.artifacts/relay-setup-desktop.png', fullPage: true })
+  }
+  await page.setViewportSize({ width: 360, height: 640 })
 }
 
 async function finishFinalReveal(page, expectedCount, waitForAnimation = false) {
@@ -125,12 +148,14 @@ async function finishAdvancedSettings(page) {
     let name = (await input.inputValue()).trim()
     if (!name) {
       name = `测试玩家${index + 1}`
-      await input.fill(name)
-    } else {
-      await input.focus()
     }
-    const register = picker.getByRole('option', { name: new RegExp(`登记“${name}”`) })
-    if (await register.count() > 0) await register.click()
+    if (await picker.locator('[title="已登记"]').count() === 0) {
+      await input.fill('')
+      await input.fill(name)
+      const register = picker.locator('.registered-player-create')
+      await register.waitFor({ state: 'visible', timeout: 1500 })
+      await register.click()
+    }
   }
 }
 
@@ -394,13 +419,36 @@ async function runPresetFlow(page) {
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '6 人真人局' }).click()
   if (await page.locator('#player-count').inputValue() !== '6' || await page.locator('#rounds').inputValue() !== '8') throw new Error('系统预设未正确载入。')
+  await finishAdvancedSettings(page)
   await page.getByLabel('配置名称').fill('冒烟六人局')
   await page.getByRole('button', { name: '另存配置' }).click()
-  await page.getByText('我的配置', { exact: true }).waitFor()
+  await page.waitForTimeout(150)
+  if (await page.getByText('我的标准配置', { exact: true }).count() === 0) throw new Error(`标准配置保存失败：${await page.locator('.error-box').textContent()}`)
   await page.locator('.preset-choice--saved > button').first().click()
   if (await page.locator('#player-count').inputValue() !== '6') throw new Error('已保存配置未正确重新载入。')
+  await page.getByRole('button', { name: '接力模式' }).click()
+  if (await page.getByText('冒烟六人局', { exact: true }).count() !== 0) throw new Error('标准配置错误显示在接力配置库中。')
+  await finishAdvancedSettings(page)
+  await page.getByLabel('配置名称').fill('冒烟接力局')
+  await page.getByRole('button', { name: '另存配置' }).click()
+  await page.waitForTimeout(150)
+  if (await page.getByText('我的接力配置', { exact: true }).count() === 0) throw new Error(`接力配置保存失败：${await page.locator('.error-box').textContent()}`)
+  if (await page.getByText('冒烟六人局', { exact: true }).count() !== 0) throw new Error('接力配置库混入了标准配置。')
+  await page.getByRole('button', { name: '标准模式' }).click()
+  await page.getByText('冒烟六人局', { exact: true }).waitFor()
+  if (await page.getByText('冒烟接力局', { exact: true }).count() !== 0) throw new Error('标准配置库混入了接力配置。')
+  await page.evaluate(() => localStorage.removeItem('auction-battle:registered-players:v1'))
+  await page.reload()
+  await page.getByRole('button', { name: '创建新对局' }).click()
+  await page.getByRole('button', { name: '玩家 1 名字：打开玩家名册', exact: true }).click()
+  const migratedPlayer = page.locator('.seat-field').first().locator('.registered-player-results button').filter({ hasText: '玩家 1' })
+  await migratedPlayer.waitFor()
+  await migratedPlayer.click()
+  if (await page.getByRole('textbox', { name: '玩家 1 名字', exact: true }).inputValue() !== '玩家 1') throw new Error('旧配置中的真人姓名未自动迁移到玩家名册。')
   await page.getByRole('button', { name: '删除冒烟六人局' }).click()
   if (await page.getByText('冒烟六人局', { exact: true }).count() !== 0) throw new Error('已保存配置未被删除。')
+  await page.getByRole('button', { name: '接力模式' }).click()
+  await page.getByText('冒烟接力局', { exact: true }).waitFor()
   await assertNoHorizontalOverflow(page, '配置预设页')
 }
 
@@ -724,10 +772,10 @@ async function runRelaySetupFlow(page) {
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '接力模式' }).click()
-  await page.getByLabel('接力玩家 1 名字').fill('甲队')
-  await page.getByLabel(/甲队 操作者 1 名字/).fill('甲一')
-  await page.locator('.relay-seat-card').first().getByRole('button', { name: /添加操作者/ }).click()
-  await page.getByLabel(/甲队 操作者 2 名字/).fill('甲二')
+  await page.getByRole('textbox', { name: '接力玩家 1 名字', exact: true }).fill('甲队')
+  await page.getByRole('textbox', { name: '甲队 操作者 1 名字', exact: true }).fill('甲一')
+  await page.locator('.relay-seat-card').first().getByRole('button', { name: /添加.*操作者/ }).click()
+  await page.getByRole('textbox', { name: '甲队 操作者 2 名字', exact: true }).fill('甲二')
   await page.getByLabel('甲二 类型').selectOption('bot')
   await page.getByRole('button', { name: '分段接力' }).click()
   await page.getByRole('button', { name: /高级规则/ }).click()
@@ -754,6 +802,12 @@ try {
   if (process.env.SMOKE_ONLY === 'setup') {
     await runSetupLayoutFlow(page)
     console.log('标准与接力模式设置页移动端布局冒烟测试通过。')
+  } else if (process.env.SMOKE_ONLY === 'preset') {
+    await runPresetFlow(page)
+    console.log('标准与接力配置库隔离冒烟测试通过。')
+  } else if (process.env.SMOKE_ONLY === 'relay') {
+    await runRelaySetupFlow(page)
+    console.log('接力模式建局与操作者交接冒烟测试通过。')
   } else if (process.env.SMOKE_ONLY === 'lobbyist') {
     await runLobbyistTaskFlow(page)
     console.log('说客任务流程冒烟测试通过。')

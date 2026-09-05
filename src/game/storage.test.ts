@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
-import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers } from './storage'
+import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers } from './storage'
 import { defaultBotStrategy } from './bots'
 import { createCardDeck } from './cards'
 
@@ -25,6 +25,52 @@ describe('配置预设存储', () => {
   it('本机玩家名册会清理空名、重复名与过长名字', () => {
     saveRegisteredPlayers([' 阿青 ', '阿青', '火花', '', '这是一个超过十二个字的玩家名字'])
     expect(loadRegisteredPlayers()).toEqual(['阿青', '火花', '这是一个超过十二个字的玩'])
+  })
+
+  it('玩家名册合并时保留原顺序与写法，并按大小写去重', () => {
+    expect(mergeRegisteredPlayers([' 阿青 ', 'Alice'], ['阿青', 'alice', ' 阿紫 ', '', '这是一个超过十二个字的玩家名字'])).toEqual([
+      '阿青',
+      'Alice',
+      '阿紫',
+      '这是一个超过十二个字的玩',
+    ])
+  })
+
+  it('玩家名册可以保存超过一百位玩家', () => {
+    const players = Array.from({ length: 128 }, (_, index) => `玩家${String(index + 1).padStart(3, '0')}`)
+    saveRegisteredPlayers(players)
+    expect(loadRegisteredPlayers()).toEqual(players)
+  })
+
+  it('标准配置只提取真人座位姓名', () => {
+    const preset = createGamePreset('标准局', [
+      { name: '阿青', controller: { kind: 'human' } },
+      { name: '小算盘', controller: { kind: 'bot', profileId: 'steady', difficulty: 'standard' } },
+      { name: '阿紫', controller: { kind: 'human' } },
+    ], createDefaultSettings(3))
+    expect(registeredPlayerNamesFromPreset(preset)).toEqual(['阿青', '阿紫'])
+  })
+
+  it('没有座位数据的旧标准配置会把 names 当作真人姓名', () => {
+    const preset = createGamePreset('旧配置', [' 甲 ', '乙', '甲'], createDefaultSettings(3))
+    const legacy = { ...preset, seats: undefined, mode: undefined }
+    expect(registeredPlayerNamesFromPreset(legacy)).toEqual(['甲', '乙'])
+  })
+
+  it('接力配置只提取真人操作者，不登记游戏玩家名或 Bot 名', () => {
+    const settings = createDefaultSettings(3)
+    const relaySeats = [
+      { name: '红队', operators: [{ id: 'r1', name: '阿青', controller: { kind: 'human' as const } }, { id: 'r2', name: '火花', controller: { kind: 'bot' as const, profileId: 'aggressive' as const, difficulty: 'expert' as const } }] },
+      { name: '蓝队', operators: [{ id: 'b1', name: 'ALICE', controller: { kind: 'human' as const } }] },
+      { name: '绿队', operators: [{ id: 'g1', name: 'alice', controller: { kind: 'human' as const } }] },
+    ]
+    const preset = createGamePreset('接力局', relaySeats.map((seat) => ({ name: seat.name, controller: seat.operators[0].controller })), settings, undefined, { mode: 'relay', relayMethod: 'rotation', relaySeats })
+    expect(registeredPlayerNamesFromPreset(preset)).toEqual(['阿青', 'ALICE'])
+  })
+
+  it('缺失接力操作者数据时不会误把游戏玩家名加入名册', () => {
+    const preset = createGamePreset('接力旧配置', ['一队', '二队', '三队'], createDefaultSettings(3))
+    expect(registeredPlayerNamesFromPreset({ ...preset, mode: 'relay', relaySeats: undefined })).toEqual([])
   })
 
   it('新局默认值包含更高小偷成功率与更低的指定任务加价', () => {

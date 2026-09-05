@@ -23,7 +23,39 @@ function normalizedRegisteredPlayers(value: unknown): string[] {
     if (!name || seen.has(key)) return []
     seen.add(key)
     return [name]
-  }).slice(0, 100)
+  })
+}
+
+/**
+ * Adds newly discovered local players without changing the spelling or order of
+ * names that are already registered. Matching is deliberately
+ * case-insensitive so imported configurations cannot create duplicate entries.
+ */
+export function mergeRegisteredPlayers(existing: readonly string[], incoming: readonly string[]): string[] {
+  return normalizedRegisteredPlayers([...existing, ...incoming])
+}
+
+/**
+ * Returns only the real people represented by a saved setup.
+ *
+ * Legacy standard presets that only contain `names` predate controller data,
+ * so their names are treated as human players. Relay player names describe the
+ * shared in-game seat rather than a person; only human relay operators belong
+ * in the local player registry.
+ */
+export function registeredPlayerNamesFromPreset(preset: Pick<GamePreset, 'names' | 'seats' | 'mode' | 'relaySeats'>): string[] {
+  if (preset.mode === 'relay') {
+    if (!Array.isArray(preset.relaySeats)) return []
+    return normalizedRegisteredPlayers(preset.relaySeats.flatMap((seat) =>
+      Array.isArray(seat.operators)
+        ? seat.operators.flatMap((operator) => operator.controller?.kind === 'human' ? [operator.name] : [])
+        : [],
+    ))
+  }
+  if (Array.isArray(preset.seats) && preset.seats.length > 0) {
+    return normalizedRegisteredPlayers(preset.seats.flatMap((seat) => seat.controller?.kind === 'human' ? [seat.name] : []))
+  }
+  return normalizedRegisteredPlayers(preset.names)
 }
 
 export function loadRegisteredPlayers(): string[] {
