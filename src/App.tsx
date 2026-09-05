@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { CardIcon, IdentityIcon } from './ui/GameIcon'
 import { SetupBotPicker } from './ui/SetupBotPicker'
+import { SetupRulesModal } from './ui/SetupRulesModal'
 import { useRelayDrag } from './ui/useRelayDrag'
 import { moveRelayOperator } from './game/relaySetup'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig, fixedAssetCoins, itemFixedAssetCoins } from './game/assets'
@@ -753,7 +754,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
             <div className="setting-row"><label htmlFor="rounds">轮数</label><div><input id="rounds" type="number" min="1" max="12" value={settings.rounds} onChange={(event) => setSettings({ ...settings, rounds: Number(event.target.value) })} /><span>轮</span></div></div>
             <div className="setting-row"><label htmlFor="coins">初始金币</label><div><input id="coins" type="number" min="10" max="200" value={settings.initialCoins} onChange={(event) => setSettings({ ...settings, initialCoins: Number(event.target.value) })} /><span>枚</span></div></div>
             <button className="advanced-toggle" onClick={() => setAdvanced(true)} aria-haspopup="dialog"><span><strong>高级规则</strong><small>奖励、道具、身份与动画</small></span><em>打开 →</em></button>
-            {advanced && (
+            {advanced && <SetupRulesModal onClose={() => setAdvanced(false)}>
               <><button className="advanced-backdrop" aria-label="关闭高级设置" onClick={() => setAdvanced(false)} /><section className="advanced-settings" role="dialog" aria-modal="true" aria-labelledby="advanced-settings-title"><header className="advanced-settings__head"><div><p className="eyebrow">可随时保存到配置</p><h2 id="advanced-settings-title">高级规则</h2><small>调整后会立即反映在本局摘要与保存的配置中。</small></div><button className="icon-button" aria-label="关闭高级设置" onClick={() => setAdvanced(false)}>×</button></header><div className="advanced-settings__body">
                 <div className="setting-row"><label htmlFor="reward-count">获奖人数</label><select id="reward-count" value={settings.rewardMultipliers.length} onChange={(event) => setRewardCount(Number(event.target.value))}>{Array.from({ length: settings.playerCount }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} 人</option>)}</select></div>
                 <div className="reward-editors">
@@ -797,7 +798,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                 {settings.identitySettings.enabled && <div className="identity-settings-fields"><p>赌徒的猜中、猜错与跳过效果可分别设置；新局默认均为拍品价值的 50%。</p><label>逆转者发动费用<input type="number" min="0" max="30" step="0.5" value={settings.identitySettings.reverserActivationCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, reverserActivationCoins: Number(event.target.value) } })} /></label><label>说客指定任务加价<input type="number" min="0" max="30" step="0.5" value={settings.identitySettings.lobbyistSpecifiedTaskFeeCoins} onChange={(event) => setSettings({ ...settings, identitySettings: { ...settings.identitySettings, lobbyistSpecifiedTaskFeeCoins: Number(event.target.value) } })} /></label></div>}
                 <div className="setting-row"><label htmlFor="motion">动画速度</label><select id="motion" value={settings.animationSpeed} onChange={(event) => setSettings({ ...settings, animationSpeed: event.target.value as GameSettings['animationSpeed'] })}><option value="full">完整</option><option value="fast">快速</option><option value="reduced">极简</option></select></div>
               </div><footer className="advanced-settings__foot"><button className="button button--primary" onClick={() => setAdvanced(false)}>完成高级设置</button></footer></section></>
-            )}
+            </SetupRulesModal>}
           </div>
         </div>
         <section className={cx('preset-save', 'panel', mode === 'relay' && 'preset-save--relay')}><div><p className="eyebrow">{mode === 'relay' ? '接力配置库' : '标准配置库'}</p><h2>{mode === 'relay' ? '保存接力配置' : '保存标准配置'}</h2><small>{mode === 'relay' ? '保存席位、操作者、接力方式与规则。' : '保存玩家、Bot 与本局规则。'}</small></div><div><input aria-label="配置名称" placeholder={mode === 'relay' ? '例如：家庭接力局' : '例如：周末六人局'} maxLength={20} value={presetName} onChange={(event) => { setPresetName(event.target.value); setActivePresetId(null) }} /><button className="button button--paper" onClick={saveCurrentPreset}>{activePresetId ? '覆盖保存' : '另存配置'}</button></div></section>

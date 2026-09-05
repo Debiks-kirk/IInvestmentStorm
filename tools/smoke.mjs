@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { chromium } from 'playwright-core'
 import { runIconFlow } from './icon-smoke.mjs'
+import { runSetupModalFlow } from './setup-modal-smoke.mjs'
 
 const chromeCandidates = process.platform === 'win32'
   ? [
@@ -916,7 +917,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'icons') {
+  if (process.env.SMOKE_ONLY === 'setup-modal') {
+    await runSetupModalFlow(page)
+    console.log('高级规则弹窗层级、背景隔离、滚动、焦点与关闭恢复冒烟通过。')
+  } else if (process.env.SMOKE_ONLY === 'icons') {
     await runIconFlow(page)
     await runCardFlow(page)
     await runIdentityFlow(page)
