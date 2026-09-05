@@ -4,7 +4,8 @@
 
 - 真人名册保存在 `auction-battle:registered-players:v1`。`registeredPlayerNamesFromPreset` 按预设类型提取真人：旧 `names` 配置按标准真人兼容，标准座位只取 `human`，接力配置只取真人操作者；`mergeRegisteredPlayers` 负责清理和大小写不敏感去重。
 - `Setup` 以 `settingsByMode`、独立座位数据和按模式保存的配置编辑状态维护两套草稿；底层预设仍使用同一版本化存储数组，但所有加载、覆盖和展示均由 `GamePreset.mode` 严格分流。
-- 玩家选择器支持搜索、登记与直接打开完整名册；窄屏名册使用固定底部面板，接力操作者使用显式网格区域，避免条件渲染 Bot 控件后发生按钮重叠或横向溢出。
+- 玩家选择器支持搜索、登记；输入框右侧图标用 Portal 打开居中小弹窗，支持筛选、Escape、焦点循环及返回入口，并通过 `inert` 锁定背景。输入联想仍采用独立下拉列表。
+- `unavailableNames` 仅取当前模式其他真人条目；`validateHumanPlayerSelection` 在保存和开局时按去空格、忽略大小写的名册规则校验全部真人，接力模式先展平所有席位的操作者。旧对局进度不重算。
 
 ## 接力模式（v34）
 

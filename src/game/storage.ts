@@ -35,6 +35,21 @@ export function mergeRegisteredPlayers(existing: readonly string[], incoming: re
   return normalizedRegisteredPlayers([...existing, ...incoming])
 }
 
+/** A registered person may occupy only one seat/operator entry in a new game. */
+export function validateHumanPlayerSelection(entries: readonly SeatConfig[]): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Map<string, string>()
+  for (const entry of entries) {
+    if (entry.controller.kind !== 'human') continue
+    const name = entry.name.trim()
+    const key = name.toLocaleLowerCase()
+    if (!key) continue
+    if (seen.has(key)) duplicates.set(key, name)
+    seen.add(key)
+  }
+  return [...duplicates.values()].map((name) => `“${name}”已被重复选择，每位玩家一局只能加入一次`)
+}
+
 /**
  * Returns only the real people represented by a saved setup.
  *

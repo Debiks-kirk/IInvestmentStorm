@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
-import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers } from './storage'
+import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers, validateHumanPlayerSelection } from './storage'
 import { defaultBotStrategy } from './bots'
 import { createCardDeck } from './cards'
 
@@ -22,6 +22,30 @@ afterEach(() => {
 })
 
 describe('配置预设存储', () => {
+  it('真人重复入局按名册的大小写及空格规则校验，Bot 不占用真人名额', () => {
+    expect(validateHumanPlayerSelection([
+      { name: 'Alice', controller: { kind: 'human' } },
+      { name: ' alice ', controller: { kind: 'human' } },
+      { name: 'ALICE', controller: { kind: 'human' } },
+    ])).toHaveLength(1)
+    expect(validateHumanPlayerSelection([
+      { name: '小算盘', controller: { kind: 'human' } },
+      { name: '小算盘', controller: { kind: 'bot', profileId: 'steady', difficulty: 'standard' } },
+      { name: '阿青', controller: { kind: 'human' } },
+    ])).toEqual([])
+  })
+
+  it('接力同席位或跨席位重复操作者都必须更换后才能保存或开局', () => {
+    const seats = [
+      { operators: [{ name: '阿青', controller: { kind: 'human' as const } }, { name: '阿青', controller: { kind: 'human' as const } }] },
+      { operators: [{ name: ' 阿青 ', controller: { kind: 'human' as const } }] },
+    ]
+    expect(validateHumanPlayerSelection(seats.flatMap((seat) => seat.operators))).toEqual(['“阿青”已被重复选择，每位玩家一局只能加入一次'])
+    seats[0].operators[1].name = '阿紫'
+    seats[1].operators[0].name = '阿白'
+    expect(validateHumanPlayerSelection(seats.flatMap((seat) => seat.operators))).toEqual([])
+  })
+
   it('本机玩家名册会清理空名、重复名与过长名字', () => {
     saveRegisteredPlayers([' 阿青 ', '阿青', '火花', '', '这是一个超过十二个字的玩家名字'])
     expect(loadRegisteredPlayers()).toEqual(['阿青', '火花', '这是一个超过十二个字的玩'])
