@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { chromium } from 'playwright-core'
 import { runIconFlow } from './icon-smoke.mjs'
 import { runSetupModalFlow } from './setup-modal-smoke.mjs'
+import { runBotJointFlow } from './bot-joint-smoke.mjs'
 
 const chromeCandidates = process.platform === 'win32'
   ? [
@@ -481,7 +482,7 @@ async function runCardFlow(page) {
 
 async function runPresetFlow(page) {
   await page.goto('http://127.0.0.1:5181')
-  await page.evaluate(() => localStorage.clear())
+  await resetLocalGame(page)
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '6 人真人局' }).click()
@@ -934,6 +935,17 @@ async function runRelaySetupFlow(page) {
   await disableIdentities(page)
   await page.locator('#motion').selectOption('reduced')
   await finishAdvancedSettings(page)
+  for (const [width, height] of [[360, 640], [844, 390], [1366, 900]]) {
+    await page.setViewportSize({ width, height })
+    await page.locator('.relay-operator').last().locator('select').first().focus()
+    const startButton = page.getByRole('button', { name: /开始这局/ })
+    await startButton.scrollIntoViewIfNeeded()
+    if (!await startButton.evaluate((button) => {
+      const rect = button.getBoundingClientRect()
+      return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
+    })) throw new Error(`接力开始按钮在 ${width}px 被焦点卡片遮挡`)
+    await page.screenshot({ path: `.artifacts/relay-start-${width}.png`, fullPage: true })
+  }
   await page.getByRole('button', { name: /开始这局/ }).click()
   const relaySession = await page.evaluate(() => JSON.parse(localStorage.getItem('who-is-raising:session:v1')))
   if (relaySession.mode !== 'relay' || relaySession.relayMethod !== 'segments') throw new Error('接力模式设置未写入会话')
@@ -954,7 +966,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'setup-modal') {
+  if (process.env.SMOKE_ONLY === 'bot-joint') {
+    await runBotJointFlow(page)
+    console.log('3/6/10 人三轮联合 Bot 对局、市场与刷新恢复通过。')
+  } else if (process.env.SMOKE_ONLY === 'setup-modal') {
     await runSetupModalFlow(page)
     console.log('高级规则弹窗层级、背景隔离、滚动、焦点与关闭恢复冒烟通过。')
   } else if (process.env.SMOKE_ONLY === 'icons') {

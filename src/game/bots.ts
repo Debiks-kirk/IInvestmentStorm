@@ -225,6 +225,9 @@ export interface BotObservation {
   activeTask?: { type: LobbyistTaskType; comparisonPlayerId?: string }
   nextItem?: GameSession['itemDeck'][number]
   legalPeek?: { playerId: string; bidUnits: number }
+  /** Only public market data; merchant provenance is intentionally omitted. */
+  marketCards?: Array<{ id: string; cardId: CardId; own: boolean }>
+  marketAssets?: AssetAuctionLot[]
   /** Only the prophet's own candidate cards and solved/excluded records are exposed. */
   prophetIdentityCandidates?: Record<string, IdentityId[]>
   prophetIdentityProgress?: Record<string, { excludedIdentityIds: IdentityId[]; solvedIdentityId?: IdentityId }>
@@ -291,6 +294,8 @@ export function buildBotObservation(session: GameSession, playerId: string, hist
     } : {}),
   }
   observation.balanceEstimates = estimateBalances(observation)
+  observation.marketCards = (session.roundAuctions ?? []).map((lot) => ({ id: lot.id, cardId: lot.cardId, own: lot.merchantId === playerId }))
+  observation.marketAssets = (session.roundAssetAuctions ?? []).map((lot) => ({ ...lot, item: { ...lot.item } }))
   if (player.cardInventory.includes('peek') && prior.length > 0) {
     const targetId = prior[0]
     const targetTurn = session.turns.find((turn) => turn.playerId === targetId)
@@ -515,6 +520,90 @@ function candidateBids(capUnits: number): number[] {
   return Array.from({ length: Math.max(0, capUnits) + 1 }, (_, units) => units)
 }
 
+export function botInvestmentCandidates(observation: BotObservation): Array<{ targetPlayerId: string; investmentUnits: number; score: number }> {
+  const cache = new Map(observation.opponents.map((opponent) => [opponent.id, opponentQuoteSamples(observation, opponent.id, observation.playerId)]))
+  const values: Array<{ targetPlayerId: string; investmentUnits: number; score: number }> = []
+  for (const target of observation.opponents) for (let amount = 1; amount <= observation.self.balanceUnits; amount += 1) {
+    const income = expectedInvestmentReturn(observation, target.id, amount, 0, [], 0, cache)
+    values.push({ targetPlayerId: target.id, investmentUnits: amount, score: income - amount })
+  }
+  return values.sort((a, b) => b.score - a.score || a.investmentUnits - b.investmentUnits || a.targetPlayerId.localeCompare(b.targetPlayerId))
+}
+
+function expectedInvestmentReturn(observation: BotObservation, targetId: string, amount: number, ownBid: number, uses: CardUse[], reversals: number, cache: Map<string, number[]>): number {
+  let income = 0
+  const factor = uses.reduce((value, use) => use.cardId === 'red' ? value * 2 : use.cardId === 'black' ? value * .5 : value, 1)
+  const asset = marginalAssetUnits(observation)
+  for (let sample = 0; sample < 11; sample += 1) {
+    const bids = new Map(observation.opponents.map((opponent) => [opponent.id, cache.get(opponent.id)![sample]]))
+    const contribution = bids.get(targetId) ?? 0
+    bids.set(targetId, contribution + amount)
+    bids.set(observation.playerId, ownBid)
+    const swap = uses.find((use) => use.cardId === 'swap')?.targetPlayerId
+    if (swap && bids.has(swap)) { const value = bids.get(swap)!; bids.set(swap, ownBid); bids.set(observation.playerId, value) }
+    if (uses.some((use) => use.cardId === 'doubleBid')) bids.set(observation.playerId, bids.get(observation.playerId)! * 2)
+    const banana = uses.find((use) => use.cardId === 'bananaPeel')?.targetPlayerId
+    if (banana) bids.delete(banana)
+    const counts = new Map<number, number>()
+    for (const value of bids.values()) counts.set(value, (counts.get(value) ?? 0) + 1)
+    const winners = [...bids].filter(([, value]) => counts.get(value) === 1).sort((a, b) => b[1] - a[1]).slice(0, observation.rewardMultipliers.length)
+    if (reversals % 2) winners.reverse()
+    const place = winners.findIndex(([id]) => id === targetId)
+    if (place < 0) continue
+    income += amount / Math.max(1, contribution + amount) * coinsToUnits(observation.item?.value ?? 0) * factor * observation.rewardMultipliers[place] * observation.investorDividendMultiplier
+    if (place === 0 && amount > contribution && !uses.some((use) => use.cardId === 'legendaryLoot')) income += asset
+  }
+  return income / 11
+}
+
+interface MarketAllocation { score: number; bids: Array<{ lotId: string; bidUnits: number }> }
+
+/** Multiple-choice knapsack: both markets compete for each half-coin of budget. */
+export function botMarketFrontier(observation: BotObservation, strategy: BotStrategyConfig, profileId: BotProfileSelection = 'custom', difficulty: BotDifficulty = 'standard', memory?: BotMemory): MarketAllocation[] {
+  const cards = (observation.marketCards ?? []).filter((lot) => !lot.own).map((lot) => {
+    const base = lot.cardId === 'legendaryLoot' || lot.cardId === 'prizeSwap' ? 16 : lot.cardId === 'fateCoin' ? 10 : 12
+    return { id: lot.id, floor: 1, seller: '', value: base * (.6 + strategy.cards / 150 + strategy.market / 500), demand: base * .52 }
+  })
+  const actor: Player = { ...observation.self, color: '', controller: { kind: 'bot', profileId, difficulty }, botMemory: memory ?? emptyBotMemory(`${observation.sessionSeed}:${observation.playerId}`, strategy) }
+  const assets = assetAuctionValues({ player: actor, lots: observation.marketAssets ?? [], budgetUnits: observation.self.balanceUnits, roundIndex: observation.roundIndex, totalRounds: observation.totalRounds, sessionSeed: observation.sessionSeed, observation }).map((candidate) => ({
+    id: candidate.lot.id, floor: Math.max(1, candidate.lot.minimumBidUnits), seller: candidate.lot.sellerId,
+    value: candidate.fairValue, demand: Math.max(candidate.lot.minimumBidUnits, candidate.rivalThreatUnits * .65),
+  }))
+  const lots = [...cards, ...assets].sort((a, b) => a.id.localeCompare(b.id))
+  const cap = Math.max(0, Math.min(Math.floor(observation.self.balanceUnits), lots.reduce((sum, lot) => sum + Math.max(0, Math.floor(lot.value)), 0)))
+  let states: Array<MarketAllocation | undefined> = Array(cap + 1)
+  states[0] = { score: 0, bids: [] }
+  for (const lot of lots) {
+    const options = [{ bid: 0, score: 0 }]
+    const rivals = observation.balanceEstimates.filter((entry) => entry.playerId !== observation.playerId && entry.playerId !== lot.seller)
+    const competition = rivals.filter((entry) => entry.highUnits >= lot.floor)
+    for (let bid = lot.floor; bid <= Math.min(cap, Math.floor(lot.value)); bid += 1) {
+      const probability = competition.reduce((chance, rival) => chance * (rival.highUnits < bid ? 1 : sigmoid((bid - Math.min(lot.demand, rival.expectedUnits * .3)) / 2.5)), 1)
+      const fingerprint = unitRandom(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:${lot.id}:${bid}:market`) * .07
+      options.push({ bid, score: probability * (lot.value - bid) + fingerprint - bid * strategy.bankroll / 2500 })
+    }
+    const next: Array<MarketAllocation | undefined> = Array(cap + 1)
+    for (let spent = 0; spent <= cap; spent += 1) {
+      const state = states[spent]
+      if (!state) continue
+      for (const option of options) {
+        const cost = spent + option.bid
+        if (cost > cap) break
+        const score = state.score + option.score
+        if (!next[cost] || score > next[cost]!.score) next[cost] = { score, bids: [...state.bids, { lotId: lot.id, bidUnits: option.bid }] }
+      }
+    }
+    states = next
+  }
+  const frontier: MarketAllocation[] = []
+  let best: MarketAllocation = { score: 0, bids: [] }
+  for (let budget = 0; budget <= cap; budget += 1) {
+    if (states[budget] && states[budget]!.score > best.score) best = states[budget]!
+    frontier.push(best)
+  }
+  return frontier
+}
+
 function taskScore(observation: BotObservation, bidUnits: number, place: number): number {
   const task = observation.activeTask
   if (!task) return 0
@@ -528,13 +617,14 @@ function taskScore(observation: BotObservation, bidUnits: number, place: number)
   return bidUnits < targetBid ? coinsToUnits(3) : -coinsToUnits(3)
 }
 
-function predictionDecision(observation: BotObservation, ownRankingBidUnits: number, profile: BotProfile, mode: StrategyMode, behavior: BotBehavior, strategy: BotStrategyConfig): { playerId: string | null; expectedUnits: number } {
+function predictionDecision(observation: BotObservation, ownRankingBidUnits: number, profile: BotProfile, mode: StrategyMode, behavior: BotBehavior, strategy: BotStrategyConfig, excludedTargetId?: string): { playerId: string | null; expectedUnits: number } {
   const valueUnits = coinsToUnits(observation.item?.value ?? 0)
   const gambler = observation.self.identity?.id === 'gambler'
   const wrongPenalty = valueUnits * (gambler ? observation.gamblerWrongPenaltyMultiplier : observation.wrongPredictionMultiplier)
   const skipValue = gambler ? -valueUnits * observation.gamblerSkipPenaltyMultiplier : 0
   let best = { playerId: null as string | null, expectedUnits: skipValue }
   for (const opponent of observation.opponents) {
+    if (opponent.id === excludedTargetId) continue
     // A public cash reconstruction can be imperfect, but an opponent whose
     // entire estimated range is empty should not be treated as a credible winner.
     if ((estimateFor(observation, opponent.id)?.highUnits ?? 0) <= 0) continue
@@ -573,6 +663,7 @@ interface ScoredPlan extends TurnPlan {
   place: number
   effectivePlace: number
   firstChance: number
+  auctionBids?: Array<{ lotId: string; bidUnits: number }>
 }
 
 function cardUseVariants(observation: BotObservation, difficulty: BotDifficulty): CardUse[][] {
@@ -664,10 +755,14 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
     }
   }
   if (observation.self.identity?.id === 'investor' && observation.self.balanceUnits >= coinsToUnits(.5)) {
-    const targets = [...observation.opponents].sort((left, right) => kidnapSuccessChance(observation, right.id) - kidnapSuccessChance(observation, left.id)).slice(0, Math.min(4, observation.opponents.length))
-    const maxInvestment = Math.min(observation.self.balanceUnits, coinsToUnits(6))
-    const amounts = candidateBids(maxInvestment).filter((units) => units > 0 && (units <= coinsToUnits(3) || units % 2 === 0 || units === maxInvestment))
-    for (const target of targets) for (const investmentUnits of amounts) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:invest:${target.id}:${investmentUnits}`, identityAction: { type: 'invest' as const, targetPlayerId: target.id, investmentUnits }, specialReason: `秘密跟投 ${target.name}，争取按出资比例分享排名奖励。` })))
+    const evaluated = botInvestmentCandidates(observation)
+    // Evaluate every target/half-coin amount before pruning the expensive card cross product.
+    const shortlist = new Map<string, typeof evaluated[number]>()
+    for (const target of observation.opponents) {
+      for (const entry of evaluated.filter((entry) => entry.targetPlayerId === target.id).slice(0, 2)) shortlist.set(`${entry.targetPlayerId}:${entry.investmentUnits}`, entry)
+    }
+    for (const entry of evaluated.slice(0, 24)) shortlist.set(`${entry.targetPlayerId}:${entry.investmentUnits}`, entry)
+    for (const entry of shortlist.values()) plans.push(...plans.filter((plan) => !plan.identityAction).map((plan) => ({ ...plan, id: `${plan.id}:invest:${entry.targetPlayerId}:${entry.investmentUnits}`, identityAction: { type: 'invest' as const, targetPlayerId: entry.targetPlayerId, investmentUnits: entry.investmentUnits }, specialReason: '按全部目标与可用资金评估投资分红。' })))
   }
   // Keep the plan set rich, but bounded: a 10-player spectator game must not spend a turn
   // evaluating the full target-card × identity-action cross product.
@@ -681,7 +776,16 @@ function planCandidates(observation: BotObservation, difficulty: BotDifficulty, 
   const isIdentityPlan = (plan: TurnPlan) => Boolean(plan.identityAction)
   const order = (left: TurnPlan, right: TurnPlan) => hash(`${observation.sessionSeed}:${observation.playerId}:${left.id}`) - hash(`${observation.sessionSeed}:${observation.playerId}:${right.id}`)
   const identityBudget = activeIdentity ? 28 : 0
-  const identityPlans = rest.filter(isIdentityPlan).sort(order).slice(0, identityBudget)
+  let identityPlans = rest.filter(isIdentityPlan).sort(order).slice(0, identityBudget)
+  if (activeIdentity === 'investor') {
+    const representatives = observation.opponents.flatMap((opponent) => {
+      const plansForTarget = rest.filter((plan) => plan.identityAction?.type === 'invest' && plan.identityAction.targetPlayerId === opponent.id)
+      const shortest = [...plansForTarget].sort((a, b) => a.cardUses.length - b.cardUses.length)[0]
+      return shortest ? [shortest] : []
+    })
+    const represented = new Set(representatives.map((plan) => plan.id))
+    identityPlans = [...representatives, ...identityPlans.filter((plan) => !represented.has(plan.id))].slice(0, identityBudget)
+  }
   const selectedIdentityIds = new Set(identityPlans.map((plan) => plan.id))
   const otherPlans = rest.filter((plan) => !selectedIdentityIds.has(plan.id)).sort(order).slice(0, Math.max(0, 55 - identityPlans.length))
   const bounded = [...identityPlans, ...otherPlans]
@@ -705,6 +809,60 @@ function kidnapSuccessChance(observation: BotObservation, targetPlayerId: string
 export function botCollectibleChance(place: number, firstChance: number, uniqueChance: number, reversalCount: number, rewardCount: number): number {
   if (place > rewardCount) return 0
   return reversalCount % 2 === 1 ? (place === rewardCount ? uniqueChance : 0) : firstChance
+}
+
+interface ShadowOutcome { reward: number; net: number; item: boolean; bid: number }
+
+export function chooseBotShadowOutcome(a: ShadowOutcome, b: ShadowOutcome, prioritizeItem: boolean): ShadowOutcome {
+  if (prioritizeItem && a.item !== b.item) return b.item ? b : a
+  return b.net > a.net ? b : a
+}
+
+function addNightwalkerPlans(scored: ScoredPlan[], observation: BotObservation, memory: BotMemory, quoteCache: Map<string, number[]>, reserveUnits: number, marketAt: (budget: number) => MarketAllocation): void {
+  if (observation.self.identity?.id !== 'nightwalker' || (observation.self.identity.nightwalkerUses ?? 0) >= observation.nightwalkerUseLimit) return
+  const eligible = scored.filter((plan) => !plan.identityAction && !plan.cardUses.some((use) => ['doubleBid', 'swap', 'bananaPeel', 'reverseRank'].includes(use.cardId)))
+  // Bound card combinations, not the A/B amounts; each retained hand evaluates all pairs.
+  const ids = [...new Set([...eligible].sort((a, b) => b.score - a.score).map((plan) => plan.id))].slice(0, 8)
+  const plain = eligible.find((plan) => plan.cardUses.length === 0)
+  if (plain && !ids.includes(plain.id)) ids.push(plain.id)
+  const cap = Math.max(0, Math.floor(observation.self.balanceUnits - reserveUnits))
+  const prizeValue = marginalAssetUnits(observation) * (.9 + memory.strategy.collection / 100)
+  for (const id of ids) {
+    const bases = eligible.filter((plan) => plan.id === id)
+    const cardFactor = bases[0].cardUses.reduce((factor, use) => use.cardId === 'red' ? factor * 2 : use.cardId === 'black' ? factor * .5 : factor, 1)
+    const outcomes = candidateBids(cap).map((bid): ShadowOutcome[] => Array.from({ length: 11 }, (_, sample) => {
+      const rivalBids = observation.opponents.map((opponent) => quoteCache.get(opponent.id)![sample])
+      const counts = new Map<number, number>()
+      for (const value of [bid, ...rivalBids]) counts.set(value, (counts.get(value) ?? 0) + 1)
+      const place = counts.get(bid) === 1 ? 1 + rivalBids.filter((value) => value > bid && counts.get(value) === 1).length : 0
+      const reward = place ? coinsToUnits(observation.item?.value ?? 0) * cardFactor * (observation.rewardMultipliers[place - 1] ?? 0) : 0
+      return { bid, reward, net: reward - bid, item: place === 1 }
+    }))
+    for (const base of bases) for (const prioritizeItem of [true, false]) {
+      const a = outcomes[base.bidUnits]
+      if (!a) continue
+      let best: ScoredPlan | undefined
+      for (let shadow = base.bidUnits + 1; shadow <= cap; shadow += 1) {
+        const market = marketAt(observation.self.balanceUnits - shadow - reserveUnits)
+        let gain = 0
+        let used = 0
+        let itemChance = 0
+        let effectiveBid = 0
+        for (let sample = 0; sample < a.length; sample += 1) {
+          const chosen = chooseBotShadowOutcome(a[sample], outcomes[shadow][sample], prioritizeItem)
+          gain += chosen.net - a[sample].net + (Number(chosen.item) - Number(a[sample].item)) * prizeValue
+          used += Number(chosen.bid === shadow)
+          itemChance += Number(chosen.item)
+          effectiveBid += chosen.bid
+        }
+        if (!used) continue
+        const preference = prioritizeItem === (memory.strategy.collection >= 48) ? .08 : 0
+        const score = base.score - marketAt(observation.self.balanceUnits - base.bidUnits - reserveUnits).score + market.score + gain / a.length - .25 + preference
+        if (!best || score > best.score) best = { ...base, id: `${base.id}:shadow:${base.bidUnits}:${shadow}:${prioritizeItem}`, score, rankingBidUnits: effectiveBid / a.length, firstChance: itemChance / a.length, auctionBids: market.bids, identityAction: { type: 'nightwalkerDoubleBid', shadowBidUnits: shadow, prioritizeItem }, specialReason: `双影 ${base.bidUnits / 2} / ${shadow / 2} 与市场报价一起预留资金。` }
+      }
+      if (best) scored.push(best)
+    }
+  }
 }
 
 function kidnapActionCost(observation: BotObservation, action?: Extract<IdentityAction, { type: 'kidnap' }>): number {
@@ -772,6 +930,7 @@ export interface BotTurnDecision {
   mode: StrategyMode
   reason: string
   intel?: string
+  auctionBids?: Array<{ lotId: string; bidUnits: number }>
 }
 
 /** The prophet has two independent channels: one main read (wealth/stars) and
@@ -843,6 +1002,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const riskFactor = difficulty === 'easy' ? 1.14 : difficulty === 'expert' ? .91 : 1
   const assetUnits = marginalAssetUnits(observation)
   const reserveUnits = reserveForPlan(observation, profile, mode, behavior, memory.strategy, assetUnits)
+  const marketFrontier = botMarketFrontier(observation, memory.strategy, profileId, difficulty, memory)
+  const marketAt = (budget: number) => marketFrontier[Math.max(0, Math.min(marketFrontier.length - 1, Math.floor(budget)))]
+  const hasMarket = Boolean(observation.marketCards?.length || observation.marketAssets?.length)
   const quoteCache = new Map(observation.opponents.map((opponent) => [opponent.id, opponentQuoteSamples(observation, opponent.id, observation.playerId)]))
   const collectorTarget = observation.self.identity?.id === 'collector' && observation.self.identity.collectorCategory === observation.item?.category
   const categoryItems = observation.item ? observation.self.items.filter((won) => won.item.category === observation.item?.category).length : 0
@@ -886,8 +1048,10 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     const capUnits = Math.max(0, observation.self.balanceUnits - actionCost - reserveUnits)
     for (const bidUnits of planBidCandidates(plan, capUnits)) {
       if (bidUnits + actionCost > observation.self.balanceUnits) continue
-      const rankingBidUnits = (plan.rankingBidFromTargetId ? expectedCurrentBid(observation, plan.rankingBidFromTargetId) : bidUnits) * plan.rankingMultiplier
+      const investment = plan.identityAction?.type === 'invest' ? plan.identityAction : undefined
+      const rankingBidUnits = (plan.rankingBidFromTargetId ? expectedCurrentBid(observation, plan.rankingBidFromTargetId) + (investment?.targetPlayerId === plan.rankingBidFromTargetId ? investment.investmentUnits : 0) : bidUnits) * plan.rankingMultiplier
       const overrides = plan.rivalBidOverrides ? { ...plan.rivalBidOverrides } : {}
+      if (investment) overrides[investment.targetPlayerId] = expectedCurrentBid(observation, investment.targetPlayerId) + investment.investmentUnits
       if (plan.rankingBidFromTargetId) overrides[plan.rankingBidFromTargetId] = bidUnits
       const bananaTarget = plan.cardUses.find((use) => use.cardId === 'bananaPeel')?.targetPlayerId
       if (bananaTarget) overrides[bananaTarget] = 0
@@ -962,14 +1126,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         : 0
       const tactic = (_id: IdentityId) => .5 + memory.strategy.identity / 100
       const investmentValue = plan.identityAction?.type === 'invest' ? (() => {
-        const targetId = plan.identityAction.targetPlayerId
-        const targetBid = expectedCurrentBid(observation, targetId) + plan.identityAction.investmentUnits
-        const targetChance = estimatePlaceAndChance(observation, targetBid, targetId, {}, quoteCache).uniqueChance
-        const targetPlace = estimatePlaceAndChance(observation, targetBid, targetId, {}, quoteCache).place
-        const share = plan.identityAction.investmentUnits / Math.max(1, targetBid)
-        const reward = valueUnits * (observation.rewardMultipliers[targetPlace - 1] ?? 0)
-        const categoryUpside = targetPlace === 1 ? assetUnits * (.35 + profile.collect * .35) : 0
-        return targetChance * (share * reward * observation.investorDividendMultiplier + share * categoryUpside) * tactic('investor')
+        return expectedInvestmentReturn(observation, plan.identityAction.targetPlayerId, plan.identityAction.investmentUnits, bidUnits, plan.cardUses, plan.reversalCount, quoteCache) * tactic('investor')
       })() : 0
       const reverserFutureValue = plan.identityAction?.type === 'reverserInvert' && effectivePlace === 1
         ? coinsToUnits(.8 + profile.identity * .6)
@@ -983,48 +1140,25 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
               : investmentValue
       const cardRetention = plan.cardUses.length * coinsToUnits(.15 + (1 - profile.cards) * .85) * Math.min(1, (observation.totalRounds - observation.roundIndex - 1) / 2)
       const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty - reversalUncertainty - latentCardRisk + categoryMomentum + kidnapValue + boldness + blockValue + expertHumanChallenge + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) - cardRetention + identityValue + fingerprintBonus + reverserMisdirection - tiePenalty
-      scored.push({ ...plan, bidUnits, rankingBidUnits, score, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
+      const market = marketAt(observation.self.balanceUnits - bidUnits - actionCost - reserveUnits)
+      scored.push({ ...plan, bidUnits, rankingBidUnits, score: score + market.score, auctionBids: market.bids, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
   }
+  addNightwalkerPlans(scored, observation, memory, quoteCache, reserveUnits, marketAt)
   const fallback: ScoredPlan = { id: 'safe', cardUses: observation.legalPeek ? [{ cardId: 'peek', targetPlayerId: observation.legalPeek.playerId }] : [], rankingMultiplier: 1, reversalCount: 0, bidUnits: 0, rankingBidUnits: 0, score: 0, place: observation.rewardMultipliers.length + 1, effectivePlace: observation.rewardMultipliers.length + 1, firstChance: 0 }
-  const best = applyBidJitter(nearOptimalChoice(scored.length > 0 ? scored : [fallback], observation, profile, difficulty, memory), observation, profile, difficulty, mode, memory)
+  const selected = nearOptimalChoice(scored.length > 0 ? scored : [fallback], observation, profile, difficulty, memory)
+  // Joint plans are already sampled; jittering A afterwards would invalidate B and market escrow.
+  const best = hasMarket || selected.identityAction?.type === 'nightwalkerDoubleBid' ? selected : applyBidJitter(selected, observation, profile, difficulty, mode, memory)
   const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
-  let identityAction = best.identityAction
-  // Nightwalkers choose a human-looking A first. Collecting-minded nightwalkers
-  // also value a B that is likely to turn a non-winning A into the item winner;
-  // the engine still resolves the exact choice only after every bid is known.
-  if (observation.self.identity?.id === 'nightwalker' && (observation.self.identity.nightwalkerUses ?? 0) < observation.nightwalkerUseLimit && !cardUses.some((use) => ['doubleBid', 'swap', 'bananaPeel', 'reverseRank'].includes(use.cardId))) {
-    const valueUnits = coinsToUnits(observation.item?.value ?? 0) * cardUses.reduce((factor, use) => use.cardId === 'red' ? factor * 2 : use.cardId === 'black' ? factor * .5 : factor, 1)
-    const baseEstimate = estimatePlaceAndChance(observation, best.rankingBidUnits, observation.playerId, {}, quoteCache)
-    const baseReward = valueUnits * (observation.rewardMultipliers[baseEstimate.place - 1] ?? 0) * baseEstimate.uniqueChance
-    const baseNet = baseReward - best.bidUnits
-    const availableAfterImmediateCards = observation.self.balanceUnits + (cardUses.some((use) => use.cardId === 'fateCoin' && use.coinResult === 'heads') ? coinsToUnits(10) : 0)
-    const shadows = Array.from({ length: Math.max(0, availableAfterImmediateCards - best.bidUnits) }, (_, index) => best.bidUnits + index + 1)
-    const prioritizeItem = memory.strategy.collection >= 48 || profile.collect + behavior.cardBias * .12 >= .42
-    const baseLikelyWinsItem = baseEstimate.place === 1 && baseEstimate.uniqueChance >= .42
-    const shadowCandidates = shadows.map((shadowBidUnits) => {
-      const estimate = estimatePlaceAndChance(observation, shadowBidUnits, observation.playerId, {}, quoteCache)
-      const reward = valueUnits * (observation.rewardMultipliers[estimate.place - 1] ?? 0) * estimate.uniqueChance
-      return { bidUnits: shadowBidUnits, net: reward - shadowBidUnits, likelyWinsItem: estimate.place === 1 && estimate.uniqueChance >= .42 }
-    })
-    const shadow = shadowCandidates.sort((left, right) => {
-      const leftItemUpgrade = Number(prioritizeItem && left.likelyWinsItem && !baseLikelyWinsItem)
-      const rightItemUpgrade = Number(prioritizeItem && right.likelyWinsItem && !baseLikelyWinsItem)
-      return rightItemUpgrade - leftItemUpgrade || right.net - left.net || left.bidUnits - right.bidUnits
-    })[0]
-    const makesItemPush = Boolean(prioritizeItem && shadow?.likelyWinsItem && !baseLikelyWinsItem)
-    if (shadow && (makesItemPush || shadow.net > baseNet + coinsToUnits(.2))) {
-      identityAction = { type: 'nightwalkerDoubleBid', shadowBidUnits: shadow.bidUnits, prioritizeItem }
-    }
-  }
-  const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode, behavior, memory.strategy)
+  const identityAction = best.identityAction
+  const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode, behavior, memory.strategy, identityAction?.type === 'invest' ? identityAction.targetPlayerId : undefined)
   const predictionText = prediction.playerId ? `预测 ${observation.opponents.find((opponent) => opponent.id === prediction.playerId)?.name ?? '对手'} 的期望收益 ${Math.round(prediction.expectedUnits) / 2}。` : '预测期望不够，选择跳过。'
   const specialText = best.specialReason ? `${best.specialReason}${best.identityAction?.type === 'reverserInvert' ? ` 预计先以第 ${best.place} 名进入获奖区，再倒转为第 ${best.effectivePlace} 名。` : ''}` : identityAction?.type === 'nightwalkerDoubleBid' ? `发动双影下注：先报 ${best.bidUnits / 2}，再保留 ${identityAction.shadowBidUnits / 2} 的夜行影价。` : ''
   const mixedText = !best.specialReason && !identityAction ? ' 在高价值方案中按性格、资金底线与局势做了带权混合，并加入受控的报价波动。' : ''
   const financeText = reserveUnits > 0 ? ` 预留约 ${reserveUnits / 2} 金币周转。` : ''
   const collectionText = collectorTarget ? ' 当前拍品命中收藏类别，已计入即时奖励与套装增量。' : ''
   const passivityText = observation.roundIndex < observation.totalRounds - 1 ? ' 已将观望惩罚风险计入报价。' : ''
-  return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${collectionText}${financeText}${specialText}${mixedText}${passivityText}${predictionText}` }
+  return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, auctionBids: best.auctionBids ?? [], mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${collectionText}${financeText}${specialText}${mixedText}${passivityText}${predictionText}` }
 }
 
 export function decideBotIdentity({ choices, player, players, cardOfferIds }: { choices: IdentityId[]; player: Player; players: Player[]; cardOfferIds?: CardId[] }): { identityId: IdentityId; targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId; mode: StrategyMode; reason: string } {
@@ -1097,16 +1231,7 @@ function publicCategoryPressures(observation: Pick<BotObservation, 'publicRounds
 /** Chooses asset-auction quotes as a budgeted collection decision, not a blind
  * "minimum price plus random" bid. A set jump is real end-game wealth; some
  * Bots additionally pay to keep a dangerous rival from obtaining it. */
-export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed, observation }: {
-  player: Player
-  lots: AssetAuctionLot[]
-  budgetUnits: number
-  roundIndex: number
-  totalRounds: number
-  sessionSeed: string
-  /** Public category history lets a Bot recognise that a category is heating up. */
-  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds' | 'historicalOpponentHints'>
-}): Array<{ lotId: string; bidUnits: number }> {
+function assetAuctionValues({ player, lots, roundIndex, totalRounds, sessionSeed, observation }: Parameters<typeof decideBotAssetAuctionBids>[0]) {
   const controller = player.controller?.kind === 'bot' ? player.controller : undefined
   const difficulty = controller?.difficulty ?? 'standard'
   const profile = effectiveProfile(controller, player.botMemory)
@@ -1164,6 +1289,25 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       return { lot, assetGain, matchingItems, marketHeat, fairValue, maxBid, moonshotPotential, contestsRival, rivalThreatUnits, urgency: fairValue - lot.minimumBidUnits }
     })
     .sort((left, right) => right.urgency - left.urgency || right.assetGain - left.assetGain || left.lot.id.localeCompare(right.lot.id))
+
+  return candidates
+}
+
+export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed, observation }: {
+  player: Player
+  lots: AssetAuctionLot[]
+  budgetUnits: number
+  roundIndex: number
+  totalRounds: number
+  sessionSeed: string
+  /** Public category history lets a Bot recognise that a category is heating up. */
+  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds' | 'historicalOpponentHints'>
+}): Array<{ lotId: string; bidUnits: number }> {
+  const controller = player.controller?.kind === 'bot' ? player.controller : undefined
+  const profile = effectiveProfile(controller, player.botMemory)
+  const behavior = player.botMemory?.behavior ?? createBotBehavior(`${sessionSeed}:${player.id}`)
+  const strategy = player.botMemory?.strategy ?? strategyForController(player.controller ?? { kind: 'human' })
+  const candidates = assetAuctionValues({ player, lots, budgetUnits, roundIndex, totalRounds, sessionSeed, observation })
 
   // A rare "this category is about to break out" purchase is intentional. It is
   // limited to one lot, only when the category has real personal/public signals,

@@ -16,7 +16,7 @@ import { activeOperator, allOperatorsAreBots, createDefaultSettings, createRemat
 import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers, saveSession, validateHumanPlayerSelection } from './game/storage'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
-import { BOT_PROFILES, appendBotRecord, botProfile, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
+import { BOT_PROFILES, appendBotRecord, botProfile, buildBotObservation, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
 import { appendSpectatorEvent, appendSpectatorEvents, createRoundResultSpectatorEvent, createSpectatorChart, createSpectatorPlayerStats, createTurnSpectatorEvent, type SpectatorChartKey, type SpectatorEventInput } from './game/spectator'
 import { createBotHistoryHints } from './game/career'
 import { archiveCareerMatch, exportCareerBackup, importCareerBackup, inspectCareerBackup, loadCareerData, loadCareerReplay, removeCareerMatch, saveCareerMembers, type CareerData } from './game/careerStorage'
@@ -2825,28 +2825,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
         if (prizeChangeCard && !session.pendingPrizeChanges.some((change) => change.playerId === currentPlayer.id && change.roundIndex === session.roundIndex && change.cardId === prizeChangeCard)) {
           if (startPrizeReroll(currentPlayer.id, prizeChangeCard)) return
         }
-        const plannedIdentityCost = decision.identityAction?.type === 'reverserInvert'
-          ? (currentPlayer.identity?.reverserFreeRoundIndex === session.roundIndex ? 0 : Math.round(session.settings.identitySettings.reverserActivationCoins * (session.roundIndex >= session.settings.rounds - 2 ? 4 : 2)))
-          : decision.identityAction?.type === 'kidnap'
-            ? Math.max(0, (decision.identityAction.targetPlayerIds?.length ?? (decision.identityAction.targetPlayerId ? 1 : 0)) - 1) * Math.round(session.settings.identitySettings.kidnapExtraTargetCoins * 2) + (decision.identityAction.ransomUnits === Math.round(session.settings.identitySettings.kidnapHighRansomCoins * 2) ? Math.round(session.settings.identitySettings.kidnapHighRansomExtraCoins * 2) : 0)
-            : decision.identityAction?.type === 'thiefSteal'
-              ? Math.round(session.settings.identitySettings.thiefActivationCoins * 2)
-              : decision.identityAction?.type === 'invest'
-                ? decision.identityAction.investmentUnits
-                : decision.identityAction?.type === 'lobbyistContract'
-                  ? ((session.roundIndex === 0 && session.settings.identitySettings.lobbyistFirstRoundFree) || currentPlayer.identity?.lobbyistNextFree ? 0 : Math.round(session.settings.identitySettings.lobbyistFeeCoins * 2)) + (decision.identityAction.specified ? Math.round(session.settings.identitySettings.lobbyistSpecifiedTaskFeeCoins * 2) : 0)
-                  : decision.identityAction?.type === 'nightwalkerDoubleBid'
-                    ? Math.max(0, decision.identityAction.shadowBidUnits - decision.bidUnits)
-                    : 0
-        const fateGain = decision.cardUses.some((use) => use.cardId === 'fateCoin' && use.coinResult === 'heads') ? 20 : 0
-        let auctionBudget = Math.max(0, currentPlayer.balanceUnits + fateGain - decision.bidUnits - plannedIdentityCost)
-        const auctionBids = (session.roundAuctions ?? []).map((lot) => {
-          if (lot.merchantId === currentPlayer.id) return { lotId: lot.id, bidUnits: 0 }
-          const quote = decideBotMerchantBid({ ...currentActor, balanceUnits: auctionBudget }, lot.cardId).bidUnits
-          const bidUnits = Math.max(0, Math.min(auctionBudget, quote))
-          auctionBudget -= bidUnits
-          return { lotId: lot.id, bidUnits }
-        }).concat(decideBotAssetAuctionBids({ player: currentActor, lots: session.roundAssetAuctions ?? [], budgetUnits: auctionBudget, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id, observation }))
+        const auctionBids = decision.auctionBids ?? []
         const predictedPlayerId = decision.identityAction?.type === 'invest' && decision.predictedPlayerId === decision.identityAction.targetPlayerId ? null : decision.predictedPlayerId
         const assetAuctionOffer = decideBotAssetAuctionOffer({ player: currentActor, observation, roundIndex: session.roundIndex, totalRounds: session.settings.rounds, sessionSeed: session.id })
         const accepted = submitTurn({ playerId: currentPlayer.id, bidUnits: decision.bidUnits, predictedPlayerId, auctionBids, ...(assetAuctionOffer ? { assetAuctionOffers: [assetAuctionOffer] } : {}), cardUses: decision.cardUses, identityAction: decision.identityAction }, decision)

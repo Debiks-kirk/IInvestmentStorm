@@ -1,5 +1,11 @@
 # 技术基线
 
+## Bot 联合预算
+
+- `botInvestmentCandidates` 全域预评分后保留目标代表及高价值金额；`botMarketFrontier` 为各半金币预算提供两类市场收益与报价，`decideBotTurn` 统一评分并返回 `auctionBids`，页面直接提交。
+- `addNightwalkerPlans` 在最终选择前模拟 A/B，`chooseBotShadowOutcome` 遵循藏品优先与同净收益选 A；市场按 B 占用，联合动作不再后置抖动。
+- `.setup-grid` 的层叠上下文约束焦点座位，开始栏可点击，弹窗仍保持既有顶层隔离。
+
 ## Bot 参数回归
 
 - `botParameters.test.ts` 对九个滑杆做固定种子单变量对照；另测预测方向、快照、免费技能、偷看消耗及藏品得标概率。
