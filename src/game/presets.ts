@@ -57,7 +57,7 @@ function createId(): string {
 }
 
 function cloneRelaySeats(relaySeats: RelaySeatConfig[]): RelaySeatConfig[] {
-  return relaySeats.map((seat) => ({ name: seat.name, operators: seat.operators.map((operator) => ({ id: operator.id, name: operator.name, controller: operator.controller.kind === 'bot' ? { ...operator.controller, ...(operator.controller.customProfile ? { customProfile: { ...operator.controller.customProfile, identityPriority: [...operator.controller.customProfile.identityPriority] } } : {}) } : { ...operator.controller } })) }))
+  return relaySeats.map((seat) => ({ name: seat.name, operators: seat.operators.map((operator) => ({ id: operator.id, ...(operator.memberId ? { memberId: operator.memberId } : {}), name: operator.name, controller: operator.controller.kind === 'bot' ? { ...operator.controller, ...(operator.controller.customProfile ? { customProfile: { ...operator.controller.customProfile, identityPriority: [...operator.controller.customProfile.identityPriority] } } : {}) } : { ...operator.controller } })) }))
 }
 
 export function createGamePreset(name: string, seatsOrNames: SeatConfig[] | string[], settings: GameSettings, existing?: GamePreset, relay: { mode?: GameMode; relayMethod?: RelayMethod; relaySeats?: RelaySeatConfig[] } = {}): GamePreset {

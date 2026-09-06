@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { CardIcon, IdentityIcon } from './ui/GameIcon'
 import { SetupBotPicker } from './ui/SetupBotPicker'
+import { MemberHall } from './ui/MemberHall'
 import { SetupRulesModal } from './ui/SetupRulesModal'
 import { useRelayDrag } from './ui/useRelayDrag'
 import { moveRelayOperator } from './game/relaySetup'
@@ -17,9 +18,12 @@ import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, botProfile, buildBotObservation, decideBotAssetAuctionBids, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
 import { appendSpectatorEvent, appendSpectatorEvents, createRoundResultSpectatorEvent, createSpectatorChart, createSpectatorPlayerStats, createTurnSpectatorEvent, type SpectatorChartKey, type SpectatorEventInput } from './game/spectator'
-import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GameMode, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, Player, ProphetDivination, RelayMethod, RelayOperator, RelaySeatConfig, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
+import { createBotHistoryHints } from './game/career'
+import { archiveCareerMatch, exportCareerBackup, importCareerBackup, inspectCareerBackup, loadCareerData, loadCareerReplay, removeCareerMatch, saveCareerMembers, type CareerData } from './game/careerStorage'
+import { createBotMember, createHumanMember, createLegacyCustomBotMembers, createSystemBotMembers, memberController, memberNameKey, uniqueMemberName } from './game/members'
+import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GameMode, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, MemberProfile, Player, ProphetDivination, RelayMethod, RelayOperator, RelaySeatConfig, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
 
-type Screen = 'home' | 'setup' | 'rules' | 'history' | 'collection' | 'game'
+type Screen = 'home' | 'setup' | 'rules' | 'history' | 'collection' | 'members' | 'game'
 type ScheduledIdentityAction = Exclude<IdentityAction, { type: 'prophetDivination' } | { type: 'nightwalkerDoubleBid' }>
 type PrivateToolPanel = 'prediction' | 'identity' | 'assets' | 'backpack' | 'merchantShop' | null
 
@@ -59,7 +63,7 @@ function relayScheduleLabel(operators: RelayOperator[], method: RelayMethod, rou
 
 /** Give Bot planners a view of the shared competitive player through the active operator's personality. */
 function playerForOperator(player: Player, operator: RelayOperator): Player {
-  return { ...player, controller: operator.controller, ...(operator.botMemory ? { botMemory: operator.botMemory } : {}) }
+  return { ...player, controller: operator.controller, memberId: operator.memberId ?? player.memberId, ...(operator.botMemory ? { botMemory: operator.botMemory } : {}) }
 }
 
 function recordOperatorBotAction(player: Player, operatorId: string | undefined, record: Parameters<typeof appendBotRecord>[1]): Player {
@@ -224,13 +228,14 @@ function CollectionBook({ onBack }: { onBack: () => void }) {
   return <AppShell><header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回主页">←</button><Brand /><span /></header><section className="collection-page"><div className="collection-heading"><div><h1>游戏图鉴</h1></div></div><div className="collection-tabs" role="tablist" aria-label="图鉴分类"><button role="tab" aria-selected={tab === 'identities'} className={cx(tab === 'identities' && 'is-active')} onClick={() => setTab('identities')}>身份 <small>10</small></button><button role="tab" aria-selected={tab === 'cards'} className={cx(tab === 'cards' && 'is-active')} onClick={() => setTab('cards')}>道具 <small>13</small></button><button role="tab" aria-selected={tab === 'items'} className={cx(tab === 'items' && 'is-active')} onClick={() => setTab('items')}>拍品 <small>100</small></button></div>{tab === 'identities' && <div className="collection-grid collection-grid--identities" role="tabpanel">{IDENTITY_DEFINITIONS.map((identity) => <article className="collection-card collection-card--identity" key={identity.id}><span className="game-art-slot"><IdentityIcon id={identity.id} /></span><div><small>{identitySkillMode(identity.id) === 'active' ? '主动技能' : '被动技能'}</small><h2>{identity.name}</h2><p>{COLLECTION_IDENTITY_TEXT[identity.id]}</p></div></article>)}</div>}{tab === 'cards' && <div className="collection-grid collection-grid--cards" role="tabpanel">{CARD_DEFINITIONS.map((card) => <article className={`collection-card collection-card--card collection-card--${card.rarity}`} key={card.id}><span className="game-art-slot"><CardIcon id={card.id} /></span><div><small><CardRarityTag cardId={card.id} /></small><h2>{card.name}</h2><p>{COLLECTION_CARD_TEXT[card.id]}</p></div></article>)}</div>}{tab === 'items' && <div className="collection-items" role="tabpanel">{ASSET_CATEGORY_CONFIGS.map((category) => { const items = [...ITEM_POOL].filter((item) => item.category === category.category).sort((left, right) => left.value - right.value || left.name.localeCompare(right.name, 'zh-CN')); return <section className="collection-item-group" key={category.category}><header><div><small>{category.name} · 由低到高</small><h2>{items.length} 件拍品</h2><div className="collection-bonus-table" aria-label={`${category.name} 套装加成`}><span><small>2件</small><b>+{category.tiers[0]}</b></span><span><small>3件</small><b>+{category.tiers[1]}</b></span><span><small>4件</small><b>+{category.tiers[2]}</b></span><span><small>5件</small><b>+{category.tiers[3]}</b></span><span><small>6件+</small><b>+{category.additionalUnit}</b></span></div></div><span>{category.symbol}</span></header><div>{items.map((item) => <article key={item.id} style={{ '--item-tone': item.tone } as React.CSSProperties}><span>{item.emoji}</span><strong>{item.name}</strong><small>V{item.value}</small></article>)}</div></section> })}</div>}</section></AppShell>
 }
 
-function Home({ saved, onSetup, onContinue, onRules, onHistory, onCollection, onDelete }: {
+function Home({ saved, onSetup, onContinue, onRules, onHistory, onCollection, onMembers, onDelete }: {
   saved: GameSession | null
   onSetup: () => void
   onContinue: () => void
   onRules: () => void
   onHistory: () => void
   onCollection: () => void
+  onMembers: () => void
   onDelete: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -250,6 +255,7 @@ function Home({ saved, onSetup, onContinue, onRules, onHistory, onCollection, on
             <button className="home-portal home-portal--rules" onClick={onRules}><span className="home-portal__glyph" aria-hidden="true">◎</span><span className="home-portal__copy"><strong>玩法规则</strong></span></button>
             <button className="home-portal home-portal--collection" onClick={onCollection}><span className="home-portal__glyph" aria-hidden="true">◇</span><span className="home-portal__copy"><strong>游戏图鉴</strong></span></button>
             <button className="home-portal home-portal--history" onClick={onHistory}><span className="home-portal__glyph" aria-hidden="true">◷</span><span className="home-portal__copy"><strong>对局历史</strong></span></button>
+            <button className="home-portal home-portal--members" onClick={onMembers}><span className="home-portal__glyph" aria-hidden="true">◇</span><span className="home-portal__copy"><strong>玩家大厅</strong></span></button>
           </div>
         </div>
         <div className="hero-table" aria-hidden="true">
@@ -454,7 +460,7 @@ function RegisteredPlayerPicker({ value, players, unavailableNames, label, onCha
   </div>
 }
 
-function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles, registeredPlayers, onSaveRegisteredPlayers }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void; registeredPlayers: string[]; onSaveRegisteredPlayers: (players: string[]) => void }) {
+function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onSaveCustomBotProfiles, registeredPlayers, onSaveRegisteredPlayers, members, onRegisterMember }: { onBack: () => void; onStart: (session: GameSession) => void; presets: GamePreset[]; onSavePresets: (presets: GamePreset[]) => void; customBotProfiles: CustomBotProfile[]; onSaveCustomBotProfiles: (profiles: CustomBotProfile[]) => void; registeredPlayers: string[]; onSaveRegisteredPlayers: (players: string[]) => void; members: MemberProfile[]; onRegisterMember: (name: string) => MemberProfile | null }) {
   const [settingsByMode, setSettingsByMode] = useState<Record<GameMode, GameSettings>>(() => ({ standard: createDefaultSettings(), relay: createDefaultSettings() }))
   const [seats, setSeats] = useState<SeatConfig[]>(() => Array.from({ length: 3 }, () => ({ name: '', controller: { kind: 'human' } })))
   const [mode, setMode] = useState<GameMode>('standard')
@@ -471,6 +477,9 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
   const [importError, setImportError] = useState('')
   const [customBotsOpen, setCustomBotsOpen] = useState(false)
 
+  const humanMembers = members.filter((member) => member.kind === 'human' && !member.archived)
+  const botMembers = members.filter((member) => member.kind === 'bot' && !member.archived && member.bot)
+
   const settings = settingsByMode[mode]
   const setSettings = (next: React.SetStateAction<GameSettings>) => setSettingsByMode((current) => ({ ...current, [mode]: typeof next === 'function' ? next(current[mode]) : next }))
   const presetName = presetNames[mode]
@@ -479,12 +488,11 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
   const setActivePresetId = (id: string | null) => setActivePresetIds((current) => ({ ...current, [mode]: id }))
 
   const registerPlayer = (rawName: string): string | null => {
-    const name = rawName.trim().slice(0, 12)
-    if (!name) return null
-    const existing = registeredPlayers.find((entry) => entry.toLocaleLowerCase() === name.toLocaleLowerCase())
-    if (existing) return existing
-    onSaveRegisteredPlayers([...registeredPlayers, name])
-    return name
+    const normalized = rawName.trim().slice(0, 20)
+    if (!normalized) return null
+    const existing = humanMembers.find((member) => memberNameKey(member.name) === memberNameKey(normalized))
+    if (existing) return existing.name
+    return onRegisterMember(normalized)?.name ?? null
   }
   const registerConfigurationPlayers = (nextSeats: SeatConfig[], nextRelaySeats?: RelaySeatConfig[]) => {
     const names = nextRelaySeats?.length
@@ -493,7 +501,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     const merged = mergeRegisteredPlayers(registeredPlayers, names)
     if (merged.length !== registeredPlayers.length) onSaveRegisteredPlayers(merged)
   }
-  const isRegisteredPlayer = (name: string) => registeredPlayers.some((entry) => entry.toLocaleLowerCase() === name.trim().toLocaleLowerCase())
+  const isRegisteredPlayer = (name: string) => humanMembers.some((member) => memberNameKey(member.name) === memberNameKey(name))
   const resolvedSeats = seats.map((seat) => seat.controller.kind === 'bot' ? { ...seat, name: botDisplayName(seat.controller) } : { ...seat, name: seat.name.trim() })
   const resolvedRelaySeats = relaySeats.map((seat) => ({
     ...seat,
@@ -543,11 +551,15 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
       return { ...current, rewardMultipliers: rewards }
     })
   }
+  const memberSelectionErrors = (configuration: Array<SeatConfig | RelayOperator>) => {
+    const ids = configuration.map((entry) => entry.memberId).filter((id): id is string => Boolean(id))
+    return new Set(ids).size !== ids.length ? ['同一位注册成员一局只能出现一次。'] : []
+  }
   const submit = () => {
     const gameNames = mode === 'relay' ? resolvedRelaySeats.map((seat) => seat.name) : resolvedSeats.map((seat) => seat.name)
     const relayErrors = mode === 'relay' ? resolvedRelaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : seat.operators.some((operator) => operator.controller.kind === 'human' && !isRegisteredPlayer(operator.name)) ? [`${seat.name || `玩家 ${index + 1}`} 的真人操作者需先登记`] : []) : []
     const registryErrors = mode === 'standard' ? resolvedSeats.flatMap((seat, index) => seat.controller.kind === 'human' && seat.name && !isRegisteredPlayer(seat.name) ? [`第 ${index + 1} 位真人玩家需先登记`] : []) : []
-    const nextErrors = [...validateNames(gameNames), ...registryErrors, ...relayErrors, ...validateHumanPlayerSelection(mode === 'relay' ? resolvedRelaySeats.flatMap((seat) => seat.operators) : resolvedSeats), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const nextErrors = [...validateNames(gameNames), ...registryErrors, ...relayErrors, ...memberSelectionErrors(mode === 'relay' ? resolvedRelaySeats.flatMap((seat) => seat.operators) : resolvedSeats), ...validateHumanPlayerSelection(mode === 'relay' ? resolvedRelaySeats.flatMap((seat) => seat.operators) : resolvedSeats), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     setErrors(nextErrors)
     if (nextErrors.length === 0) onStart(createSession(mode === 'relay' ? resolvedRelaySeats : resolvedSeats, settings, { mode, relayMethod }))
@@ -556,7 +568,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     const gameNames = mode === 'relay' ? resolvedRelaySeats.map((seat) => seat.name) : resolvedSeats.map((seat) => seat.name)
     const relayErrors = mode === 'relay' ? resolvedRelaySeats.flatMap((seat, index) => seat.operators.length === 0 ? [`${seat.name || `玩家 ${index + 1}`} 至少需要一名操作者`] : seat.operators.some((operator) => !operator.name.trim()) ? [`${seat.name || `玩家 ${index + 1}`} 的操作者需要名字`] : seat.operators.some((operator) => operator.controller.kind === 'human' && !isRegisteredPlayer(operator.name)) ? [`${seat.name || `玩家 ${index + 1}`} 的真人操作者需先登记`] : []) : []
     const registryErrors = mode === 'standard' ? resolvedSeats.flatMap((seat, index) => seat.controller.kind === 'human' && seat.name && !isRegisteredPlayer(seat.name) ? [`第 ${index + 1} 位真人玩家需先登记`] : []) : []
-    const nextErrors = [...validateNames(gameNames), ...registryErrors, ...relayErrors, ...validateHumanPlayerSelection(mode === 'relay' ? resolvedRelaySeats.flatMap((seat) => seat.operators) : resolvedSeats), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
+    const nextErrors = [...validateNames(gameNames), ...registryErrors, ...relayErrors, ...memberSelectionErrors(mode === 'relay' ? resolvedRelaySeats.flatMap((seat) => seat.operators) : resolvedSeats), ...validateHumanPlayerSelection(mode === 'relay' ? resolvedRelaySeats.flatMap((seat) => seat.operators) : resolvedSeats), ...validateSettings(settings), ...identityValidationErrors(settings.identitySettings, settings.playerCount)]
     if (settings.identitySettings.enabled && !settings.identitySettings.disabledIdentityIds.includes('merchant') && settings.disabledCardIds.length === CARD_DEFINITIONS.length) nextErrors.push('启用道具商人时，至少需要启用一张道具卡')
     if (!presetName.trim()) nextErrors.push('请为这套配置填写名称')
     setErrors(nextErrors)
@@ -684,9 +696,9 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                 <div className={cx('seat-field', seat.controller.kind === 'bot' && 'seat-field--bot')} key={index} style={{ '--player-color': `var(--player-${index + 1})` } as React.CSSProperties}>
                   <span>{index + 1}</span>
                   {seat.controller.kind === 'human'
-                    ? <RegisteredPlayerPicker value={seat.name} players={registeredPlayers} unavailableNames={seats.flatMap((entry, itemIndex) => itemIndex !== index && entry.controller.kind === 'human' ? [entry.name] : [])} label={`玩家 ${index + 1} 名字`} onRegister={registerPlayer} onChange={(name) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name } : value))} />
-                    : <SetupBotPicker controller={seat.controller} profiles={customBotProfiles} disabledKeys={seats.flatMap((other, otherIndex) => otherIndex !== index && other.controller.kind === 'bot' ? [other.controller.profileId === 'custom' ? `custom:${other.controller.customProfile?.id}` : other.controller.profileId] : [])} onChange={(controller) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name: botDisplayName(controller), controller } : value))} />}
-                  <select aria-label={`玩家 ${index + 1} 类型`} value={seat.controller.kind} onChange={(event) => setSeats((current) => { const controller = event.target.value === 'bot' ? firstAvailableBotController(current, index) : { kind: 'human' as const }; return current.map((value, itemIndex) => itemIndex !== index ? value : { ...value, name: controller.kind === 'bot' ? botDisplayName(controller) : '', controller }) })}>
+                    ? <RegisteredPlayerPicker value={seat.name} players={humanMembers.map((member) => member.name)} unavailableNames={seats.flatMap((entry, itemIndex) => itemIndex !== index && entry.controller.kind === 'human' ? [entry.name] : [])} label={`玩家 ${index + 1} 名字`} onRegister={registerPlayer} onChange={(name) => { const member = humanMembers.find((entry) => memberNameKey(entry.name) === memberNameKey(name)); setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name, memberId: member?.id } : value)) }} />
+                    : <SetupBotPicker controller={seat.controller} profiles={customBotProfiles} members={botMembers} selectedMemberId={seat.memberId} disabledMemberIds={seats.flatMap((other, otherIndex) => otherIndex !== index && other.controller.kind === 'bot' && other.memberId ? [other.memberId] : [])} onChange={(controller) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, name: botDisplayName(controller), memberId: undefined, controller } : value))} onSelectMember={(member) => setSeats((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, memberId: member.id, name: member.name, controller: memberController(member) } : value))} />}
+                  <select aria-label={`玩家 ${index + 1} 类型`} value={seat.controller.kind} onChange={(event) => setSeats((current) => { const botMember = botMembers.find((member) => !current.some((other, itemIndex) => itemIndex !== index && other.memberId === member.id)); const controller = event.target.value === 'bot' ? botMember ? memberController(botMember) : firstAvailableBotController(current, index) : { kind: 'human' as const }; return current.map((value, itemIndex) => itemIndex !== index ? value : { ...value, name: controller.kind === 'bot' ? botMember?.name ?? botDisplayName(controller) : '', ...(botMember && controller.kind === 'bot' ? { memberId: botMember.id } : { memberId: undefined }), controller }) })}>
                     <option value="human">真人</option><option value="bot">Bot</option>
                   </select>
                   {seat.controller.kind === 'bot' && <select className="setup-bot-difficulty" aria-label={`${botDisplayName(seat.controller)} Bot 难度`} value={seat.controller.difficulty} onChange={(event) => setSeats((current) => current.map((value, itemIndex) => itemIndex !== index || value.controller.kind !== 'bot' ? value : { ...value, controller: { ...value.controller, difficulty: event.target.value as BotDifficulty } }))}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select>}
@@ -732,9 +744,9 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                             if (event.key === 'ArrowRight' && seatIndex < relaySeats.length - 1) transferOperator(seatIndex, operator.id, seatIndex + 1, relaySeats[seatIndex + 1].operators.length)
                           }}><b>{operatorIndex + 1}</b><span aria-hidden="true">⠿</span></button>
                           <div className="relay-operator__identity">{operator.controller.kind === 'human'
-                            ? <RegisteredPlayerPicker value={operator.name} players={registeredPlayers} unavailableNames={relaySeats.flatMap((entry, otherSeatIndex) => entry.operators.flatMap((other, otherIndex) => (otherSeatIndex !== seatIndex || otherIndex !== operatorIndex) && other.controller.kind === 'human' ? [other.name] : []))} label={`${relaySeat.name || `玩家 ${seatIndex + 1}`} 操作者 ${operatorIndex + 1} 名字`} onRegister={registerPlayer} onChange={(name) => updateRelayOperator(seatIndex, operatorIndex, { name })} />
-                            : <SetupBotPicker controller={operator.controller} profiles={customBotProfiles} onChange={(controller) => updateRelayOperator(seatIndex, operatorIndex, { name: botDisplayName(controller), controller })} />}</div>
-                          <label className="relay-operator__kind"><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} 类型`} value={operator.controller.kind} onChange={(event) => { const controller = event.target.value === 'bot' ? { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } : { kind: 'human' as const }; updateRelayOperator(seatIndex, operatorIndex, { name: controller.kind === 'bot' ? botDisplayName(controller) : '', controller }) }}><option value="human">真人</option><option value="bot">Bot</option></select></label>
+                            ? <RegisteredPlayerPicker value={operator.name} players={humanMembers.map((member) => member.name)} unavailableNames={relaySeats.flatMap((entry, otherSeatIndex) => entry.operators.flatMap((other, otherIndex) => (otherSeatIndex !== seatIndex || otherIndex !== operatorIndex) && other.controller.kind === 'human' ? [other.name] : []))} label={`${relaySeat.name || `玩家 ${seatIndex + 1}`} 操作者 ${operatorIndex + 1} 名字`} onRegister={registerPlayer} onChange={(name) => { const member = humanMembers.find((entry) => memberNameKey(entry.name) === memberNameKey(name)); updateRelayOperator(seatIndex, operatorIndex, { name, memberId: member?.id }) }} />
+                            : <SetupBotPicker controller={operator.controller} profiles={customBotProfiles} members={botMembers} selectedMemberId={operator.memberId} disabledMemberIds={relaySeats.flatMap((entry, otherSeatIndex) => entry.operators.flatMap((other, otherIndex) => (otherSeatIndex !== seatIndex || otherIndex !== operatorIndex) && other.controller.kind === 'bot' && other.memberId ? [other.memberId] : []))} onChange={(controller) => updateRelayOperator(seatIndex, operatorIndex, { name: botDisplayName(controller), memberId: undefined, controller })} onSelectMember={(member) => updateRelayOperator(seatIndex, operatorIndex, { name: member.name, memberId: member.id, controller: memberController(member) })} />}</div>
+                          <label className="relay-operator__kind"><select aria-label={`${operator.name || `操作者 ${operatorIndex + 1}`} 类型`} value={operator.controller.kind} onChange={(event) => { const botMember = botMembers.find((member) => !relaySeats.some((entry, otherSeatIndex) => entry.operators.some((other, otherIndex) => (otherSeatIndex !== seatIndex || otherIndex !== operatorIndex) && other.memberId === member.id))); const controller = event.target.value === 'bot' ? botMember ? memberController(botMember) : { kind: 'bot' as const, profileId: 'adaptive' as const, difficulty: 'standard' as const } : { kind: 'human' as const }; updateRelayOperator(seatIndex, operatorIndex, { name: controller.kind === 'bot' ? botMember?.name ?? botDisplayName(controller) : '', ...(botMember && controller.kind === 'bot' ? { memberId: botMember.id } : { memberId: undefined }), controller }) }}><option value="human">真人</option><option value="bot">Bot</option></select></label>
                           {botController && <select className="relay-operator__difficulty" aria-label={`${botDisplayName(botController)} Bot 难度`} value={botController.difficulty} onChange={(event) => updateRelayOperator(seatIndex, operatorIndex, { controller: { ...botController, difficulty: event.target.value as BotDifficulty } })}><option value="easy">简单</option><option value="standard">标准</option><option value="expert">高手</option></select>}
                           <button type="button" className="relay-operator__remove" aria-label={`移除${operator.name || '操作者'}`} disabled={relaySeat.operators.length <= 1} onClick={() => removeRelayOperator(seatIndex, operatorIndex)}>×</button>
                         </li>
@@ -2129,7 +2141,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     if (!scheduledPlayer || scheduledPlayer.id !== turn.playerId) return false
     const scheduledOperator = activeOperator(session, scheduledPlayer)
     if (turn.operatorId && turn.operatorId !== scheduledOperator.id) return false
-    turn = { ...turn, operatorId: scheduledOperator.id }
+    turn = {
+      ...turn,
+      operatorId: scheduledOperator.id,
+      operatorMemberId: scheduledOperator.memberId ?? scheduledPlayer.memberId,
+      decisionOrigin: currentPlayerTakeover ? 'takeover' : scheduledOperator.controller.kind === 'bot' ? 'bot' : 'human',
+    }
     const scheduledActor = playerForOperator(scheduledPlayer, scheduledOperator)
     let playersBeforeSubmit = session.players.map((player) => ({ ...player, cardInventory: [...player.cardInventory] }))
     const submittedFateCoin = turnCardUses(turn).find((use) => use.cardId === 'fateCoin')
@@ -2740,7 +2757,17 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       } else if (session.phase === 'privateTurn' && currentPlayer && currentActor && currentOperator && isCurrentBot && !currentPlayerTakeover) {
         try {
         const controller = currentActor.controller as Extract<Player['controller'], { kind: 'bot' }>
-        const observation = buildBotObservation(session, currentPlayer.id)
+        const actorHints = currentOperator.memberId && currentOperator.controller.kind === 'bot'
+          ? session.botHistoryHints[currentOperator.memberId]?.opponents
+          : undefined
+        const historicalOpponentHints = actorHints
+          ? Object.fromEntries(session.players.filter((player) => player.id !== currentPlayer.id).flatMap((player) => {
+            const opponentMemberId = activeOperator(session, player).memberId ?? player.memberId
+            const hint = opponentMemberId ? actorHints[opponentMemberId] : undefined
+            return hint ? [[player.id, hint]] : []
+          }))
+          : undefined
+        const observation = buildBotObservation(session, currentPlayer.id, historicalOpponentHints)
         const merchantShop = session.merchantShops.find((shop) => shop.playerId === currentPlayer.id && shop.roundIndex === session.roundIndex)
         const merchantShopWindow = currentPlayer.identity?.id === 'merchant'
         const merchantAuctionWindow = merchantShopWindow && session.roundIndex < session.settings.rounds - 2
@@ -2897,6 +2924,43 @@ export default function App() {
   const [history, setHistory] = useState<GameHistoryEntry[]>(() => loadGameHistory())
   const [historyEntry, setHistoryEntry] = useState<GameHistoryEntry | null>(null)
   const [session, setSession] = useState<GameSession | null>(null)
+  const [members, setMembers] = useState<MemberProfile[]>([])
+  const [careerRecords, setCareerRecords] = useState<CareerData['records']>([])
+  const [careerReady, setCareerReady] = useState(false)
+  const [careerMessage, setCareerMessage] = useState('')
+  const membersRef = useRef<MemberProfile[]>([])
+  const archivedCareerSessions = useRef(new Set<string>())
+
+  useEffect(() => { membersRef.current = members }, [members])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadCareerData().then((data) => {
+      if (cancelled) return
+      // A very fast first registration can happen while IndexedDB is opening.
+      // Keep those in-memory profiles instead of replacing them with the older
+      // read snapshot when the request finally resolves.
+      let nextMembers = [...data.members, ...membersRef.current.filter((member) => !data.members.some((stored) => stored.id === member.id))]
+      let changed = false
+      const savedNames = saved?.mode === 'relay'
+        ? saved.players.flatMap((player) => player.relayOperators?.map((operator) => operator.controller.kind === 'human' ? operator.name : '') ?? [])
+        : saved?.players.flatMap((player) => player.controller?.kind === 'human' ? [player.name] : []) ?? []
+      for (const name of mergeRegisteredPlayers(mergeRegisteredPlayers(registeredPlayers, presets.flatMap(registeredPlayerNamesFromPreset)), savedNames)) {
+        if (!nextMembers.some((member) => memberNameKey(member.name) === memberNameKey(name))) { nextMembers.push(createHumanMember(name)); changed = true }
+      }
+      if (!nextMembers.some((member) => member.kind === 'bot')) { nextMembers = [...nextMembers, ...createSystemBotMembers(nextMembers)]; changed = true }
+      const legacyProfiles = customBotProfiles.filter((profile) => !nextMembers.some((member) => member.kind === 'bot' && member.bot?.customProfile?.id === profile.id))
+      if (legacyProfiles.length) { nextMembers = [...nextMembers, ...createLegacyCustomBotMembers(legacyProfiles, nextMembers)]; changed = true }
+      membersRef.current = nextMembers
+      setMembers(nextMembers)
+      setCareerRecords(data.records)
+      setCareerReady(true)
+      if (changed) void saveCareerMembers(nextMembers).catch(() => setCareerMessage('成员档案暂时无法保存，可稍后重试。'))
+    }).catch(() => { if (!cancelled) { setCareerReady(true); setCareerMessage('本机档案库无法打开；本局仍可正常进行。') } })
+    return () => { cancelled = true }
+  // The legacy sources are read once on upgrade; future management happens in the hall.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     setRegisteredPlayers((current) => {
@@ -2917,23 +2981,136 @@ export default function App() {
         saveGameHistory(next)
         return next
       })
+      if (session.careerEnabled && !archivedCareerSessions.current.has(session.id)) {
+        archivedCareerSessions.current.add(session.id)
+        void archiveCareerMatch(session).then((savedCareer) => {
+          if (!savedCareer) return
+          return loadCareerData().then((data) => { setCareerRecords(data.records); setMembers(data.members) })
+        }).catch(() => {
+          archivedCareerSessions.current.delete(session.id)
+          setCareerMessage('终局战绩没有保存成功，可返回大厅后重试。')
+        })
+      }
     }
   }, [session])
 
-  const begin = (next: GameSession) => { setSession(next); setSaved(next); setScreen('game') }
+  const begin = (next: GameSession) => {
+    const available = membersRef.current.filter((member) => !member.archived)
+    const usedMemberIds = new Set<string>()
+    const pickMember = (name: string, kind: 'human' | 'bot', preferredId?: string, profileId?: string): MemberProfile | undefined => {
+      const candidates = available.filter((member) => member.kind === kind && !usedMemberIds.has(member.id))
+      const selected = (preferredId ? candidates.find((member) => member.id === preferredId) : undefined)
+        ?? candidates.find((member) => memberNameKey(member.name) === memberNameKey(name))
+        ?? (kind === 'bot' ? candidates.find((member) => member.bot?.profileId === profileId) : undefined)
+      if (selected) usedMemberIds.add(selected.id)
+      return selected
+    }
+    const players = next.players.map((player) => {
+      if (next.mode === 'relay' && player.relayOperators?.length) {
+        const relayOperators = player.relayOperators.map((operator) => {
+          const operatorBot = operator.controller.kind === 'bot' ? operator.controller : undefined
+          const kind = operatorBot ? 'bot' : 'human'
+          const selected = pickMember(operator.name, kind, operator.memberId, operatorBot?.profileId)
+          return { ...operator, ...(selected ? { memberId: selected.id, name: selected.name, controller: selected.kind === 'bot' && selected.bot ? { kind: 'bot' as const, profileId: selected.bot.profileId, difficulty: selected.bot.difficulty, ...(selected.bot.customProfile ? { customProfile: selected.bot.customProfile } : {}) } : { kind: 'human' as const } } : {}) }
+        })
+        return { ...player, relayOperators }
+      }
+      const botController = player.controller?.kind === 'bot' ? player.controller : undefined
+      const kind = botController ? 'bot' : 'human'
+      const selected = pickMember(player.name, kind, player.memberId, botController?.profileId)
+      return selected ? { ...player, memberId: selected.id, name: selected.name, controller: selected.kind === 'bot' && selected.bot ? { kind: 'bot' as const, profileId: selected.bot.profileId, difficulty: selected.bot.difficulty, ...(selected.bot.customProfile ? { customProfile: selected.bot.customProfile } : {}) } : { kind: 'human' as const } } : player
+    })
+    const bound = { ...next, players, careerEnabled: careerReady, botHistoryHints: careerReady ? createBotHistoryHints(careerRecords, available) : {} }
+    setSession(bound); setSaved(bound); setScreen('game')
+  }
   const persistPresets = (next: GamePreset[]) => { setPresets(next); savePresets(next) }
   const persistCustomBotProfiles = (next: CustomBotProfile[]) => { setCustomBotProfiles(next); saveCustomBotProfiles(next) }
   const persistRegisteredPlayers = (next: string[]) => { setRegisteredPlayers(next); saveRegisteredPlayers(next) }
+  const persistMember = (member: MemberProfile) => {
+    const name = uniqueMemberName(member.name, membersRef.current, member.id)
+    if (!name) { setCareerMessage('名称已被使用。'); return }
+    const next = membersRef.current.map((entry) => entry.id === member.id ? { ...member, name } : entry)
+    setMembers(next); void saveCareerMembers(next).catch(() => setCareerMessage('成员资料暂时无法保存。'))
+  }
+  const ensureRegisteredMember = (rawName: string): MemberProfile | null => {
+    const existing = membersRef.current.find((member) => member.kind === 'human' && memberNameKey(member.name) === memberNameKey(rawName))
+    if (existing) return existing
+    const name = uniqueMemberName(rawName, membersRef.current)
+    if (!name) return null
+    const member = createHumanMember(name)
+    const next = [...membersRef.current, member]
+    membersRef.current = next
+    setMembers(next)
+    persistRegisteredPlayers(mergeRegisteredPlayers(registeredPlayers, [name]))
+    void saveCareerMembers(next).catch(() => setCareerMessage('成员已登记，但暂时无法写入档案库。'))
+    return member
+  }
+  const createCareerMember = (kind: 'human' | 'bot', rawName: string): string | null => {
+    if (kind === 'human') return ensureRegisteredMember(rawName) ? null : '请填写 1–20 个字符的未使用名称。'
+    const name = uniqueMemberName(rawName, membersRef.current)
+    if (!name) return '请填写 1–20 个字符的未使用名称。'
+    const member = createBotMember(name)
+    const next = [...membersRef.current, member]
+    membersRef.current = next
+    setMembers(next)
+    void saveCareerMembers(next).catch(() => setCareerMessage('成员已创建，但暂时无法写入档案库。'))
+    return null
+  }
+  const cloneCareerBot = (source: MemberProfile) => {
+    if (source.kind !== 'bot' || !source.bot) return
+    const suffixFor = (index: number) => `副本${index > 1 ? index : ''}`
+    let index = 1
+    let suffix = suffixFor(index)
+    let name = uniqueMemberName(`${source.name.slice(0, Math.max(1, 20 - suffix.length))}${suffix}`, membersRef.current)
+    while (!name) {
+      suffix = suffixFor(++index)
+      name = uniqueMemberName(`${source.name.slice(0, Math.max(1, 20 - suffix.length))}${suffix}`, membersRef.current)
+    }
+    const member = createBotMember(name, source.bot.profileId, source.bot.difficulty, source.bot.customProfile, source.avatar.accent)
+    const next = [...membersRef.current, member]
+    membersRef.current = next
+    setMembers(next)
+    void saveCareerMembers(next).catch(() => setCareerMessage('Bot 已复制，但暂时无法写入档案库。'))
+    setCareerMessage(`已创建独立 Bot：${member.name}`)
+  }
+  const archiveMember = (memberId: string, archived: boolean) => {
+    const next = membersRef.current.map((member) => member.id === memberId ? { ...member, archived, updatedAt: new Date().toISOString() } : member)
+    setMembers(next); void saveCareerMembers(next).catch(() => setCareerMessage('成员状态暂时无法保存。'))
+  }
+  const exportMembers = async (includeReplays: boolean) => {
+    try {
+      const raw = await exportCareerBackup(includeReplays)
+      const link = document.createElement('a'); const url = URL.createObjectURL(new Blob([raw], { type: 'application/json;charset=utf-8' }))
+      link.href = url; link.download = `拍卖大作战-成员档案-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url)
+      setCareerMessage('成员档案已导出。')
+    } catch { setCareerMessage('成员档案导出失败。') }
+  }
+  const importMembers = async (raw: string, renameConflicts: boolean) => {
+    const local = { members: membersRef.current, records: careerRecords }
+    const preview = inspectCareerBackup(raw, local)
+    if (!preview) throw new Error('无效的成员档案')
+    if (preview.nameConflicts.length && !renameConflicts) throw new Error(`发现 ${preview.nameConflicts.length} 位同名成员；勾选“保留独立副本”后再导入。`)
+    const data = await importCareerBackup(preview, local, renameConflicts)
+    setMembers(data.members); setCareerRecords(data.records)
+    return `已导入 ${Math.max(0, data.members.length - local.members.length)} 位成员、${Math.max(0, data.records.length - local.records.length)} 局战绩。`
+  }
+  const openCareerReplay = async (sessionId: string) => {
+    const replay = await loadCareerReplay(sessionId)
+    if (!replay) { setCareerMessage('这局完整复盘已被清理。'); return }
+    setHistoryEntry({ id: `career:${sessionId}`, completedAt: replay.updatedAt, session: replay })
+  }
+  const removeCareerRecord = async (sessionId: string) => { await removeCareerMatch(sessionId); const data = await loadCareerData(); setCareerRecords(data.records) }
   const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
   const rematch = (keepBotGrudges: boolean) => { if (session) begin(createRematchSession(session, keepBotGrudges)) }
 
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
-  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} customBotProfiles={customBotProfiles} onSaveCustomBotProfiles={persistCustomBotProfiles} registeredPlayers={registeredPlayers} onSaveRegisteredPlayers={persistRegisteredPlayers} />
+  if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} customBotProfiles={customBotProfiles} onSaveCustomBotProfiles={persistCustomBotProfiles} registeredPlayers={registeredPlayers} onSaveRegisteredPlayers={persistRegisteredPlayers} members={members} onRegisterMember={ensureRegisteredMember} />
   if (historyEntry) return <HistoryDetail entry={historyEntry} onBack={() => { setHistoryEntry(null); setScreen('history') }} />
   if (screen === 'history') return <History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} />
   if (screen === 'collection') return <CollectionBook onBack={() => setScreen('home')} />
+  if (screen === 'members') return <AppShell><MemberHall members={members} records={careerRecords} notice={careerMessage} onBack={() => setScreen('home')} onChangeMember={persistMember} onCreateHuman={(name) => createCareerMember('human', name)} onCreateBot={(name) => createCareerMember('bot', name)} onArchiveMember={(id) => archiveMember(id, true)} onRestoreMember={(id) => archiveMember(id, false)} onExport={exportMembers} onImport={importMembers} onOpenMatch={openCareerReplay} onRemoveMatch={removeCareerRecord} onCloneBot={cloneCareerBot} /></AppShell>
   if (screen === 'game' && session) return <Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} />
-  return <Home saved={saved} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onCollection={() => setScreen('collection')} onDelete={removeSaved} />
+  return <Home saved={saved} onSetup={() => setScreen('setup')} onContinue={() => { if (saved) { setSession(saved); setScreen('game') } }} onRules={() => setScreen('rules')} onHistory={() => setScreen('history')} onCollection={() => setScreen('collection')} onMembers={() => setScreen('members')} onDelete={removeSaved} />
 }

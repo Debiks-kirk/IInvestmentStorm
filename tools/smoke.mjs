@@ -53,13 +53,23 @@ async function assertNoHorizontalOverflow(page, label) {
   if (sizes.scrollWidth > sizes.width) throw new Error(`${label} 存在横向溢出：${sizes.scrollWidth}px > ${sizes.width}px。`)
 }
 
+async function resetLocalGame(page) {
+  await page.evaluate(async () => {
+    localStorage.clear()
+    await new Promise((resolve) => {
+      const request = indexedDB.deleteDatabase('auction-battle-career')
+      request.onsuccess = request.onerror = request.onblocked = () => resolve()
+    })
+  })
+}
+
 async function runSetupLayoutFlow(page) {
   await page.goto('http://127.0.0.1:5181')
-  await page.evaluate(() => localStorage.clear())
+  await resetLocalGame(page)
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByLabel('玩家 1 类型').selectOption('bot')
-  await page.locator('.seat-field').first().getByText('小算盘', { exact: true }).waitFor()
+  await page.locator('.seat-field').first().locator('.setup-bot-picker').waitFor()
   const secondPlayer = page.getByRole('textbox', { name: '玩家 2 名字', exact: true })
   await secondPlayer.fill('阿青')
   await page.locator('.seat-field').nth(1).locator('.registered-player-create').click()
@@ -143,6 +153,33 @@ async function runSetupLayoutFlow(page) {
   await page.setViewportSize({ width: 360, height: 640 })
 }
 
+async function runMemberHallFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await resetLocalGame(page)
+  await page.reload()
+  await page.getByRole('button', { name: '玩家大厅' }).click()
+  await page.getByRole('heading', { name: '玩家大厅' }).waitFor()
+  await assertNoHorizontalOverflow(page, '玩家大厅移动端')
+  await page.getByRole('button', { name: '注册玩家' }).click()
+  const dialog = page.getByRole('dialog', { name: '注册玩家' })
+  await dialog.getByPlaceholder('输入名称').fill('档案甲')
+  await dialog.getByRole('button', { name: '注册', exact: true }).click()
+  await page.getByRole('button', { name: /档案甲/ }).first().click()
+  await page.getByRole('heading', { name: '档案甲' }).waitFor()
+  await page.getByRole('button', { name: '编辑资料' }).click()
+  const edit = page.getByRole('dialog', { name: '编辑成员' })
+  await edit.getByLabel('名称').fill('档案乙')
+  await edit.getByRole('button', { name: '保存' }).click()
+  await page.getByRole('heading', { name: '档案乙' }).waitFor()
+  await page.getByRole('button', { name: '返回玩家大厅' }).click()
+  await page.getByRole('button', { name: '创建 Bot' }).click()
+  const botDialog = page.getByRole('dialog', { name: '创建 Bot' })
+  await botDialog.getByPlaceholder('输入名称').fill('档案机器人')
+  await botDialog.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: /档案机器人/ }).first().waitFor()
+  await assertNoHorizontalOverflow(page, '玩家大厅成员卡')
+}
+
 async function finishFinalReveal(page, expectedCount, waitForAnimation = false) {
   if (waitForAnimation) {
     await page.locator('.podium-list article').nth(expectedCount - 1).waitFor({ timeout: 8000 })
@@ -175,17 +212,17 @@ async function finishAdvancedSettings(page) {
   for (let index = 0; index < await pickers.count(); index += 1) {
     const picker = pickers.nth(index)
     const input = picker.locator('input')
-    let name = (await input.inputValue()).trim()
-    if (!name) {
-      name = `测试玩家${index + 1}`
-    }
-    if (await picker.locator('[title="已登记"]').count() === 0) {
-      await input.fill('')
-      await input.fill(name)
-      const register = picker.locator('.registered-player-create')
-      await register.waitFor({ state: 'visible', timeout: 1500 })
-      await register.click()
-    }
+    // Do not inherit a previous flow's display name: it can be a registered
+    // member that is already selected on another seat.  Each smoke flow owns
+    // a fresh, unique roster and validates the same quick-register route.
+    const name = `烟测玩家${index + 1}`
+    await input.fill('')
+    await input.fill(name)
+    const register = picker.locator('.registered-player-create')
+    const registered = picker.locator('[title="已登记"]')
+    await register.or(registered).waitFor({ state: 'visible', timeout: 2500 })
+    if (await register.isVisible()) await register.click()
+    else if (!await registered.isVisible()) throw new Error(`无法登记 ${name}`)
   }
 }
 
@@ -267,7 +304,7 @@ async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard
 
 async function runGame(page, playerCount, verifyPrivateRestore = false, motion = 'reduced') {
   await page.goto('http://127.0.0.1:5181')
-  await page.evaluate(() => localStorage.clear())
+  await resetLocalGame(page)
   await page.reload()
   await assertNoHorizontalOverflow(page, '移动端首页')
   await page.getByRole('button', { name: '创建新对局' }).click()
@@ -368,7 +405,7 @@ async function runTutorialFlow(page) {
 
 async function runCardFlow(page) {
   await page.goto('http://127.0.0.1:5181')
-  await page.evaluate(() => localStorage.clear())
+  await resetLocalGame(page)
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.locator('#rounds').fill('2')
@@ -929,6 +966,9 @@ try {
   } else if (process.env.SMOKE_ONLY === 'relay-drag') {
     await runRelayDragFlow(page)
     console.log('接力长按拖动、跨席位移动、Bot 单行选择与配置保存冒烟通过。')
+  } else if (process.env.SMOKE_ONLY === 'members') {
+    await runMemberHallFlow(page)
+    console.log('玩家大厅成员注册与资料编辑冒烟测试通过。')
   } else if (process.env.SMOKE_ONLY === 'setup') {
     await runSetupLayoutFlow(page)
     console.log('标准与接力模式设置页移动端布局冒烟测试通过。')
@@ -951,6 +991,7 @@ try {
     await runBalanceRevealFlow(page)
     console.log('余额翻牌流程冒烟测试通过。')
   } else {
+    await runMemberHallFlow(page)
     await runSetupLayoutFlow(page)
     await runGame(page, 3, true)
     await runGame(page, 6, false, 'fast')

@@ -214,6 +214,10 @@ export interface BotObservation {
   opponents: Array<{ id: string; name: string }>
   /** Controller kind is public seating information, not a hidden game resource. */
   humanOpponentIds: string[]
+  /** Lightweight, opt-in memory from this Bot's own completed career matches.
+   *  Keys remain temporary seat ids, so planners never receive durable member
+   *  records or any hidden current-round state. */
+  historicalOpponentHints?: Record<string, { sharedMatches: number; rivalry: number; averageBidRatio: number; favouriteCategory?: AssetCategory; ransomPayRate?: number }>
   previousSubmitterIds: string[]
   publicRounds: PublicRoundObservation[]
   balanceEstimates: CashEstimate[]
@@ -228,7 +232,7 @@ export interface BotObservation {
 }
 
 /** Only this adapter sees the full session. The returned payload excludes opponent secrets. */
-export function buildBotObservation(session: GameSession, playerId: string): BotObservation {
+export function buildBotObservation(session: GameSession, playerId: string, historicalOpponentHints?: BotObservation['historicalOpponentHints']): BotObservation {
   const player = session.players.find((entry) => entry.id === playerId) as Player
   const prior = session.turns.map((turn) => turn.playerId).filter((id) => id !== playerId)
   const pendingPrizeChange = session.pendingPrizeChanges.find((change) => change.cardId === 'prizeSwap' && change.roundIndex === session.roundIndex)
@@ -273,6 +277,7 @@ export function buildBotObservation(session: GameSession, playerId: string): Bot
     selfRoundStartBalanceUnits: session.roundStartBalanceUnits?.[player.id] ?? player.balanceUnits,
     opponents: session.players.filter((entry) => entry.id !== playerId).map((entry) => ({ id: entry.id, name: entry.name })),
     humanOpponentIds: session.players.filter((entry) => entry.id !== playerId && entry.controller?.kind !== 'bot').map((entry) => entry.id),
+    ...(historicalOpponentHints && Object.keys(historicalOpponentHints).length ? { historicalOpponentHints } : {}),
     previousSubmitterIds: prior,
     publicRounds: session.results.map((result) => ({ winnerId: result.winnerId, itemWinnerId: result.itemWinnerId, totalBidUnits: result.totalBidUnits, minWinningBidUnits: result.minWinningBidUnits, tiedPlayerIds: [...result.tiedPlayerIds], itemCategory: result.item.category, rankings: result.rankings.map((entry) => ({ playerId: entry.playerId, place: entry.place, rewardUnits: entry.publicRewardUnits })), publicDeltaByPlayerId: Object.fromEntries(result.deltas.map((delta) => [delta.playerId, delta.publicDeltaUnits])), rankingReversalCount: result.rankingReversalCount, publicCardEffectIds: result.cardEffects.map((effect) => effect.cardId).filter((cardId): cardId is CardId => Boolean(cardId)), assetAuctionResults: result.assetAuctionResults.map((entry) => ({ sellerId: entry.sellerId, winnerId: entry.winnerId, itemCategory: entry.item.category })) })),
     balanceEstimates: [],
@@ -361,8 +366,17 @@ function modeFor(observation: BotObservation, profile: BotProfile, memory: BotMe
  * strength is similar, Bots treat a human rival as a little more likely to
  * contest a key item, while their Bot-vs-Bot pressure is slightly softer.
  */
-function opponentCompetitiveWeight(observation: Pick<BotObservation, 'humanOpponentIds'>, playerId: string): number {
-  return observation.humanOpponentIds.includes(playerId) ? 1.1 : .97
+function opponentCompetitiveWeight(observation: Pick<BotObservation, 'humanOpponentIds' | 'historicalOpponentHints'>, playerId: string, item?: Pick<Item, 'category'>): number {
+  const base = observation.humanOpponentIds.includes(playerId) ? 1.1 : .97
+  const hint = observation.historicalOpponentHints?.[playerId]
+  // Long-term memory is a tiebreaker only.  Relationship contributes at most
+  // 15%; public play-style and category habits share the remaining 5%.  It
+  // never changes budget legality or exposes current private resources.
+  const relationship = hint && hint.sharedMatches >= 3 ? Math.min(.15, Math.max(0, hint.rivalry) / 100 * .15) : 0
+  const bidStyle = hint && hint.sharedMatches >= 3 ? clamp((hint.averageBidRatio - .35) * .055, -.02, .025) : 0
+  const categoryHabit = hint && item && hint.favouriteCategory === item.category ? .025 : 0
+  const memory = clamp(relationship + bidStyle + categoryHabit, -.02, .2)
+  return base * (1 + memory)
 }
 
 /** Public-only threat estimate for a seated human. It intentionally sees only
@@ -1058,7 +1072,7 @@ interface PublicCategoryPressure {
 }
 
 /** Uses only public collections and the Bot's legal balance estimates. */
-function publicCategoryPressures(observation: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds'> | undefined, excludedPlayerId: string, item: Item): PublicCategoryPressure[] {
+function publicCategoryPressures(observation: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds' | 'historicalOpponentHints'> | undefined, excludedPlayerId: string, item: Item): PublicCategoryPressure[] {
   if (!observation) return []
   const counts = publicCategoryCounts(observation.publicRounds)
   return observation.balanceEstimates
@@ -1087,7 +1101,7 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
   totalRounds: number
   sessionSeed: string
   /** Public category history lets a Bot recognise that a category is heating up. */
-  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds'>
+  observation?: Pick<BotObservation, 'publicRounds' | 'balanceEstimates' | 'humanOpponentIds' | 'historicalOpponentHints'>
 }): Array<{ lotId: string; bidUnits: number }> {
   const controller = player.controller?.kind === 'bot' ? player.controller : undefined
   const difficulty = controller?.difficulty ?? 'standard'
@@ -1118,7 +1132,7 @@ export function decideBotAssetAuctionBids({ player, lots, budgetUnits, roundInde
       // that Bots routinely donated 12–30 coin jumps for a token reserve.
       const rivalPressures = publicCategoryPressures(observation, player.id, lot.item)
       const rivalWeight = (playerId: string) => observation
-        ? opponentCompetitiveWeight(observation, playerId) * expertHumanAttackWeight(observation as BotObservation, difficulty, playerId, 'asset-bid')
+        ? opponentCompetitiveWeight(observation, playerId, lot.item) * expertHumanAttackWeight(observation as BotObservation, difficulty, playerId, 'asset-bid')
         : .97
       const strongestRivalPressure = [...rivalPressures].sort((left, right) => (
         right.marginalUnits * rivalWeight(right.playerId) - left.marginalUnits * rivalWeight(left.playerId)
@@ -1244,7 +1258,7 @@ export function decideBotAssetAuctionOffer({ player, observation, roundIndex, to
     const likelyBuyerCount = observation.balanceEstimates.filter((estimate) => estimate.playerId !== player.id && estimate.expectedUnits >= reserveFloor).length
     const rivalBreakpoints = publicCategoryPressures(observation, player.id, won.item)
       .filter((entry) => entry.count > 0 || entry.setJumpUnits > 0)
-    const rivalWeight = (playerId: string) => opponentCompetitiveWeight(observation, playerId) * expertHumanAttackWeight(observation, difficulty, playerId, 'asset-offer')
+    const rivalWeight = (playerId: string) => opponentCompetitiveWeight(observation, playerId, won.item) * expertHumanAttackWeight(observation, difficulty, playerId, 'asset-offer')
     const largestRivalGainUnits = Math.max(0, ...rivalBreakpoints.map((entry) => Math.round(entry.marginalUnits * rivalWeight(entry.playerId))))
     const largestRivalSetJumpUnits = Math.max(0, ...rivalBreakpoints.map((entry) => Math.round(entry.setJumpUnits * rivalWeight(entry.playerId))))
     const breakpointBuyerCount = rivalBreakpoints.filter((entry) => entry.setJumpUnits >= coinsToUnits(10)).length

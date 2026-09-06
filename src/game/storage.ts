@@ -106,14 +106,14 @@ export function loadSession(): GameSession | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Omit<GameSession, 'version'>> & { version?: number }
-    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35].includes(parsed.version ?? 0)) return null
+    if (!Array.isArray(parsed.players) || !Array.isArray(parsed.itemDeck) || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36].includes(parsed.version ?? 0)) return null
     const migrated = migrateSession(parsed)
     const safeSession = !migrated.spectatorMode && migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : !migrated.spectatorMode && migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : !migrated.spectatorMode && migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
           : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
           : migrated
-    if (parsed.version !== 35 || migrated.phase !== safeSession.phase || parsed.mode === undefined || parsed.relayMethod === undefined || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !Array.isArray(parsed.spectatorEvents) || !Array.isArray(parsed.pendingSpectatorEvents) || !Array.isArray(parsed.spectatorTakeoverPlayerIds) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
+    if (parsed.version !== 36 || migrated.phase !== safeSession.phase || parsed.mode === undefined || parsed.relayMethod === undefined || parsed.careerEnabled === undefined || !parsed.botHistoryHints || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !Array.isArray(parsed.spectatorEvents) || !Array.isArray(parsed.pendingSpectatorEvents) || !Array.isArray(parsed.spectatorTakeoverPlayerIds) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
   } catch {
     return null
@@ -150,6 +150,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
           const controller = operator.controller?.kind === 'bot' ? operator.controller : { kind: 'human' as const }
           return {
             id: typeof operator.id === 'string' ? operator.id : `${legacy.id}-operator-${index}`,
+            ...(typeof operator.memberId === 'string' ? { memberId: operator.memberId } : {}),
             name: typeof operator.name === 'string' && operator.name.trim() ? operator.name.trim() : `${legacy.name} 操作者 ${index + 1}`,
             controller,
             ...(controller.kind === 'bot' ? { botMemory: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}:${operator.id ?? index}`, strategyForController(controller)), ...(operator.botMemory ?? {}), behavior: { ...emptyBotMemory(`${session.id ?? 'legacy'}:${legacy.id}:${operator.id ?? index}`).behavior, ...(operator.botMemory?.behavior ?? {}) }, strategy: normalizeBotStrategy(operator.botMemory?.strategy ?? (controller.profileId === 'custom' ? controller.customProfile : undefined), controller.profileId), grudgeByPlayerId: { ...(operator.botMemory?.grudgeByPlayerId ?? {}) }, decisionLog: [...(operator.botMemory?.decisionLog ?? [])], recentBidUnits: [...(operator.botMemory?.recentBidUnits ?? [])] } } : {}),
@@ -158,6 +159,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
       : undefined
     return {
       ...legacy,
+      ...(typeof legacy.memberId === 'string' ? { memberId: legacy.memberId } : {}),
       items: (legacy.items ?? []).map((won) => ({ ...won, item: normalizeItem(won.item) })),
       cardInventory: [...(legacy.cardInventory ?? [])],
       passivityFeeCount: legacy.passivityFeeCount ?? 0,
@@ -182,7 +184,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   })
   const results = ((session.results ?? []) as RoundResult[]).map((result) => ({
     ...result,
-    turns: result.turns.map((turn) => ({ ...turn, cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
+    turns: result.turns.map((turn) => ({ ...turn, ...(typeof turn.operatorMemberId === 'string' ? { operatorMemberId: turn.operatorMemberId } : {}), ...(turn.decisionOrigin ? { decisionOrigin: turn.decisionOrigin } : {}), cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
     item: normalizeItem(result.item),
     redistributionTransferUnits: result.redistributionTransferUnits ?? null,
     autoConsumedCardIds: result.autoConsumedCardIds ?? [],
@@ -235,11 +237,13 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   }))
   const migrated: GameSession = {
     ...(session as GameSession),
-    version: 35,
+    version: 36,
     mode,
     relayMethod,
     settings,
     players,
+    careerEnabled: session.version === 36 && session.careerEnabled === true,
+    botHistoryHints: session.version === 36 && session.botHistoryHints ? { ...session.botHistoryHints } : {},
     itemDeck: (session.itemDeck ?? []).map((item) => normalizeItem(item)),
     prophecyDeck: (session.prophecyDeck ?? session.itemDeck ?? []).map((item) => normalizeItem(item)),
     roundStartBalanceUnits: { ...(session.roundStartBalanceUnits ?? Object.fromEntries(players.map((player) => [player.id, player.balanceUnits + (session.turns ?? []).filter((turn) => turn.playerId === player.id).reduce((sum, turn) => sum + turn.bidUnits, 0)]))) },
@@ -249,7 +253,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
       ? { ...session.pendingFateCoinUse, use: { ...session.pendingFateCoinUse.use } }
       : null,
     results,
-    turns: (session.turns ?? []).map((turn) => ({ ...turn, cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
+    turns: (session.turns ?? []).map((turn) => ({ ...turn, ...(typeof turn.operatorMemberId === 'string' ? { operatorMemberId: turn.operatorMemberId } : {}), ...(turn.decisionOrigin ? { decisionOrigin: turn.decisionOrigin } : {}), cardUses: [...(turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : []))] })),
     cardDeck,
     pendingCardGrants: [...(session.pendingCardGrants ?? [])],
     identityAvailableIds: enabledIdentityIds(settings.identitySettings),

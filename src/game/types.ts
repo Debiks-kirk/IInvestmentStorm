@@ -21,6 +21,15 @@ export type BotProfileId = 'steady' | 'aggressive' | 'collectorBot' | 'observer'
 export type BotProfileSelection = BotProfileId | 'custom'
 export type StrategyMode = 'value' | 'conserve' | 'collect' | 'pressure' | 'revenge' | 'cards' | 'identity' | 'comeback' | 'finalSprint'
 
+/** A durable local identity, intentionally separate from a temporary in-game seat. */
+export type MemberKind = 'human' | 'bot'
+
+export interface MemberAvatar {
+  /** One of eight built-in geometric marks; no uploaded image data is stored. */
+  shape: number
+  accent: string
+}
+
 export type PlayerController =
   | { kind: 'human' }
   | { kind: 'bot'; profileId: BotProfileSelection; difficulty: BotDifficulty; customProfile?: CustomBotProfile }
@@ -31,6 +40,8 @@ export type RelayMethod = 'rotation' | 'segments'
 
 export interface RelayOperator {
   id: string
+  /** Stable local member identity. Absent only on migrated legacy games. */
+  memberId?: string
   /** Shown only while handing the shared device to the next decision maker. */
   name: string
   controller: PlayerController
@@ -105,6 +116,30 @@ export interface BotDecisionRecord {
 export interface SeatConfig {
   name: string
   controller: PlayerController
+  /** Stable local member identity. Absent only on imported legacy presets. */
+  memberId?: string
+}
+
+/** A registered person or a persistent individual Bot. */
+export interface MemberProfile {
+  id: string
+  kind: MemberKind
+  name: string
+  avatar: MemberAvatar
+  archived: boolean
+  /** Up to three earned achievement ids pinned on the profile overview. */
+  featuredAchievementIds?: string[]
+  createdAt: string
+  updatedAt: string
+  /** Bot members own an independent strategy, difficulty and long-term memory switch. */
+  bot?: {
+    profileId: BotProfileSelection
+    difficulty: BotDifficulty
+    customProfile?: CustomBotProfile
+    memoryEnabled: boolean
+    /** A local reset does not erase career records; it only excludes older matches from future planning. */
+    memoryResetAt?: string
+  }
 }
 
 export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot' | 'prizeSwap'
@@ -360,6 +395,8 @@ export interface WonItem {
 
 export interface Player {
   id: string
+  /** Present for standard seats; relay ownership is represented by the active operator. */
+  memberId?: string
   name: string
   color: string
   balanceUnits: number
@@ -378,6 +415,10 @@ export interface RoundTurn {
   playerId: string
   /** The configured relay operator that committed this turn. */
   operatorId?: string
+  /** Durable member behind operatorId; stays meaningful after a member is renamed. */
+  operatorMemberId?: string
+  /** A spectator takeover is public in a replay but excluded from Bot career learning. */
+  decisionOrigin?: 'human' | 'bot' | 'takeover'
   bidUnits: number
   predictedPlayerId: string | null
   cardUses?: CardUse[]
@@ -540,6 +581,7 @@ export interface SpectatorEvent {
   type: SpectatorEventType
   playerId?: string
   operatorId?: string
+  operatorMemberId?: string
   /** Merchant or seller on market events. */
   counterpartyPlayerId?: string
   identityId?: IdentityId
@@ -552,7 +594,7 @@ export interface SpectatorEvent {
 }
 
 export interface GameSession {
-  version: 35
+  version: 36
   id: string
   phase: GamePhase
   mode: GameMode
@@ -560,6 +602,10 @@ export interface GameSession {
   relayMethod: RelayMethod
   settings: GameSettings
   players: Player[]
+  /** Only new v36 games contribute to long-term profiles; older saves remain playable. */
+  careerEnabled: boolean
+  /** Frozen local history hints available only to Bots that chose to remember prior matches. */
+  botHistoryHints: Record<string, BotHistoryHint>
   itemDeck: Item[]
   /** The original deck is immutable: prophets always see this version. */
   prophecyDeck: Item[]
@@ -625,6 +671,18 @@ export interface GameSession {
   tutorial?: { kind: 'firstGame' }
   createdAt: string
   updatedAt: string
+}
+
+/** A deliberately small, public-only historical prior supplied to one Bot at game start. */
+export interface BotHistoryHint {
+  memberId: string
+  opponents: Record<string, {
+    sharedMatches: number
+    rivalry: number
+    averageBidRatio: number
+    favouriteCategory?: AssetCategory
+    ransomPayRate?: number
+  }>
 }
 
 export interface PendingPrizeChange {

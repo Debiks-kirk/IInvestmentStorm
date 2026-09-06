@@ -1,5 +1,13 @@
 # 技术基线
 
+## 玩家大厅与长期战绩（v36）
+
+- `MemberProfile` 是本机永久身份：`Player.id`、`RelayOperator.id` 继续只服务当前对局，分别通过可选 `memberId` 关联档案。`RoundTurn.operatorMemberId` 与 `decisionOrigin` 用于接力任期、Bot 和人工接管归属。
+- IndexedDB 数据库 `auction-battle-career` 含 `members`、`matches`、`replays` 三个对象仓。`archiveCareerMatch` 用 `sessionId` 在同一事务中写入紧凑战绩和完整复盘，因此刷新或重复进入终局不会重复累计。
+- `GameSession.careerEnabled` 仅由 v36 新局启用；存档迁移对旧局置为 `false`，不重算历史结算。成员备份和游戏配置导出独立：前者可选包含完整复盘，后者只携带开局规则与席位。
+- `career.ts` 从结构化回合和结算字段派生战绩、关系和实绩，绝不从中文播报反推。成员大厅卡片调用 `careerRosterStats`，最多分页展示 60 人；完整关系与详细数据仅在个人页按需计算。
+- Bot 的 `botHistoryHints` 在开局生成快照。它只来自同一 Bot 成员已完成且正常结束的对局，在至少 3 次共同经历后生效；关系影响保持在已有合法近优候选内，最高 15%。
+
 ## 玩家名册与设置模式隔离
 
 - `moveRelayOperator` 是纯函数，按操作者 ID 从原数组移除并插入目标位置，保留完整控制器和模板快照；空席位继续由开局及保存校验拦截。`useRelayDrag` 使用 320ms 长按、Pointer Capture、命中检测与边缘滚动；松手提交，Escape、pointercancel 或失焦取消。
