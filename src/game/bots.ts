@@ -1,5 +1,6 @@
 import { calculateFixedAssets, fixedAssetCoins, itemFixedAssetCoins } from './assets'
 import { cardTargetScope } from './cards'
+import { connoisseurCategoryReward, connoisseurItemKey } from './connoisseur'
 import { coinsToUnits } from './engine'
 import { getIdentityDefinition } from './identities'
 import type { AssetAuctionLot, AssetCategory, BotBehavior, BotDifficulty, BotMemory, BotProfileId, BotProfileSelection, BotStrategyConfig, CardId, CardUse, GameSession, IdentityAction, IdentityId, Item, LobbyistTaskType, Player, PlayerController, StrategyMode } from './types'
@@ -32,7 +33,7 @@ export function botProfile(id: BotProfileSelection): BotProfile {
   return BOT_PROFILES.find((profile) => profile.id === id) ?? BOT_PROFILES.find((profile) => profile.id === 'adaptive') ?? BOT_PROFILES[0]
 }
 
-const IDENTITY_IDS: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker', 'investor']
+const IDENTITY_IDS: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker', 'investor', 'insurer', 'connoisseur']
 type BotStrategyInput = Partial<BotStrategyConfig> & { identityTactics?: Partial<Record<IdentityId, number>> }
 
 function boundedPercent(value: number | undefined, fallback: number): number {
@@ -44,6 +45,8 @@ export function defaultBotStrategy(profileId: BotProfileSelection = 'adaptive'):
   const profile = botProfile(profileId === 'custom' ? 'adaptive' : profileId)
   const base = (value: number) => Math.round(value * 100)
   const identityScores: Record<IdentityId, number> = {
+    insurer: .85 - profile.risk * .4,
+    connoisseur: profile.collect * .65 + profile.cards * .3 + .2,
     collector: profile.collect * .72 + .22,
     assassin: profile.revenge * .55 + profile.risk * .35 + .12,
     thief: profile.cards * .58 + profile.revenge * .28 + .16,
@@ -433,7 +436,8 @@ function marginalAssetForItem(observation: BotObservation, item: NonNullable<Bot
   const after = calculateFixedAssets([...observation.self.items, { item, roundIndex: observation.roundIndex }], collectorCategory).find((entry) => entry.category === category)?.units ?? 0
   // Collector's matching-item income is real cash at settlement, while the set value stays end-game only.
   const collectorBonus = observation.self.identity?.id === 'collector' && collectorCategory === category ? coinsToUnits(5) : 0
-  return Math.max(0, after - before) + collectorBonus
+  const connoisseurBonus = connoisseurCategoryReward(observation.self, category) + (observation.self.identity?.id === 'connoisseur' ? coinsToUnits(2) : 0)
+  return Math.max(0, after - before) + collectorBonus + connoisseurBonus
 }
 
 function reserveForPlan(observation: BotObservation, profile: BotProfile, mode: StrategyMode, behavior: BotBehavior, strategy: BotStrategyConfig, assetUnits: number): number {
@@ -617,10 +621,10 @@ function taskScore(observation: BotObservation, bidUnits: number, place: number)
   return bidUnits < targetBid ? coinsToUnits(3) : -coinsToUnits(3)
 }
 
-function predictionDecision(observation: BotObservation, ownRankingBidUnits: number, profile: BotProfile, mode: StrategyMode, behavior: BotBehavior, strategy: BotStrategyConfig, excludedTargetId?: string): { playerId: string | null; expectedUnits: number } {
-  const valueUnits = coinsToUnits(observation.item?.value ?? 0)
+function predictionDecision(observation: BotObservation, ownRankingBidUnits: number, profile: BotProfile, mode: StrategyMode, behavior: BotBehavior, strategy: BotStrategyConfig, excludedTargetId?: string, uses: CardUse[] = []): { playerId: string | null; expectedUnits: number } {
+  const valueUnits = coinsToUnits(observation.item?.value ?? 0) * uses.reduce((factor, use) => use.cardId === 'red' ? factor * 2 : use.cardId === 'black' ? factor * .5 : factor, 1)
   const gambler = observation.self.identity?.id === 'gambler'
-  const wrongPenalty = valueUnits * (gambler ? observation.gamblerWrongPenaltyMultiplier : observation.wrongPredictionMultiplier)
+  const wrongPenalty = Math.floor(Math.floor(valueUnits * (gambler ? observation.gamblerWrongPenaltyMultiplier : observation.wrongPredictionMultiplier)) * .5 ** uses.filter((use) => use.cardId === 'predictionPolicy').length)
   const skipValue = gambler ? -valueUnits * observation.gamblerSkipPenaltyMultiplier : 0
   let best = { playerId: null as string | null, expectedUnits: skipValue }
   for (const opponent of observation.opponents) {
@@ -1041,6 +1045,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     if (use.cardId === 'legendaryLoot') return total + coinsToUnits((observation.item?.value ?? 0) * (.72 + profile.collect * .28)) + assetUnits * (1 + profile.collect)
     return total
   }, 0)
+  const policyValueCache = new Map<string, number>()
   for (const plan of planCandidates(observation, difficulty, memory)) {
     const valueMultiplier = plan.cardUses.reduce((multiplier, use) => use.cardId === 'red' ? multiplier * 2 : use.cardId === 'black' ? multiplier * .5 : multiplier, 1)
     const valueUnits = coinsToUnits(observation.item?.value ?? 0) * valueMultiplier
@@ -1070,7 +1075,9 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const categorySetValue = assetUnits * (1 + Math.min(1.1, categoryItems * .16) + (collectorTarget ? .45 : 0))
       // A unique bid only preserves ranking eligibility; it does not award the collectible.
       const itemChance = botCollectibleChance(estimate.place, estimate.firstChance, estimate.uniqueChance, plan.reversalCount, observation.rewardMultipliers.length)
-      const expectedReward = estimate.uniqueChance * valueUnits * rewardMultiplier + itemChance * categorySetValue * assetWeight
+      const insurerRefund = observation.self.identity?.id === 'insurer' ? Math.floor(bidUnits * .75) * (1 - (rewardMultiplier > 0 ? estimate.uniqueChance : 0)) : 0
+      const triumphRefund = plan.cardUses.filter((use) => use.cardId === 'triumphRebate').length * Math.floor(bidUnits / 3) * itemChance
+      const expectedReward = estimate.uniqueChance * valueUnits * rewardMultiplier + itemChance * categorySetValue * assetWeight + insurerRefund + triumphRefund
       const invertedPlace = estimate.place <= observation.rewardMultipliers.length ? observation.rewardMultipliers.length - estimate.place + 1 : estimate.place
       const invertedReward = estimate.uniqueChance * (valueUnits * (observation.rewardMultipliers[invertedPlace - 1] ?? 0) + (invertedPlace === 1 ? categorySetValue * assetWeight : 0))
       const reversalUncertainty = hedgesReversals && plan.identityAction?.type !== 'reverserInvert'
@@ -1105,7 +1112,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
         : (observation.self.passivityFeeCount ?? 0) === 1 ? coinsToUnits(3)
           : coinsToUnits(5)
       const passivityCardRisk = (observation.self.passivityFeeCount ?? 0) >= 2 && observation.self.cardInventory.length > 0 ? coinsToUnits(1.5 + profile.cards) : 0
-      const passivityPenalty = likelyMinimumCommitment && !likelyRewarded && !likelyOpeningLow
+      const passivityPenalty = observation.self.identity?.id !== 'insurer' && likelyMinimumCommitment && !likelyRewarded && !likelyOpeningLow
         ? (nextPassivityFee + passivityCardRisk) * (1.25 + Math.max(0, behavior.reserveBias) * .2)
         : 0
       const categoryMomentum = categoryItems > 0 ? estimate.uniqueChance * coinsToUnits(Math.min(1.6, categoryItems * (.28 + profile.collect * .18))) * (collectorTarget ? 1.6 : 1) : 0
@@ -1138,8 +1145,17 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
           : plan.identityAction?.type === 'lobbyistContract' ? coinsToUnits(.7 + behavior.antiLeaderBias * .35 + (plan.identityAction.specified ? .8 : 0)) * tactic('lobbyist')
             : plan.identityAction?.type === 'reverserInvert' ? (inversionSetup + reverserFutureValue) * tactic('reverser')
               : investmentValue
+      const policyValue = plan.cardUses.some((use) => use.cardId === 'predictionPolicy') ? (() => {
+        const key = `${rankingBidUnits}:${investment?.targetPlayerId ?? ''}:${valueMultiplier}`
+        let value = policyValueCache.get(key)
+        if (value === undefined) {
+          value = predictionDecision(observation, rankingBidUnits, profile, mode, behavior, memory.strategy, investment?.targetPlayerId, plan.cardUses).expectedUnits - predictionDecision(observation, rankingBidUnits, profile, mode, behavior, memory.strategy, investment?.targetPlayerId, plan.cardUses.filter((use) => use.cardId !== 'predictionPolicy')).expectedUnits
+          policyValueCache.set(key, value)
+        }
+        return value
+      })() : 0
       const cardRetention = plan.cardUses.length * coinsToUnits(.15 + (1 - profile.cards) * .85) * Math.min(1, (observation.totalRounds - observation.roundIndex - 1) / 2)
-      const score = expectedReward - cashRisk - bankruptcyPenalty - passivityPenalty - reversalUncertainty - latentCardRisk + categoryMomentum + kidnapValue + boldness + blockValue + expertHumanChallenge + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) - cardRetention + identityValue + fingerprintBonus + reverserMisdirection - tiePenalty
+      const score = expectedReward + policyValue - cashRisk - bankruptcyPenalty - passivityPenalty - reversalUncertainty - latentCardRisk + categoryMomentum + kidnapValue + boldness + blockValue + expertHumanChallenge + grudgeKidnapBonus + inversionSetup + taskScore(observation, rankingBidUnits, estimate.place) + cardUtility(plan.cardUses) - cardRetention + identityValue + fingerprintBonus + reverserMisdirection - tiePenalty
       const market = marketAt(observation.self.balanceUnits - bidUnits - actionCost - reserveUnits)
       scored.push({ ...plan, bidUnits, rankingBidUnits, score: score + market.score, auctionBids: market.bids, place: estimate.place, effectivePlace, firstChance: estimate.firstChance })
     }
@@ -1151,7 +1167,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
   const best = hasMarket || selected.identityAction?.type === 'nightwalkerDoubleBid' ? selected : applyBidJitter(selected, observation, profile, difficulty, mode, memory)
   const cardUses = best.cardUses.map((use) => use.cardId === 'fateCoin' ? { ...use, coinResult: hash(`${observation.sessionSeed}:${observation.playerId}:${observation.roundIndex}:coin`) % 2 === 0 ? 'heads' as const : 'tails' as const } : use)
   const identityAction = best.identityAction
-  const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode, behavior, memory.strategy, identityAction?.type === 'invest' ? identityAction.targetPlayerId : undefined)
+  const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode, behavior, memory.strategy, identityAction?.type === 'invest' ? identityAction.targetPlayerId : undefined, cardUses)
   const predictionText = prediction.playerId ? `预测 ${observation.opponents.find((opponent) => opponent.id === prediction.playerId)?.name ?? '对手'} 的期望收益 ${Math.round(prediction.expectedUnits) / 2}。` : '预测期望不够，选择跳过。'
   const specialText = best.specialReason ? `${best.specialReason}${best.identityAction?.type === 'reverserInvert' ? ` 预计先以第 ${best.place} 名进入获奖区，再倒转为第 ${best.effectivePlace} 名。` : ''}` : identityAction?.type === 'nightwalkerDoubleBid' ? `发动双影下注：先报 ${best.bidUnits / 2}，再保留 ${identityAction.shadowBidUnits / 2} 的夜行影价。` : ''
   const mixedText = !best.specialReason && !identityAction ? ' 在高价值方案中按性格、资金底线与局势做了带权混合，并加入受控的报价波动。' : ''
@@ -1169,7 +1185,7 @@ export function decideBotIdentity({ choices, player, players, cardOfferIds }: { 
     const index = strategy.identityPriority.indexOf(id)
     return index < 0 ? 0 : (IDENTITY_IDS.length - index) * .18
   }
-  const scores: Record<IdentityId, number> = { prophet: .4 + priorityBonus('prophet'), gambler: profile.risk + priorityBonus('gambler'), assassin: profile.revenge + profile.risk + priorityBonus('assassin'), collector: profile.collect + priorityBonus('collector'), thief: profile.cards + profile.revenge + priorityBonus('thief'), merchant: profile.cards + priorityBonus('merchant'), reverser: profile.risk + priorityBonus('reverser'), lobbyist: profile.identity + profile.revenge + priorityBonus('lobbyist'), nightwalker: profile.risk + profile.identity * .55 + priorityBonus('nightwalker'), investor: profile.collect + profile.risk * .35 + priorityBonus('investor') }
+  const scores: Record<IdentityId, number> = { insurer: 1 - profile.risk * .4 + priorityBonus('insurer'), connoisseur: profile.collect + profile.cards * .5 + priorityBonus('connoisseur'), prophet: .4 + priorityBonus('prophet'), gambler: profile.risk + priorityBonus('gambler'), assassin: profile.revenge + profile.risk + priorityBonus('assassin'), collector: profile.collect + priorityBonus('collector'), thief: profile.cards + profile.revenge + priorityBonus('thief'), merchant: profile.cards + priorityBonus('merchant'), reverser: profile.risk + priorityBonus('reverser'), lobbyist: profile.identity + profile.revenge + priorityBonus('lobbyist'), nightwalker: profile.risk + profile.identity * .55 + priorityBonus('nightwalker'), investor: profile.collect + profile.risk * .35 + priorityBonus('investor') }
   const identityId = [...choices].sort((left, right) => scores[right] - scores[left] || left.localeCompare(right))[0] ?? choices[0]
   const target = players.filter((entry) => entry.id !== player.id)[hash(`${player.id}:${identityId}`) % Math.max(1, players.length - 1)]
   const categories: AssetCategory[] = ['leisure', 'transport', 'luxury', 'property']
@@ -1249,7 +1265,7 @@ function assetAuctionValues({ player, lots, roundIndex, totalRounds, sessionSeed
     .filter((lot) => lot.sellerId !== player.id)
     .map((lot) => {
       const afterAssets = calculateFixedAssets([...player.items, { item: lot.item, roundIndex }], collectorCategory).reduce((total, entry) => total + entry.units, 0)
-      const assetGain = Math.max(0, afterAssets - beforeAssets)
+      const assetGain = Math.max(0, afterAssets - beforeAssets) + connoisseurCategoryReward(player, lot.item.category) + (player.identity?.id === 'connoisseur' && !player.identity.connoisseurItemKeys?.includes(connoisseurItemKey({ item: lot.item, roundIndex: lot.itemRoundIndex })) ? coinsToUnits(2) : 0)
       const matchingItems = player.items.filter((won) => won.item.category === lot.item.category).length
       const collectorMatch = collectorCategory === lot.item.category
       const marketHeat = categoryHeat(lot.item.category)
@@ -1481,7 +1497,7 @@ export function decideBotKidnapResponse({ player, item, ransomUnits, roundIndex,
   const remainingCash = player.balanceUnits - ransomUnits
   const roundsLeft = Math.max(0, totalRounds - roundIndex - 1)
   const cashFloor = coinsToUnits(2 + roundsLeft * (1.2 + Math.max(0, behavior.reserveBias)))
-  const itemUrgency = coinsToUnits(item.value * (.18 + profile.collect * .12)) + assetLossUnits * (.72 + profile.collect * .32) + collectorCashUnits + Math.max(0, behavior.assetFocusBias) * coinsToUnits(.45)
+  const itemUrgency = coinsToUnits(item.value * (.18 + profile.collect * .12)) + assetLossUnits * (.72 + profile.collect * .32) + collectorCashUnits + connoisseurCategoryReward(player, item.category) + Math.max(0, behavior.assetFocusBias) * coinsToUnits(.45)
   const cashStress = Math.max(0, cashFloor - remainingCash) * (1.05 - profile.risk * .28)
   const lateGameWeight = roundIndex >= totalRounds - 2 ? 1.2 : 1
   // Paying ransom is a personality decision around an economic threshold. The

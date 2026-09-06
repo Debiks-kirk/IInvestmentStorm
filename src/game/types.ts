@@ -142,9 +142,9 @@ export interface MemberProfile {
   }
 }
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot' | 'prizeSwap'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot' | 'prizeSwap' | 'triumphRebate' | 'predictionPolicy'
 
-export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker' | 'investor'
+export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker' | 'investor' | 'insurer' | 'connoisseur'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
 
 export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
@@ -301,6 +301,8 @@ export interface ProphetIdentityProgress {
 }
 
 export interface PlayerIdentity {
+  connoisseurCategories?: AssetCategory[]
+  connoisseurItemKeys?: string[]
   id: IdentityId
   targetPlayerId?: string
   collectorCategory?: AssetCategory

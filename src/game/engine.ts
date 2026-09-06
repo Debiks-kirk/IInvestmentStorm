@@ -1,5 +1,6 @@
 import { calculateFixedAssets } from './assets'
 import { removeOneCard } from './cards'
+import { rewardConnoisseurItem } from './connoisseur'
 import { defaultIdentitySettings, taskLabel } from './identities'
 import type {
   CardEffect,
@@ -64,6 +65,8 @@ export function floorToHalfUnits(units: number): number {
 }
 
 interface SettlementInput {
+  cardDeck?: CardId[]
+  disabledCardIds?: CardId[]
   playersAfterBids: Player[]
   turns: RoundTurn[]
   item: Item
@@ -155,7 +158,7 @@ function valueFactor(uses: CardUse[]): number {
   }, 1)
 }
 
-export function settleRound(input: SettlementInput): { players: Player[]; result: RoundResult; identityContracts: LobbyistContract[]; identityEvents: IdentityEvent[] } {
+export function settleRound(input: SettlementInput): { players: Player[]; result: RoundResult; identityContracts: LobbyistContract[]; identityEvents: IdentityEvent[]; cardDeck: CardId[] } {
   const { playersAfterBids, turns: submittedTurns, item, roundIndex, rewardMultipliers, correctPredictionMultiplier, wrongPredictionMultiplier, fairnessOrderIds } = input
   let turns = submittedTurns
   const identitySettings = input.identitySettings ?? defaultIdentitySettings(false)
@@ -180,6 +183,18 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   const cardEffects: CardEffect[] = []
   const identityEvents: IdentityEvent[] = []
   const roll = input.roll ?? Math.random
+  let cardDeck = [...(input.cardDeck ?? [])]
+  const grantAcquisition = (player: Player, won: Player['items'][number]) => {
+    const reward = rewardConnoisseurItem(player, won, roundIndex, cardDeck, input.disabledCardIds, roll)
+    cardDeck = reward.cardDeck
+    if (reward.event) {
+      identityEvents.push(reward.event)
+      deltaByPlayer.get(player.id)!.identityUnits += reward.event.deltaUnits
+    }
+  }
+  // Market purchases arrive before the ordinary prize. Previously rewarded items
+  // are idempotent, including unsold lots returned from escrow.
+  for (const player of players) for (const won of player.items) grantAcquisition(player, won)
   const usedCards = turns.flatMap((turn) => cardUses(turn).map((use) => ({ playerId: turn.playerId, use })))
   // 偷看底牌会在私密操作页立刻给出信息，无法被回合结算时才生效的护盾追溯。
   // 反弹护盾是被动消耗品：持有者第一次受到指定型结算道具影响时自动反弹并消耗。
@@ -370,6 +385,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     cardEffects.push(cardEffect('swap', '两笔投资的排名金额已互换。'))
   }
   // 香蕉皮在换日之后生效，确保被指定的玩家最终完全退出本轮排名。
+  const bananaRefunds = new Map<string, number>()
   for (const { use, targetPlayerId } of targetedCardUses) {
     if (use.cardId !== 'bananaPeel') continue
     const target = playerById.get(targetPlayerId)
@@ -378,6 +394,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     if (!target || !targetTurn || !targetDelta) continue
     const refundUnits = floorToHalfUnits(targetTurn.bidUnits / 2)
     target.balanceUnits += refundUnits
+    bananaRefunds.set(targetPlayerId, (bananaRefunds.get(targetPlayerId) ?? 0) + refundUnits)
     targetDelta.cardUnits += refundUnits
     rankingBids.set(targetPlayerId, 0)
     voidedBidPlayerIds.add(targetPlayerId)
@@ -514,6 +531,29 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   if (kidnapAttempt && !legendaryLoot && itemWinnerId && kidnapAttempt.targetPlayerIds.includes(itemWinnerId) && itemWinnerId !== kidnapAttempt.kidnapperId) {
     kidnapAttempt = { ...kidnapAttempt, status: 'pending', capturedPlayerId: itemWinnerId }
   }
+  const itemRecipient = itemWinnerId ? playerById.get(itemWinnerId) : undefined
+  if (itemRecipient && kidnapAttempt?.status !== 'pending') {
+    grantAcquisition(itemRecipient, { item, roundIndex })
+  }
+  for (const turn of turns) {
+    const player = playerById.get(turn.playerId)
+    const delta = deltaByPlayer.get(turn.playerId)
+    if (!player || !delta) continue
+    if (player.identity?.id === 'insurer' && !rankings.some((entry) => entry.playerId === player.id)) {
+      const loss = Math.max(0, turn.bidUnits - (bananaRefunds.get(player.id) ?? 0))
+      const refund = floorToHalfUnits(loss * .75)
+      player.balanceUnits += refund
+      delta.identityUnits += refund
+      identityEvents.push({ playerId: player.id, identityId: 'insurer', roundIndex, title: '保险师返还', detail: `未进入获奖区，下注净损失 ${formatCoins(loss)} 金币，返还 ${formatCoins(refund)} 金币。`, deltaUnits: refund })
+    }
+    const count = cardUses(turn).filter((use) => use.cardId === 'triumphRebate').length
+    if (count) {
+      const refund = winnerId === player.id ? floorToHalfUnits(turn.bidUnits / 3) * count : 0
+      player.balanceUnits += refund
+      delta.cardUnits += refund
+      cardEffects.push(cardEffect('triumphRebate', `${cardCopiesLabel('凯旋礼金', count)}${winnerId === player.id ? `生效：最终第一名返还 ${formatCoins(refund)} 金币。` : '未触发：使用者未获最终第一名。'}`))
+    }
+  }
   if (winnerId && investments.some((investment) => investment.targetPlayerId === winnerId)) {
     identityEvents.push({ playerId: winnerId, identityId: 'investor', roundIndex, title: '获得投资回执', detail: itemWinnerId === winnerId ? `你获得了本轮拍品 ${item.emoji}${item.name}。` : `你拿下第一名，但拍品 ${item.emoji}${item.name} 因投资贡献归属他人。`, deltaUnits: 0 })
     if (itemWinnerId && itemWinnerId !== winnerId) identityEvents.push({ playerId: itemWinnerId, identityId: 'investor', roundIndex, title: '价值投资拍品', detail: `你的单笔投资贡献最高，获得了 ${item.emoji}${item.name}。`, deltaUnits: 0 })
@@ -539,11 +579,14 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     } else {
       const gambler = player.identity?.id === 'gambler'
       const availableBeforePrediction = player.balanceUnits
-      const due = floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerWrongPenaltyMultiplier : wrongPredictionMultiplier))
+      const policies = cardUses(turn).filter((use) => use.cardId === 'predictionPolicy').length
+      const policyFactor = .5 ** policies
+      const due = floorToHalfUnits(floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerWrongPenaltyMultiplier : wrongPredictionMultiplier)) * policyFactor)
+      if (policies) cardEffects.push(cardEffect('predictionPolicy', `${cardCopiesLabel('失算保单', policies)}生效：猜错罚款按 ${(policyFactor * 100).toFixed(2).replace(/\.?0+$/, '')}% 结算。`))
       const paid = Math.min(availableBeforePrediction, due)
       player.balanceUnits -= paid
       if (gambler) {
-        const publicDue = floorToHalfUnits(effectiveValueUnits * wrongPredictionMultiplier)
+        const publicDue = floorToHalfUnits(floorToHalfUnits(effectiveValueUnits * wrongPredictionMultiplier) * policyFactor)
         delta.predictionUnits -= paid
         delta.publicPredictionUnits -= publicDue
         identityEvents.push({ playerId: player.id, identityId: 'gambler', roundIndex, title: '赌徒预测结算', detail: `结算页按普通玩家显示“猜错 −${formatCoins(publicDue)}”；实际作为赌徒支付 ${formatCoins(paid)} 金币。`, deltaUnits: -paid })
@@ -754,7 +797,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     for (const player of players) {
       const commitment = commitmentByPlayerId.get(player.id) ?? 0
       const startedAtMinimum = (input.roundStartBalanceUnits[player.id] ?? player.balanceUnits) === minimumStartBalance
-      if (commitment !== minimumCommitment || rewardedPlayerIds.has(player.id) || startedAtMinimum) continue
+      if (player.identity?.id === 'insurer' || commitment !== minimumCommitment || rewardedPlayerIds.has(player.id) || startedAtMinimum) continue
 
       const occurrence = (player.passivityFeeCount ?? 0) + 1
       const feeUnits = coinsToUnits(occurrence === 1 ? 1 : occurrence === 2 ? 3 : 5)
@@ -814,7 +857,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     kidnapAttempt,
     totalAssetUnitsAfter: Object.fromEntries(rankFinalPlayers(players).map((standing) => [standing.player.id, standing.totalAssetUnits])),
   }
-  return { players, result, identityContracts, identityEvents }
+  return { players, result, identityContracts, identityEvents, cardDeck }
 }
 
 export function rankFinalPlayers(players: Player[]): FinalStanding[] {

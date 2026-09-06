@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBotObservation, decideBotKidnapResponse, decideBotTurn, updateBotGrudges } from '../src/game/bots'
 import { drawCard } from '../src/game/cards'
+import { rewardConnoisseurItem } from '../src/game/connoisseur'
 import { rankFinalPlayers, settleRound } from '../src/game/engine'
 import { createPlayerIdentity } from '../src/game/identities'
 import { ITEM_POOL } from '../src/game/items'
@@ -8,7 +9,7 @@ import { createDefaultSettings, createSession, prepareCardGrants, roundPlayerInd
 import type { BotProfileId, CardId, IdentityAction, IdentityId, Player, RoundTurn, SeatConfig } from '../src/game/types'
 
 const PROFILES: BotProfileId[] = ['steady', 'aggressive', 'collectorBot', 'observer', 'revenge', 'cards', 'identityBot', 'comeback', 'blocker', 'adaptive']
-const IDENTITIES: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker', 'investor']
+const IDENTITIES: IdentityId[] = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'reverser', 'lobbyist', 'nightwalker', 'investor', 'insurer', 'connoisseur']
 const PLAYER_COUNT = 6
 
 type Aggregate = {
@@ -177,6 +178,8 @@ function playMatch(seed: string, profileIds: BotProfileId[], forcedIdentity?: { 
         : entry)
     }
     const settled = settleRound({
+      cardDeck,
+      disabledCardIds: settings.disabledCardIds,
       playersAfterBids: submittedPlayers,
       turns,
       item: deck[roundIndex],
@@ -191,6 +194,7 @@ function playMatch(seed: string, profileIds: BotProfileId[], forcedIdentity?: { 
       identityContracts,
       roll: random,
     })
+    cardDeck = settled.cardDeck
     let resolvedPlayers = settled.players
     let resolvedResult = settled.result
     // A pending kidnap is normally resolved in its public UI. Here the captured
@@ -209,6 +213,16 @@ function playMatch(seed: string, profileIds: BotProfileId[], forcedIdentity?: { 
           if (!payRansom && player.id === kidnapper.id) return { ...player, items: [...player.items, { item: settled.result.item, roundIndex }] }
           return player
         })
+        if (payRansom) {
+          const recipient = resolvedPlayers.find((player) => player.id === captured.id)!
+          const reward = rewardConnoisseurItem(recipient, { item: settled.result.item, roundIndex }, roundIndex, cardDeck, settings.disabledCardIds, random)
+          cardDeck = reward.cardDeck
+          if (reward.event) {
+            settled.result.identityEvents.push(reward.event)
+            const delta = settled.result.deltas.find((entry) => entry.playerId === captured.id)
+            if (delta) delta.identityUnits += reward.event.deltaUnits
+          }
+        }
         resolvedResult = {
           ...settled.result,
           kidnapAttempt: updatedAttempt,

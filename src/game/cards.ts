@@ -32,6 +32,8 @@ export function cardTargetScope(cardId: CardId): CardTargetScope {
 }
 
 export const CARD_DEFINITIONS: CardDefinition[] = [
+  { id: 'triumphRebate', name: '凯旋礼金', symbol: '♕', description: '最终第一名返还下注的 1/3。', needsTarget: false, rarity: 'common' },
+  { id: 'predictionPolicy', name: '失算保单', symbol: '▤', description: '本轮猜错罚款减半。', needsTarget: false, rarity: 'common' },
   { id: 'red', name: '红卡', symbol: '◆', description: '本轮价值 ×2。', needsTarget: false, rarity: 'common' },
   { id: 'peek', name: '偷看底牌', symbol: '◉', description: '查看一名已提交者的下注。', needsTarget: true, rarity: 'common' },
   { id: 'swap', name: '偷天换日', symbol: '↔', description: '交换一人的排名下注。', needsTarget: true, rarity: 'rare' },
@@ -53,7 +55,7 @@ export function getCardDefinition(cardId: CardId): CardDefinition {
 
 /** Repeatable resource/value effects; ranking and prize replacement stay once per turn. */
 export function canStackCard(cardId: CardId): boolean {
-  return ['red', 'black', 'redistribute', 'peek', 'fateCoin'].includes(cardId)
+  return ['red', 'black', 'redistribute', 'peek', 'fateCoin', 'triumphRebate', 'predictionPolicy'].includes(cardId)
 }
 
 export function validCardMultiplicity(cardIds: CardId[]): boolean {

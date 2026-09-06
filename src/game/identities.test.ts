@@ -57,7 +57,7 @@ describe('身份选角与私密卡牌', () => {
     const settings = defaultIdentitySettings(true)
     settings.identityChoiceCount = 4
     expect(dealIdentityChoices([], settings, () => .2)).toHaveLength(4)
-    settings.disabledIdentityIds = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'investor']
+    settings.disabledIdentityIds = ['prophet', 'gambler', 'assassin', 'collector', 'thief', 'merchant', 'investor', 'insurer', 'connoisseur']
     expect(identityValidationErrors(settings, 3)).toContain('身份系统至少需要启用 4 个身份')
   })
 

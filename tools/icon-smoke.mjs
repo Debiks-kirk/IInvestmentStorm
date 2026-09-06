@@ -7,7 +7,7 @@ export async function runIconFlow(page) {
   await page.getByRole('button', { name: /游戏图鉴/ }).click()
   for (const width of [360, 844, 1366]) {
     await page.setViewportSize({ width, height: width === 844 ? 390 : 800 })
-    for (const [name, count] of [['身份', 10], ['道具', 13]]) {
+    for (const [name, count] of [['身份', 12], ['道具', 15]]) {
       await page.getByRole('tab', { name: new RegExp(name) }).click()
       assert.equal(await page.locator('.collection-grid .game-art').count(), count)
       const sizes = await page.locator('.collection-grid .game-art').evaluateAll(async (images) => {
@@ -21,14 +21,16 @@ export async function runIconFlow(page) {
           context.drawImage(image, 0, 0)
           return { src: image.currentSrc, width: rect.width, height: rect.height,
             hostWidth: host.width, hostHeight: host.height,
-            naturalWidth: image.naturalWidth, alt: image.alt,
+            naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight, alt: image.alt,
             backing: getComputedStyle(image.parentElement).backgroundColor,
             alpha: context.getImageData(0, 0, 1, 1).data[3] }
         })
       })
       for (const size of sizes) {
-        assert.match(size.src, /minimal-v1\/(roles|cards)\/[^/]+\.webp$/)
-        assert.equal(size.naturalWidth, 256)
+        assert.match(size.src, /(?:minimal-v1\/(?:roles|cards)\/[^/]+\.webp|expansion-v1\/(?:roles|cards)\/[^/]+\.png)$/)
+        assert.equal(size.naturalWidth, size.naturalHeight)
+        if (size.src.includes('/expansion-v1/')) assert.ok(size.naturalWidth >= 256)
+        else assert.equal(size.naturalWidth, 256)
         assert.equal(size.alpha, 0, 'Transparent corners must survive encoding')
         assert.equal(size.backing, 'rgb(243, 238, 227)')
         assert.equal(size.alt, '')

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 import { runIconFlow } from './icon-smoke.mjs'
 import { runSetupModalFlow } from './setup-modal-smoke.mjs'
@@ -557,6 +558,64 @@ async function runStackedCardsFlow(page) {
   await page.getByText(/两张红卡生效/).waitFor()
 }
 
+async function runExpansionFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await resetLocalGame(page)
+  await page.reload()
+  await page.getByRole('button', {name:'创建新对局'}).click()
+  await page.locator('#rounds').fill('2')
+  await page.getByRole('button', {name:/高级规则/}).click()
+  await disableIdentities(page)
+  await page.locator('#card-probability').fill('0')
+  await finishAdvancedSettings(page)
+  await page.getByRole('button', {name:/开始这局/}).click()
+  await page.evaluate(() => {
+    const key='who-is-raising:session:v1', session=JSON.parse(localStorage.getItem(key))
+    const identity=(id)=>({id,thiefSuccesses:0,lobbyistNextFree:false,lobbyistLastIssuedRound:-1})
+    session.players[0].identity=identity('connoisseur')
+    session.players[0].cardInventory=['triumphRebate','triumphRebate','predictionPolicy']
+    session.players[2].identity=identity('insurer')
+    session.players[2].cardInventory=['predictionPolicy']
+    session.settings.systemAuctionCardsPerRound=0
+    session.settings.rewardMultipliers=[2,1]
+    localStorage.setItem(key,JSON.stringify(session))
+  })
+  await page.reload()
+  await page.getByRole('button',{name:/继续第 1 轮/}).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  await dismissPrivateNotices(page)
+  await setRange(page.locator('.range--bid'), 18)
+  for (const card of ['凯旋礼金','凯旋礼金','失算保单']) {
+    await openBackpack(page)
+    const choice=page.locator('.card-choice').filter({hasText:card})
+    await choice.locator('img').evaluate(image=>image.decode())
+    await choice.click()
+    await page.getByRole('button',{name:'确认使用',exact:true}).click()
+  }
+  await openBackpack(page)
+  await page.getByRole('button',{name:'撤销一张失算保单'}).click()
+  await page.getByRole('button',{name:'关闭背包'}).click()
+  await page.getByRole('button',{name:'确认提交',exact:true}).click()
+  await page.getByRole('button',{name:'确定提交',exact:true}).click()
+  await submitPrivateTurn(page,4)
+  await submitPrivateTurn(page,2,1,true)
+  await page.getByRole('button',{name:'揭晓本轮结果'}).click()
+  await page.getByText(/两张凯旋礼金生效/).waitFor()
+  const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('who-is-raising:session:v1')))
+  if(saved.results[0].deltas[0].cardUnits!==12) throw new Error('两张凯旋礼金未按实际下注逐张返还')
+  if(saved.players[0].identity.connoisseurItemKeys.length!==1 || saved.players[0].identity.connoisseurCategories.length!==1) throw new Error('鉴赏家奖励未持久化')
+  if(!saved.pendingIdentityNotices.some(notice=>notice.title==='鉴赏家收藏奖励' && notice.detail.includes('获得'))) throw new Error('缺少鉴赏家具体道具奖励通知')
+  if(saved.results[0].deltas[2].identityUnits!==1) throw new Error('保险师落榜退款未进入实际结算')
+  if(!saved.results[0].cardEffects.some(effect=>effect.cardId==='predictionPolicy')) throw new Error('保单猜错减免未进入实际结算')
+  await page.screenshot({path:'.artifacts/expansion-settlement-360.png',fullPage:true})
+  await page.reload()
+  const restored=await page.evaluate(async()=>{ const { loadSession }=await import('/src/game/storage.ts'); return loadSession() })
+  // Normalize undefined optional properties introduced by migration, not the
+  // reward arrays or balances; comparison still uses the actual loaded state.
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.players)), saved.players, '刷新改变了新身份余额或奖励记录')
+}
+
 async function runPresetFlow(page) {
   await page.goto('http://127.0.0.1:5181')
   await resetLocalGame(page)
@@ -1091,7 +1150,13 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'stacked-cards') {
+  if (process.env.SMOKE_ONLY === 'expansion') {
+    await runIconFlow(page)
+    await page.setViewportSize({width:360,height:640})
+    await runExpansionFlow(page)
+    await runBotJointFlow(page, true)
+    console.log('新增身份、道具、图标、逐张使用、结算奖励及刷新专项通过。')
+  } else if (process.env.SMOKE_ONLY === 'stacked-cards') {
     await runStackedCardsFlow(page)
     console.log('同玩家双红卡、多硬币、逐张撤销、刷新及实际提交结算通过。')
   } else if (process.env.SMOKE_ONLY === 'bot-joint') {

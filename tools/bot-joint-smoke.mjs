@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict'
 
-export async function runBotJointFlow(page) {
+async function acknowledgePublicEffects(page) {
+  for (let i = 0; i < 4; i++) {
+    const banana = page.getByRole('dialog', { name: '香蕉皮！', exact: true })
+    const swap = page.getByRole('button', { name: /继续揭晓/ })
+    if (await banana.isVisible()) await banana.getByRole('button', { name: '知道了', exact: true }).click()
+    else if (await swap.isVisible()) await swap.click()
+    else break
+  }
+}
+
+export async function runBotJointFlow(page, expansion = false) {
   for (const count of [3, 6, 10]) {
     await page.goto('http://127.0.0.1:5181')
-    await page.evaluate(async (count) => {
+    await page.evaluate(async ({ count, expansion }) => {
       const { createSession, createDefaultSettings } = await import('/src/game/session.ts')
       const { createPlayerIdentity } = await import('/src/game/identities.ts')
       const { emptyBotMemory, defaultBotStrategy } = await import('/src/game/bots.ts')
@@ -16,22 +26,23 @@ export async function runBotJointFlow(page) {
       session.pendingSpectatorEvents = []
       session.players.forEach((player, i) => {
         player.balanceUnits = 100
-        player.identity = createPlayerIdentity(['investor', 'nightwalker', 'collector'][i % 3])
+        player.identity = createPlayerIdentity((expansion ? ['connoisseur', 'insurer', 'investor'] : ['investor', 'nightwalker', 'collector'])[i % 3])
         player.botMemory = emptyBotMemory(`${session.id}:${i}`, { ...defaultBotStrategy(), collection: 85, bankroll: 10 })
-        player.cardInventory = []
+        player.cardInventory = expansion ? ['triumphRebate', 'predictionPolicy'] : []
       })
       const item = { ...session.itemDeck[0], id: 'joint-auction-item', category: 'property', value: 12 }
       session.roundAssetAuctions = [{ id: 'joint-asset', sellerId: session.players.at(-1).id, item, itemRoundIndex: 0, roundIndex: 0, minimumBidUnits: 8 }]
       session.players[0].items = Array.from({ length: 3 }, (_, i) => ({ item: { ...item, id: `owned-${i}` }, roundIndex: 0 }))
       session.roundStartBalanceUnits = Object.fromEntries(session.players.map((p) => [p.id, p.balanceUnits]))
       localStorage.setItem('who-is-raising:session:v1', JSON.stringify(session))
-    }, count)
+    }, { count, expansion })
     await page.reload()
     await page.getByRole('button', { name: /继续第/ }).click()
     await page.getByLabel('观战速度').selectOption('4')
     for (let round = 0; round < 3; round += 1) {
       const next = page.getByRole('button', { name: round === 2 ? /查看最终排行榜/ : '进入下一轮' })
       await next.waitFor({ timeout: 60000 })
+      await acknowledgePublicEffects(page)
       const state = await page.evaluate(() => JSON.parse(localStorage.getItem('who-is-raising:session:v1')))
       assert.equal(state.results.length, round + 1)
       assert.equal(state.turns.length, count)
@@ -43,6 +54,7 @@ export async function runBotJointFlow(page) {
         await page.reload()
         await page.getByRole('button', { name: /继续第/ }).click()
         await next.waitFor({ timeout: 60000 })
+        await acknowledgePublicEffects(page)
         const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('who-is-raising:session:v1')))
         assert.deepEqual(restored.turns, state.turns)
         assert.deepEqual(restored.players.map((p) => p.balanceUnits), state.players.map((p) => p.balanceUnits))
@@ -50,6 +62,6 @@ export async function runBotJointFlow(page) {
       await next.click()
     }
     await page.getByText('全局结束', { exact: true }).waitFor({ timeout: 30000 })
-    await page.screenshot({ path: `.artifacts/bot-joint-final-${count}.png`, fullPage: true })
+    await page.screenshot({ path: `.artifacts/bot-joint-${expansion ? 'expansion-' : ''}final-${count}.png`, fullPage: true })
   }
 }

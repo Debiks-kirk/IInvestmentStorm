@@ -5,7 +5,9 @@ const ICON_ROOT = `${import.meta.env.BASE_URL}assets/icons/minimal-v1`
 
 /** Labels remain in the surrounding UI; the image is decorative and never intercepts input. */
 function GameIcon({ kind, id }: { kind: 'cards' | 'roles'; id: CardId | IdentityId }) {
-  return <img className="game-art" src={`${ICON_ROOT}/${kind}/${id}.webp`} alt="" aria-hidden="true" width="256" height="256" decoding="async" draggable={false} />
+  const expansion = ['insurer', 'connoisseur', 'triumphRebate', 'predictionPolicy'].includes(id)
+  const src = expansion ? `${import.meta.env.BASE_URL}assets/icons/expansion-v1/${kind}/${id}.png` : `${ICON_ROOT}/${kind}/${id}.webp`
+  return <img className="game-art" src={src} alt="" aria-hidden="true" width="256" height="256" decoding="async" draggable={false} />
 }
 
 export function CardIcon({ id }: { id: CardId }) {

@@ -167,6 +167,8 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         id: identity.id,
         targetPlayerId: identity.targetPlayerId,
         collectorCategory: identity.collectorCategory,
+        ...(Array.isArray(identity.connoisseurCategories) ? { connoisseurCategories: [...new Set(identity.connoisseurCategories.filter((category) => ['leisure', 'transport', 'luxury', 'property'].includes(category)))] } : {}),
+        ...(Array.isArray(identity.connoisseurItemKeys) ? { connoisseurItemKeys: [...new Set(identity.connoisseurItemKeys.filter((key) => typeof key === 'string'))] } : {}),
         thiefSuccesses: identity.thiefSuccesses ?? 0,
         merchantAuctionCount: identity.merchantAuctionCount ?? (identity.merchantAuctionUsed ? 1 : 0),
         merchantLastAuctionRound: identity.merchantLastAuctionRound ?? null,

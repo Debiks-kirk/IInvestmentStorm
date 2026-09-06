@@ -4,6 +4,8 @@ import { createDefaultSettings, createSession } from './session'
 import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers, validateHumanPlayerSelection } from './storage'
 import { defaultBotStrategy } from './bots'
 import { createCardDeck } from './cards'
+import { createPlayerIdentity } from './identities'
+import { rewardConnoisseurItem } from './connoisseur'
 
 const values = new Map<string, string>()
 const localStorageMock = {
@@ -19,6 +21,26 @@ beforeEach(() => {
 
 afterEach(() => {
   values.clear()
+})
+
+it('真实存档读取保留鉴赏家历史，出售后刷新再获得也不重复领奖', () => {
+  const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+  const player = session.players[0]
+  player.identity = createPlayerIdentity('connoisseur')
+  const won = { item: session.itemDeck[0], roundIndex: 0 }
+  rewardConnoisseurItem(player, won, 0, ['red'], [], () => 0)
+  // Even with no items currently held, the historical reward record must survive.
+  player.items = []
+  values.set('who-is-raising:session:v1', JSON.stringify(session))
+  const loaded = loadSession()!
+  expect(loaded.players[0].identity?.connoisseurCategories).toEqual([won.item.category])
+  expect(loaded.players[0].identity?.connoisseurItemKeys).toEqual([`0:${won.item.id}`])
+  const balance = loaded.players[0].balanceUnits
+  const reward = rewardConnoisseurItem(loaded.players[0], won, 2, ['black'], [], () => 0)
+  expect(reward.event).toBeUndefined()
+  expect(loaded.players[0].balanceUnits).toBe(balance)
+  expect(loaded.players[0].cardInventory).toEqual(['red'])
+  expect(reward.cardDeck).toEqual(['black'])
 })
 
 describe('配置预设存储', () => {

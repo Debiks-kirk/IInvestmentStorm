@@ -1,5 +1,14 @@
 # 技术基线
 
+## 保险师、鉴赏家与两张普通卡（2026-09-06）
+
+- 保险师按最终奖区判定，75% 基数为普通实际下注减香蕉皮退款，按半金币向下取整；免观望惩罚。
+- `connoisseur.ts` 统一实际获藏品奖励，`connoisseurCategories` 保存曾获类别，`connoisseurItemKeys` 使用原始 `roundIndex:item.id` 标记实体，不能按当前持有数判断。
+- 市场买入先于本轮拍品；绑票未决不预发奖励，赎回后通过同一奖励函数发放。结算返回更新后的实体牌堆；界面、模拟器必须接收 `settled.cardDeck`。
+- 凯旋礼金计入 `cardUnits` 而非排名奖金，不参加投资分红；每张先向下取整再累计。保单按原应罚金额依次减半；赌徒的真实与公开罚款分别减半。
+- 新身份历史字段可选，旧局无需迁移重算；`storage.ts` 身份重建必须显式复制两组鉴赏家历史。测试须经过 `loadSession` 而非只比较 localStorage 原文。
+- 四张新增图标引用用户提供的 `expansion-v1` PNG，不替换旧素材；`SMOKE_ONLY=expansion` 覆盖图标、真实操作、存档恢复和新身份／新卡的 3/6/10 人 Bot 多轮流程。
+
 ## 道具重复使用
 
 - `canStackCard` / `validCardMultiplicity` 为界面与提交共用规则；校验消耗临时库存，不能只检查 `includes`。

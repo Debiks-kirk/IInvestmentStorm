@@ -12,6 +12,8 @@ export interface IdentityDefinition {
 }
 
 export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
+  { id: 'insurer', name: '保险师', symbol: '☂', summary: '未进获奖区返还下注净损失的 75%；免受观望惩罚。', repeatable: true },
+  { id: 'connoisseur', name: '鉴赏家', symbol: '⌕', summary: '首次集得新类别依次获 5/10/20/50 金币；新拍品另赠道具。', repeatable: true },
   { id: 'prophet', name: '预言家', symbol: '◌', summary: '主动发动天机推演：观财、观星或观身份。', repeatable: true },
   { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
   { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '主动发起绑票谈判；有人拍下藏品时，可公开索要赎金。', repeatable: false },
