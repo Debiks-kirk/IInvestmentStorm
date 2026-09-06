@@ -123,7 +123,7 @@ async function runSetupLayoutFlow(page) {
   await registry.getByRole('option').filter({ hasText: '阿紫' }).click()
   await page.getByRole('textbox', { name: '接力玩家 3 操作者 1 名字', exact: true }).fill('阿青')
   await page.getByLabel('配置名称').fill('重复接力测试')
-  await page.getByRole('button', { name: '另存配置' }).click()
+    await page.getByRole('button', { name: '另存配置' }).click()
   await page.locator('.error-box').getByText('“阿青”已被重复选择，每位玩家一局只能加入一次', { exact: true }).waitFor()
   await page.getByRole('textbox', { name: '接力玩家 3 操作者 1 名字', exact: true }).fill('')
   await setRange(page.locator('#relay-player-count'), 5)
@@ -206,7 +206,7 @@ async function disableFirstRoundSystemAuction(page) {
   await page.evaluate(() => {})
 }
 
-async function finishAdvancedSettings(page) {
+async function finishAdvancedSettings(page, preserveNames = false) {
   const close = page.getByRole('button', { name: '完成高级设置' })
   if (await close.count() > 0) await close.click()
   const pickers = page.locator('.registered-player-picker:visible')
@@ -216,7 +216,7 @@ async function finishAdvancedSettings(page) {
     // Do not inherit a previous flow's display name: it can be a registered
     // member that is already selected on another seat.  Each smoke flow owns
     // a fresh, unique roster and validates the same quick-register route.
-    const name = `烟测玩家${index + 1}`
+    const name = preserveNames && (await input.inputValue()).trim() || `烟测玩家${index + 1}`
     await input.fill('')
     await input.fill(name)
     const register = picker.locator('.registered-player-create')
@@ -228,12 +228,17 @@ async function finishAdvancedSettings(page) {
 }
 
 async function dismissPrivateNotices(page) {
+  const shopLater = page.getByRole('button', { name: '稍后决定', exact: true })
+  if (await shopLater.count()) await shopLater.click()
   while (await page.getByRole('button', { name: '知道了' }).count() > 0) {
     await page.getByRole('button', { name: '知道了' }).last().click()
   }
   while (await page.getByRole('button', { name: /收下道具卡|收下/ }).count() > 0) {
     await page.getByRole('button', { name: /收下道具卡|收下/ }).last().click()
   }
+  // The merchant prompt is queued after mandatory receipts, not necessarily
+  // present when this helper first entered the private page.
+  if (await shopLater.count()) await shopLater.click()
 }
 
 async function choosePrediction(page, index = 0) {
@@ -282,8 +287,7 @@ async function chooseIdentities(page, playerCount) {
 
 async function submitPrivateTurn(page, bidUnits, predictionIndex = null, useCard = false) {
   await enterPrivateTurn(page)
-  while (await page.getByRole('button', { name: '知道了' }).count() > 0) await page.getByRole('button', { name: '知道了' }).last().click()
-  while (await page.getByRole('button', { name: /收下道具卡|收下/ }).count() > 0) await page.getByRole('button', { name: /收下道具卡|收下/ }).last().click()
+  await dismissPrivateNotices(page)
   if (predictionIndex !== null) await choosePrediction(page, predictionIndex)
   if (useCard) {
     await openBackpack(page)
@@ -452,7 +456,7 @@ async function runCardFlow(page) {
     if (await targetCards.count() > 0) await targetCards.first().click()
   }
   const confirmUse = page.getByRole('button', { name: '确认使用' })
-  const confirmReroll = page.getByRole('button', { name: '确认并抽取 6 张' })
+  const confirmReroll = page.getByRole('button', { name: /确认并抽取 (6|9) 张/ })
   const confirmFateCoin = page.getByRole('button', { name: '确认并掷硬币' })
   if (await confirmUse.count() > 0) await confirmUse.click()
   if (await confirmReroll.count() > 0) await confirmReroll.click()
@@ -462,8 +466,10 @@ async function runCardFlow(page) {
   }
   const rerollOptions = page.locator('.prize-reroll-option')
   if (await rerollOptions.count() > 0) {
-    if (await rerollOptions.count() !== 6) throw new Error('改拍令确认后应锁定展示 6 张候选拍品。')
+    const expected = await page.getByRole('dialog', { name: '调包令选择' }).count() ? 9 : 6
+    if (await rerollOptions.count() !== expected) throw new Error(`改拍道具应锁定展示 ${expected} 张候选拍品。`)
     await rerollOptions.first().click()
+    await page.getByRole('button', { name: '确认使用', exact: true }).click()
   }
   if (await page.getByRole('button', { name: '关闭背包' }).count() > 0) await page.getByRole('button', { name: '关闭背包' }).click()
   await dismissPrivateNotices(page)
@@ -486,8 +492,12 @@ async function runPresetFlow(page) {
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '6 人真人局' }).click()
+  await page.getByRole('button', { name: '玩家 1 名字：打开玩家名册', exact: true }).click()
+  const liveRegistry = page.getByRole('dialog', { name: '玩家名册', exact: true })
+  await liveRegistry.getByRole('option').filter({ hasText: '玩家 1' }).waitFor()
+  await page.keyboard.press('Escape')
   if (await page.locator('#player-count').inputValue() !== '6' || await page.locator('#rounds').inputValue() !== '8') throw new Error('系统预设未正确载入。')
-  await finishAdvancedSettings(page)
+  await finishAdvancedSettings(page, true)
   await page.getByLabel('配置名称').fill('冒烟六人局')
   await page.getByRole('button', { name: '另存配置' }).click()
   await page.waitForTimeout(150)
@@ -505,7 +515,17 @@ async function runPresetFlow(page) {
   await page.getByRole('button', { name: '标准模式' }).click()
   await page.getByText('冒烟六人局', { exact: true }).waitFor()
   if (await page.getByText('冒烟接力局', { exact: true }).count() !== 0) throw new Error('标准配置库混入了接力配置。')
-  await page.evaluate(() => localStorage.removeItem('auction-battle:registered-players:v1'))
+  await page.evaluate(async () => {
+    localStorage.removeItem('auction-battle:registered-players:v1')
+    // Leave only the presets: restoration must not accidentally depend on an
+    // already populated permanent registry from the previous steps.
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase('auction-battle-career')
+      request.onsuccess = resolve
+      request.onerror = () => reject(request.error)
+      request.onblocked = () => reject(new Error('测试档案库仍被占用'))
+    })
+  })
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '玩家 1 名字：打开玩家名册', exact: true }).click()
@@ -657,10 +677,11 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
     if (eventContrast.cardOpacity < 0.99 || eventContrast.titleOpacity < 0.99 || eventContrast.titleColor === 'rgb(255, 255, 255)') {
       throw new Error(`观战事件卡文字对比度异常：${JSON.stringify(eventContrast)}`)
     }
-    await page.getByRole('button', { name: /继续/ }).click()
+    await page.setViewportSize({ width: 360, height: 640 })
     await page.getByRole('button', { name: '▦ 数据' }).click()
     await page.getByText('实时数据中心', { exact: true }).waitFor()
     await page.getByRole('button', { name: '关闭数据面板' }).click()
+    await page.getByRole('button', { name: /继续/ }).click()
   }
   await page.getByRole('button', { name: /继续/ }).waitFor({ timeout: 30000 })
   await page.getByRole('button', { name: /继续/ }).click()
@@ -873,7 +894,7 @@ async function runRelayDragFlow(page) {
   await cards.first().getByText('拖入或添加一位操作者', { exact: true }).waitFor()
   await drag(ids[1], cards.first().locator('.relay-add-operator'))
   await cards.first().getByLabel('乙 类型').selectOption('bot')
-  await cards.first().getByRole('button', { name: '变色龙 Bot 性格', exact: true }).click()
+  await cards.first().getByRole('button', { name: /Bot 性格$/ }).click()
   const chooser = page.getByRole('dialog', { name: '选择 Bot', exact: true })
   await chooser.getByRole('option').filter({ hasText: '馆长' }).click()
   await cards.first().getByLabel('馆长 Bot 难度').selectOption('expert')
@@ -893,12 +914,13 @@ async function runRelayDragFlow(page) {
   await chooser.waitFor()
   await page.screenshot({ path: '.artifacts/bot-picker-mobile.png' })
   await page.keyboard.press('Escape')
-  await finishAdvancedSettings(page)
+  await finishAdvancedSettings(page, true)
   await page.getByLabel('配置名称').fill('拖动后的接力')
   await page.getByRole('button', { name: '另存配置' }).click()
   await page.getByRole('button', { name: '拖动后的接力', exact: false }).first().waitFor()
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('who-is-raising:presets:v1')).presets.at(-1))
-  if (saved.relaySeats[0].operators[0].controller.difficulty !== 'expert' || saved.relaySeats[1].operators.map((o) => o.name).join(',') !== '丙,甲') throw new Error('拖动或 Bot 修改未保存到配置。')
+  // Dropping over the header now inserts before the existing operators.
+  if (saved.relaySeats[0].operators[0].controller.difficulty !== 'expert' || saved.relaySeats[1].operators.map((o) => o.name).join(',') !== '甲,丙') throw new Error(`拖动或 Bot 修改未保存到配置：${JSON.stringify(saved.relaySeats)}`)
   // Dispatch real touch input so touch-action, long-press and pointer capture are exercised.
   await cards.nth(1).locator('.relay-operator-list').scrollIntoViewIfNeeded()
   const touchRows = cards.nth(1).locator('[data-relay-operator]')
@@ -944,6 +966,15 @@ async function runRelaySetupFlow(page) {
       const rect = button.getBoundingClientRect()
       return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
     })) throw new Error(`接力开始按钮在 ${width}px 被焦点卡片遮挡`)
+    await assertNoHorizontalOverflow(page, `接力设置 ${width}px`)
+    if (width === 360) {
+      const singleSeat = page.locator('.relay-seat-card').nth(1)
+      const bounds = await singleSeat.boundingBox()
+      if (!bounds || bounds.height > 210) throw new Error(`手机单操作者席位过高：${bounds?.height}px`)
+      const addSize = await singleSeat.getByRole('button', { name: '添加下一位操作者' }).boundingBox()
+      if (!addSize || addSize.width < 44 || addSize.height < 44) throw new Error('添加操作者触摸区域不足')
+      console.log(`360px 单操作者席位高度：${Math.round(bounds.height)}px`)
+    }
     await page.screenshot({ path: `.artifacts/relay-start-${width}.png`, fullPage: true })
   }
   await page.getByRole('button', { name: /开始这局/ }).click()

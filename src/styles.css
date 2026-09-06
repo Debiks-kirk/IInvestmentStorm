@@ -379,6 +379,7 @@ em { color: var(--red); font-style: normal; }
 .setup-page--lobby .seat-field--bot > .setup-bot-difficulty { grid-column: 4; grid-row: 1; }
 .setup-page--lobby .relay-add-operator { width: calc(100% - 29px); min-height: 43px; margin: 0 13px 13px 16px; border: 1px dashed rgba(159,81,74,.4); border-radius: 11px; color: var(--red-dark); background: rgba(159,81,74,.045); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
 .setup-page--lobby .relay-add-operator:hover { border-color: rgba(159,81,74,.68); background: rgba(159,81,74,.1); transform: translateY(-1px); }
+.setup-page--lobby .relay-seat-card__head .relay-add-operator { grid-area: count; width: 44px; height: 44px; min-height: 44px; margin: 0; border-style: solid; font-size: 23px; }
 .advanced-settings__body { display: grid; gap: 10px; padding-top: 16px; }
 .advanced-settings__body > .setting-row, .advanced-settings__body > .switch-row { min-height: 58px; padding: 8px 12px; border: 1px solid rgba(126,115,93,.16); border-radius: 12px; background: rgba(255,255,255,.45); }
 .advanced-settings__body > .reward-editors, .advanced-settings__body > .card-setting-group, .advanced-settings__body > .identity-setting-group, .advanced-settings__body > .identity-settings-fields { padding: 14px; border: 1px solid rgba(126,115,93,.16); border-radius: 14px; background: rgba(255,255,255,.38); }
@@ -417,25 +418,27 @@ em { color: var(--red); font-style: normal; }
   .setup-page--lobby .settings-panel { grid-template-columns: 1fr; gap: 8px; padding: 16px !important; }
   .setup-page--lobby .settings-panel .setup-panel-title, .setup-page--lobby .settings-panel .advanced-toggle { grid-column: 1; }
   .setup-page--lobby .settings-panel > .setting-row { min-height: 60px; }
-  .setup-page--lobby .relay-setup { gap: 14px; }
+  .setup-page--lobby .relay-setup { gap: 10px; }
   .setup-page--lobby .relay-setup__head { align-items: flex-start; gap: 10px; }
   .setup-page--lobby .relay-setup__head h2 { font-size: 22px; }
   .setup-page--lobby .relay-setup__head > strong { margin-top: 2px; padding: 6px 8px; font-size: 10px; }
   .setup-page--lobby .relay-overview { grid-template-columns: 1fr; gap: 9px; padding: 9px; }
-  .setup-page--lobby .relay-overview__count { padding: 8px; }
+  .setup-page--lobby .relay-overview__count { padding: 0; }
+  .setup-page--lobby .relay-overview__count .player-count-control > strong { grid-column: auto; }
   .setup-page--lobby .relay-overview__count .player-count-control { grid-template-columns: 38px minmax(0,1fr) 38px 25px; }
   .setup-page--lobby .relay-method-toggle { gap: 5px; }
-  .setup-page--lobby .relay-method-toggle button { grid-template-columns: 29px minmax(0,1fr); gap: 7px; min-height: 62px; padding: 8px; }
+  .setup-page--lobby .relay-method-toggle button { grid-template-columns: 29px minmax(0,1fr); gap: 7px; min-height: 44px; padding: 5px 8px; }
   .setup-page--lobby .relay-method-toggle button > i { width: 28px; height: 28px; border-radius: 9px; font-size: 14px; }
   .setup-page--lobby .relay-method-toggle button strong { font-size: 12px; }
-  .setup-page--lobby .relay-method-toggle button small { font-size: 9px; }
-  .setup-page--lobby .relay-setup__hint { align-items: flex-start; padding: 9px 10px; }
-  .setup-page--lobby .relay-seat-list { gap: 13px; }
+  .setup-page--lobby .relay-method-toggle button small { display: none; }
+  .setup-page--lobby .relay-setup__hint { align-items: center; padding: 0 2px; border: 0; background: none; font-size: 11px; }
+  .setup-page--lobby .relay-setup__hint::before { display: none; }
+  .setup-page--lobby .relay-seat-list { gap: 9px; }
   .setup-page--lobby .relay-seat-card__head { grid-template-columns: 33px minmax(0,1fr) auto; grid-template-areas: "title name count"; gap: 7px; padding: 10px; }
   .setup-page--lobby .relay-seat-card__title > span { width: 33px; height: 33px; border-radius: 10px; }
   .setup-page--lobby .relay-seat-card__head > em { align-self: center; margin: 0; }
   .setup-page--lobby .relay-seat-name { width: 100%; }
-  .setup-page--lobby .relay-schedule { grid-template-columns: auto minmax(0,1fr); margin: 9px 10px 0 13px; padding: 8px 9px; }
+  .setup-page--lobby .relay-schedule { grid-template-columns: auto minmax(0,1fr); margin: 6px 10px 0 13px; padding: 0; border: 0; background: none; gap: 5px; }
   .setup-page--lobby .relay-operator-list { gap: 8px; padding: 9px 10px 10px 13px; }
   .setup-page--lobby .relay-operator { grid-template-columns: 24px minmax(0,1fr) 51px 22px; grid-template-areas: "order identity kind remove"; align-items: center; gap: 4px; padding: 6px; }
   .setup-page--lobby .relay-operator--bot { grid-template-columns: 24px minmax(0,1fr) 44px 49px 20px; grid-template-areas: "order identity kind difficulty remove"; }

@@ -499,6 +499,8 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
       ? nextRelaySeats.flatMap((seat) => seat.operators.flatMap((operator) => operator.controller.kind === 'human' ? [operator.name] : []))
       : nextSeats.flatMap((seat) => seat.controller.kind === 'human' ? [seat.name] : [])
     const merged = mergeRegisteredPlayers(registeredPlayers, names)
+    // Pickers read permanent members, not the legacy name-only registry.
+    for (const name of names) registerPlayer(name)
     if (merged.length !== registeredPlayers.length) onSaveRegisteredPlayers(merged)
   }
   const isRegisteredPlayer = (name: string) => humanMembers.some((member) => memberNameKey(member.name) === memberNameKey(name))
@@ -531,7 +533,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
     const nextRelaySeats = nextMode === 'relay' ? preset!.relaySeats!.map((seat) => ({ ...seat, operators: seat.operators.map((operator) => ({ ...operator, name: operator.controller.kind === 'bot' ? botDisplayName(operator.controller) : operator.name, controller: operator.controller.kind === 'bot' ? { ...operator.controller } : { ...operator.controller } })) })) : []
     if (nextMode === 'relay') setRelaySeats(nextRelaySeats)
     else setSeats(normalizedSeats)
-    if (preset) registerConfigurationPlayers(normalizedSeats, nextRelaySeats)
+    registerConfigurationPlayers(normalizedSeats, nextRelaySeats)
     setMode(nextMode)
     if (nextMode === 'relay') setRelayMethod(preset?.relayMethod === 'segments' ? 'segments' : 'rotation')
     setSettingsByMode((current) => ({ ...current, [nextMode]: cloneSettings({ ...nextSettings, playerCount: nextSeats.length }) }))
@@ -728,7 +730,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                     <header className="relay-seat-card__head">
                       <div className="relay-seat-card__title" title={`游戏席位 ${seatIndex + 1}`} aria-label={`游戏席位 ${seatIndex + 1}`}><span>{seatIndex + 1}</span></div>
                       <label className="relay-seat-name"><input value={relaySeat.name} placeholder="对局名称" maxLength={12} aria-label={`接力玩家 ${seatIndex + 1} 名字`} onChange={(event) => updateRelaySeat(seatIndex, { name: event.target.value })} /></label>
-                      <em>{relaySeat.operators.length} 位操作者</em>
+                      <button type="button" className="relay-add-operator" aria-label="添加下一位操作者" title="添加操作者" onClick={() => addRelayOperator(seatIndex)}>＋</button>
                     </header>
                     <div className="relay-schedule"><span>排班</span><p>{relayScheduleLabel(relaySeat.operators, relayMethod, settings.rounds)}</p></div>
                     <ol className={cx('relay-operator-list', drag?.drop?.seat === seatIndex && drag.drop.index === relaySeat.operators.length && 'drop-at-end')}>
@@ -753,7 +755,6 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                       })}
                     </ol>
                     {!relaySeat.operators.length && <p className="relay-empty-seat">拖入或添加一位操作者</p>}
-                    <button type="button" className="relay-add-operator" onClick={() => addRelayOperator(seatIndex)}>＋ 添加下一位操作者</button>
                   </section>
                 ))}
               </div>
