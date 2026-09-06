@@ -169,6 +169,12 @@ async function runMemberHallFlow(page) {
   await page.getByRole('heading', { name: '档案甲' }).waitFor()
   await page.getByRole('button', { name: '编辑资料' }).click()
   const edit = page.getByRole('dialog', { name: '编辑成员' })
+  if (!await edit.evaluate(node => node.parentElement === document.body)) throw new Error('编辑头像弹窗必须顶层挂载')
+  if (await edit.locator('.member-avatar-picker button').count() !== 24) throw new Error('预设头像数量不正确')
+  await edit.getByRole('button', { name: '头像：飞船', exact: true }).click()
+  await edit.getByRole('button', { name: '头像：灵猫', exact: true }).click()
+  if (await edit.getByRole('button', { name: '头像：灵猫', exact: true }).getAttribute('aria-pressed') !== 'true') throw new Error('头像选中状态未更新')
+  await page.screenshot({ path: '.artifacts/member-avatar-picker.png', fullPage: true })
   await edit.getByLabel('名称').fill('档案乙')
   await edit.getByRole('button', { name: '保存' }).click()
   await page.getByRole('heading', { name: '档案乙' }).waitFor()
@@ -178,6 +184,16 @@ async function runMemberHallFlow(page) {
   await botDialog.getByPlaceholder('输入名称').fill('档案机器人')
   await botDialog.getByRole('button', { name: '创建', exact: true }).click()
   await page.getByRole('button', { name: /档案机器人/ }).first().waitFor()
+  await page.getByRole('button', { name: /档案机器人/ }).first().click()
+  await page.getByRole('button', { name: '编辑资料' }).click()
+  await page.getByRole('button', { name: '头像：机灵', exact: true }).click()
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await page.reload()
+  await page.getByRole('button', { name: '玩家大厅', exact: true }).click()
+  await page.getByRole('button', { name: /档案机器人/ }).first().click()
+  await page.getByRole('button', { name: '编辑资料' }).click()
+  if (await page.getByRole('button', { name: '头像：机灵', exact: true }).getAttribute('aria-pressed') !== 'true') throw new Error('Bot 头像刷新后丢失')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
   await assertNoHorizontalOverflow(page, '玩家大厅成员卡')
 }
 
@@ -492,10 +508,7 @@ async function runPresetFlow(page) {
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '6 人真人局' }).click()
-  await page.getByRole('button', { name: '玩家 1 名字：打开玩家名册', exact: true }).click()
-  const liveRegistry = page.getByRole('dialog', { name: '玩家名册', exact: true })
-  await liveRegistry.getByRole('option').filter({ hasText: '玩家 1' }).waitFor()
-  await page.keyboard.press('Escape')
+
   if (await page.locator('#player-count').inputValue() !== '6' || await page.locator('#rounds').inputValue() !== '8') throw new Error('系统预设未正确载入。')
   await finishAdvancedSettings(page, true)
   await page.getByLabel('配置名称').fill('冒烟六人局')
@@ -529,10 +542,10 @@ async function runPresetFlow(page) {
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await page.getByRole('button', { name: '玩家 1 名字：打开玩家名册', exact: true }).click()
-  const migratedPlayer = page.getByRole('dialog', { name: '玩家名册', exact: true }).getByRole('option').filter({ hasText: '玩家 1' })
+  const migratedPlayer = page.getByRole('dialog', { name: '玩家名册', exact: true }).getByRole('option').filter({ hasText: '烟测玩家1' })
   await migratedPlayer.waitFor()
   await migratedPlayer.click()
-  if (await page.getByRole('textbox', { name: '玩家 1 名字', exact: true }).inputValue() !== '玩家 1') throw new Error('旧配置中的真人姓名未自动迁移到玩家名册。')
+  if (await page.getByRole('textbox', { name: '玩家 1 名字', exact: true }).inputValue() !== '烟测玩家1') throw new Error('旧配置中的真人姓名未自动迁移到玩家名册。')
   await page.getByRole('button', { name: '删除冒烟六人局' }).click()
   if (await page.getByText('冒烟六人局', { exact: true }).count() !== 0) throw new Error('已保存配置未被删除。')
   await page.getByRole('button', { name: '接力模式' }).click()
@@ -559,6 +572,25 @@ async function runIdentityFlow(page) {
   await finishFinalReveal(page)
   await page.getByText('逐轮复盘', { exact: true }).waitFor()
   await page.getByText('身份公开', { exact: true }).waitFor()
+  for (const viewport of [{width:360,height:640},{width:844,height:390},{width:1366,height:900}]) {
+    await page.setViewportSize(viewport)
+    const errors = await page.evaluate(() => {
+      const failures = []
+      document.querySelectorAll('.identity-final article').forEach(row => {
+        const icon = row.querySelector('.game-art-slot')?.getBoundingClientRect()
+        const text = row.querySelector('div')?.getBoundingClientRect()
+        if (icon && text && icon.right > text.left) failures.push('身份文字与图标重叠')
+      })
+      document.querySelectorAll('.avatar-art').forEach(svg => {
+        const a = svg.getBoundingClientRect(), b = svg.parentElement.getBoundingClientRect()
+        if (a.width && b.width && (Math.abs(a.left+a.width/2-b.left-b.width/2)>2 || Math.abs(a.top+a.height/2-b.top-b.height/2)>2)) failures.push('头像未居中')
+      })
+      return failures
+    })
+    if (errors.length) throw new Error(`${viewport.width}px: ${errors.join('、')}`)
+    await assertNoHorizontalOverflow(page, '身份复盘')
+    await page.locator('.identity-final').screenshot({path:`.artifacts/identity-recap-${viewport.width}.png`})
+  }
 }
 
 async function runLobbyistTaskFlow(page) {

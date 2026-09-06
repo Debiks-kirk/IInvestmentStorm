@@ -31,6 +31,7 @@ export function createDefaultSettings(playerCount = 3): GameSettings {
         : null
   const identitySettings = {
     ...defaultIdentitySettings(true),
+    identityChoiceCount: 4,
     ...(sizeTuning ? {
       merchantAuctionLimit: sizeTuning.merchantAuctionLimit,
       nightwalkerUseLimit: sizeTuning.nightwalkerUseLimit,

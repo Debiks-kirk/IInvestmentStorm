@@ -25,7 +25,7 @@ export type StrategyMode = 'value' | 'conserve' | 'collect' | 'pressure' | 'reve
 export type MemberKind = 'human' | 'bot'
 
 export interface MemberAvatar {
-  /** One of eight built-in geometric marks; no uploaded image data is stored. */
+  /** Stable built-in avatar index; no uploaded image data is stored. */
   shape: number
   accent: string
 }

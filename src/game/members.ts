@@ -25,7 +25,7 @@ export function normalizeMemberName(value: string): string {
 export function avatarForMember(seed: string, accent?: string): MemberAvatar {
   let value = 0
   for (const character of seed) value = ((value << 5) - value + character.charCodeAt(0)) | 0
-  return { shape: Math.abs(value) % 8, accent: accent ?? MEMBER_ACCENTS[Math.abs(value >> 3) % MEMBER_ACCENTS.length] }
+  return { shape: Math.abs(value) % 24, accent: accent ?? MEMBER_ACCENTS[Math.abs(value >> 3) % MEMBER_ACCENTS.length] }
 }
 
 export function createHumanMember(name: string, accent?: string): MemberProfile {
