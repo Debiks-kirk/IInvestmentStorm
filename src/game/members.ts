@@ -23,6 +23,8 @@ export function normalizeMemberName(value: string): string {
 }
 
 export function avatarForMember(seed: string, accent?: string): MemberAvatar {
+  // Creation passes a fresh random member ID; the resulting choice is saved
+  // once in the profile, never regenerated on rename or refresh.
   let value = 0
   for (const character of seed) value = ((value << 5) - value + character.charCodeAt(0)) | 0
   return { shape: Math.abs(value) % 24, accent: accent ?? MEMBER_ACCENTS[Math.abs(value >> 3) % MEMBER_ACCENTS.length] }

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { AVATAR_LIBRARY, AvatarIcon, AvatarMembers, PlayerAvatar } from './AvatarIcon'
-import { createHumanMember } from '../game/members'
+import { avatarForMember, createBotMember, createHumanMember } from '../game/members'
 import { SYSTEM_PRESETS } from '../game/presets'
 import { createDefaultSettings } from '../game/session'
 
@@ -22,6 +22,17 @@ it('provides 24 distinct, stable and accessible decorative avatars', () => {
     expect(markup).toContain(path)
     expect(markup).toContain('aria-hidden="true"')
   })
+})
+
+it('assigns new humans and bots a persisted default from their random member ID', () => {
+  for (const create of [createHumanMember, createBotMember]) {
+    const member = create('未设置头像')
+    expect(member.avatar).toEqual(avatarForMember(member.id))
+    expect(member.avatar.shape).toBeGreaterThanOrEqual(0)
+    expect(member.avatar.shape).toBeLessThan(24)
+    const restored = JSON.parse(JSON.stringify({...member, name:'改名'}))
+    expect(restored.avatar).toEqual(member.avatar)
+  }
 })
 
 it('uses permanent member avatar regardless of the seat name and falls back safely', () => {
