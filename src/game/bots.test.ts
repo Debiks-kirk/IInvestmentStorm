@@ -27,11 +27,28 @@ describe('Bot 信息边界与决策', () => {
     expect(observation.humanOpponentIds).toEqual([session.players[1].id, session.players[2].id])
   })
 
-  it('高手每轮只得到一条已提交对手的模糊投资区间', () => {
-    const session = createSession(seats('expert'), createDefaultSettings(3))
+  it.each(['easy', 'standard', 'expert'] as const)('%s 不因难度获得隐藏下注情报，改变对手暗标不影响观察或决策', (difficulty) => {
+    const session = createSession(seats(difficulty), createDefaultSettings(3))
+    session.players[0].cardInventory = []
     session.turns = [{ playerId: session.players[1].id, bidUnits: 20, predictedPlayerId: null }]
     const observation = buildBotObservation(session, session.players[0].id)
-    expect(observation.intel).toEqual({ playerId: session.players[1].id, lowUnits: 16, highUnits: 24 })
+    expect(observation).not.toHaveProperty('intel')
+    const memory = emptyBotMemory('fair-information')
+    const decision = decideBotTurn(observation, 'adaptive', difficulty, memory)
+    session.turns[0].bidUnits = 50
+    const changed = buildBotObservation(session, session.players[0].id)
+    expect(changed).toEqual(observation)
+    expect(decideBotTurn(changed, 'adaptive', difficulty, memory)).toEqual(decision)
+    expect(decision.intel).toBeUndefined()
+  })
+
+  it('移除难度情报后仍保留偷看底牌提供的合法情报', () => {
+    const session = createSession(seats('expert'), createDefaultSettings(3))
+    session.players[0].cardInventory = ['peek']
+    session.turns = [{ playerId: session.players[1].id, bidUnits: 20, predictedPlayerId: null }]
+    const observation = buildBotObservation(session, session.players[0].id)
+    expect(observation).not.toHaveProperty('intel')
+    expect(observation.legalPeek).toEqual({ playerId: session.players[1].id, bidUnits: 20 })
   })
 
   it('同一观察输入会给出相同的合法决策', () => {

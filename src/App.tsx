@@ -705,7 +705,7 @@ function Setup({ onBack, onStart, presets, onSavePresets, customBotProfiles, onS
                 </div>
               ))}
             </div>
-            {seats.some((seat) => seat.controller.kind === 'bot') && <div className="bot-setup-note"><span>Bot 的性格、难度和策略在开局后保持隐藏；高手每轮可能得到一次模糊投资情报。</span><button className="text-button" onClick={() => setCustomBotsOpen(true)}>管理自定义 Bot</button></div>}
+            {seats.some((seat) => seat.controller.kind === 'bot') && <div className="bot-setup-note"><span>Bot 的性格、难度和策略在开局后保持隐藏。</span><button className="text-button" onClick={() => setCustomBotsOpen(true)}>管理自定义 Bot</button></div>}
             </> : <div className="relay-setup">
               <div className="relay-setup__head">
                 <div><p className="eyebrow">接力模式</p><h2>安排接力阵容</h2></div>

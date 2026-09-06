@@ -224,7 +224,6 @@ export interface BotObservation {
   cardDeckSize: number
   activeTask?: { type: LobbyistTaskType; comparisonPlayerId?: string }
   nextItem?: GameSession['itemDeck'][number]
-  intel?: { playerId: string; lowUnits: number; highUnits: number }
   legalPeek?: { playerId: string; bidUnits: number }
   /** Only the prophet's own candidate cards and solved/excluded records are exposed. */
   prophetIdentityCandidates?: Record<string, IdentityId[]>
@@ -292,11 +291,6 @@ export function buildBotObservation(session: GameSession, playerId: string, hist
     } : {}),
   }
   observation.balanceEstimates = estimateBalances(observation)
-  if (player.controller?.kind === 'bot' && player.controller.difficulty === 'expert' && prior.length > 0) {
-    const targetId = choose(prior, `${session.id}:${playerId}:${session.roundIndex}:intel`)
-    const targetTurn = session.turns.find((turn) => turn.playerId === targetId)
-    if (targetTurn && targetId) observation.intel = { playerId: targetId, lowUnits: Math.max(0, targetTurn.bidUnits - coinsToUnits(2)), highUnits: targetTurn.bidUnits + coinsToUnits(2) }
-  }
   if (player.cardInventory.includes('peek') && prior.length > 0) {
     const targetId = prior[0]
     const targetTurn = session.turns.find((turn) => turn.playerId === targetId)
@@ -476,10 +470,8 @@ function estimateFor(observation: BotObservation, playerId: string): CashEstimat
 }
 
 function expectedCurrentBid(observation: BotObservation, playerId: string): number {
-  const intel = observation.intel?.playerId === playerId ? (observation.intel.lowUnits + observation.intel.highUnits) / 2 : undefined
   const peek = observation.legalPeek?.playerId === playerId ? observation.legalPeek.bidUnits : undefined
   if (peek !== undefined) return peek
-  if (intel !== undefined) return intel
   const estimate = estimateFor(observation, playerId)
   const itemPressure = coinsToUnits((observation.item?.value ?? 0) * .72)
   const publicCategoryWins = observation.item
@@ -1014,14 +1006,13 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
     }
   }
   const prediction = predictionDecision(observation, best.rankingBidUnits, profile, mode, behavior, memory.strategy)
-  const intel = observation.intel ? `模糊情报：${observation.opponents.find((opponent) => opponent.id === observation.intel?.playerId)?.name ?? '一名对手'} 的投资约为 ${observation.intel.lowUnits / 2}–${observation.intel.highUnits / 2}。` : undefined
   const predictionText = prediction.playerId ? `预测 ${observation.opponents.find((opponent) => opponent.id === prediction.playerId)?.name ?? '对手'} 的期望收益 ${Math.round(prediction.expectedUnits) / 2}。` : '预测期望不够，选择跳过。'
   const specialText = best.specialReason ? `${best.specialReason}${best.identityAction?.type === 'reverserInvert' ? ` 预计先以第 ${best.place} 名进入获奖区，再倒转为第 ${best.effectivePlace} 名。` : ''}` : identityAction?.type === 'nightwalkerDoubleBid' ? `发动双影下注：先报 ${best.bidUnits / 2}，再保留 ${identityAction.shadowBidUnits / 2} 的夜行影价。` : ''
   const mixedText = !best.specialReason && !identityAction ? ' 在高价值方案中按性格、资金底线与局势做了带权混合，并加入受控的报价波动。' : ''
   const financeText = reserveUnits > 0 ? ` 预留约 ${reserveUnits / 2} 金币周转。` : ''
   const collectionText = collectorTarget ? ' 当前拍品命中收藏类别，已计入即时奖励与套装增量。' : ''
   const passivityText = observation.roundIndex < observation.totalRounds - 1 ? ' 已将观望惩罚风险计入报价。' : ''
-  return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${collectionText}${financeText}${specialText}${mixedText}${passivityText}${predictionText}`, intel }
+  return { bidUnits: best.bidUnits, predictedPlayerId: prediction.playerId, cardUses, identityAction, mode, reason: `${modeLabel(mode)}：估算获奖机会 ${Math.round(best.firstChance * 100)}%，选择 ${best.bidUnits / 2} 金币。${collectionText}${financeText}${specialText}${mixedText}${passivityText}${predictionText}` }
 }
 
 export function decideBotIdentity({ choices, player, players, cardOfferIds }: { choices: IdentityId[]; player: Player; players: Player[]; cardOfferIds?: CardId[] }): { identityId: IdentityId; targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId; mode: StrategyMode; reason: string } {

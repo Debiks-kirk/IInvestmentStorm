@@ -1,5 +1,9 @@
 # 技术基线
 
+## Bot 难度信息边界
+
+- 三个难度不再自动获取已提交玩家的下注区间；`BotObservation` 删除额外 `intel` 字段，报价估计只使用公共推断及正常道具偷看结果。历史决策的可选 `intel` 文本保留兼容，但新决策不再生成或读取该情报。
+
 ## 玩家大厅与长期战绩（v36）
 
 - `MemberProfile` 是本机永久身份：`Player.id`、`RelayOperator.id` 继续只服务当前对局，分别通过可选 `memberId` 关联档案。`RoundTurn.operatorMemberId` 与 `decisionOrigin` 用于接力任期、Bot 和人工接管归属。
