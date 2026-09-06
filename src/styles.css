@@ -36,6 +36,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 h1, h2, p { margin-top: 0; }
 h1, h2 { font-family: "Noto Serif SC", "Songti SC", serif; }
 em { color: var(--red); font-style: normal; }
+.backpack-queued { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.backpack-queued:empty { display: none; }
 
 .app-shell { min-height: 100vh; min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); overflow: hidden; }
 .app-shell--quiet { background: #282b29; color: #f5f1e8; }

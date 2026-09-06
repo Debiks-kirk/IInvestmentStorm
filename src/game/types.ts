@@ -616,7 +616,7 @@ export interface GameSession {
   /** Each prize-changing card owns an independent locked draw for the current turn. */
   pendingPrizeChanges: PendingPrizeChange[]
   /** 命运硬币翻面后立即扣/加余额；在本次提交前保留，防止刷新后重掷。 */
-  pendingFateCoinUse: { playerId: string; roundIndex: number; use: CardUse } | null
+  pendingFateCoinUse: { playerId: string; roundIndex: number; use: CardUse; previousUses?: CardUse[] } | null
   cardDeck: CardId[]
   pendingCardGrants: CardGrant[]
   identityAvailableIds: IdentityId[]

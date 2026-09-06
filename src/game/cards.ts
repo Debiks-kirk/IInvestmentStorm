@@ -51,6 +51,15 @@ export function getCardDefinition(cardId: CardId): CardDefinition {
   return CARD_DEFINITIONS.find((card) => card.id === cardId) as CardDefinition
 }
 
+/** Repeatable resource/value effects; ranking and prize replacement stay once per turn. */
+export function canStackCard(cardId: CardId): boolean {
+  return ['red', 'black', 'redistribute', 'peek', 'fateCoin'].includes(cardId)
+}
+
+export function validCardMultiplicity(cardIds: CardId[]): boolean {
+  return cardInventoryCounts(cardIds).every(({ cardId, count }) => count === 1 || canStackCard(cardId))
+}
+
 /** Removes exactly one physical copy, preserving other copies in the inventory. */
 export function removeOneCard(cardIds: CardId[], cardId: CardId): CardId[] {
   const index = cardIds.indexOf(cardId)

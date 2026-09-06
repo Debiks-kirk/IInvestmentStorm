@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { calculateFixedAssets, fixedAssetCoins, itemFixedAssetCoins } from './assets'
 import { coinsToUnits, defaultRewards, rankFinalPlayers, settleRound } from './engine'
-import { CARD_DEFINITIONS, cardTargetScope, createCardDeck } from './cards'
+import { CARD_DEFINITIONS, cardTargetScope, createCardDeck, validCardMultiplicity } from './cards'
 import { ITEM_POOL } from './items'
 import { SYSTEM_PRESETS } from './presets'
 import { createDefaultSettings, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, replacePrizeAt } from './session'
@@ -155,6 +155,24 @@ describe('道具卡结算', () => {
     expect(result.cardEffects).toEqual(expect.arrayContaining([
       expect.objectContaining({ cardId: 'red', description: '两张红卡生效：拍品真实价值为 20。' }),
     ]))
+  })
+
+  it('同一玩家的红黑卡按实体数量累计，排名道具仍不重复', () => {
+    const result = settle(players([20,20,20]), [
+      {...turn('p1',9),cardUses:[{cardId:'red'},{cardId:'red'},{cardId:'black'}]},
+      turn('p2',7), turn('p3',2),
+    ]).result
+    expect(result.effectiveValueUnits).toBe(coinsToUnits(10))
+    expect(validCardMultiplicity(['red','red','black','fateCoin','fateCoin'])).toBe(true)
+    for (const card of ['swap','bananaPeel','doubleBid','reverseRank','prizeReroll','prizeSwap'] as const) expect(validCardMultiplicity([card,card])).toBe(false)
+  })
+
+  it('同一玩家的两张劫富济贫逐次按当时余额结算', () => {
+    const result = settle(players([100,0,0]), [
+      {...turn('p1',0),cardUses:[{cardId:'redistribute'},{cardId:'redistribute'}]},turn('p2',0),turn('p3',0),
+    ]).result
+    expect(result.redistributionTransferUnits).toBe(coinsToUnits(55))
+    expect(result.cardEffects.filter(effect=>effect.cardId==='redistribute')).toHaveLength(2)
   })
 
   it('黑卡的 1.5V 奖励与 0.5V 罚款均向下取到半金币', () => {

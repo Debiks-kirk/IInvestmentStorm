@@ -263,6 +263,7 @@ async function choosePrediction(page, index = 0) {
 }
 
 async function openBackpack(page) {
+  if (await page.locator('.card-inventory').isVisible()) return
   await page.getByTestId('backpack-tool').click()
   await page.getByRole('heading', { name: '选择一张卡' }).waitFor()
 }
@@ -500,6 +501,60 @@ async function runCardFlow(page) {
   await page.getByText('本轮收益变化', { exact: true }).waitFor()
   if (await page.getByText('当前余额领跑者', { exact: true }).count() !== 0) throw new Error('新默认设置不应公开余额领跑者。')
   await assertNoHorizontalOverflow(page, '道具结算页')
+}
+
+async function runStackedCardsFlow(page) {
+  await page.goto('http://127.0.0.1:5181')
+  await resetLocalGame(page)
+  await page.reload()
+  await page.getByRole('button', {name:'创建新对局'}).click()
+  await page.locator('#rounds').fill('2')
+  await page.getByRole('button', {name:/高级规则/}).click()
+  await disableIdentities(page)
+  await page.locator('#card-probability').fill('0')
+  await finishAdvancedSettings(page)
+  await page.getByRole('button', {name:/开始这局/}).click()
+  await page.evaluate(() => {
+    const key='who-is-raising:session:v1', session=JSON.parse(localStorage.getItem(key))
+    session.players[0].cardInventory=['red','red','black','swap','swap','fateCoin','fateCoin','fateCoin']
+    localStorage.setItem(key,JSON.stringify(session))
+  })
+  await page.reload()
+  await page.getByRole('button', {name:/继续第 1 轮/}).click()
+  await startRound(page)
+  await enterPrivateTurn(page)
+  await dismissPrivateNotices(page)
+  for (let i=0;i<2;i++) {
+    await openBackpack(page)
+    await page.locator('.card-choice').filter({hasText:'命运硬币'}).click()
+    await page.getByRole('button',{name:'确认并掷硬币'}).click()
+    await page.getByRole('button',{name:'知道了',exact:true}).click()
+  }
+  const before=await page.evaluate(()=>JSON.parse(localStorage.getItem('who-is-raising:session:v1')))
+  if (before.pendingFateCoinUse.previousUses.length!==1 || before.players[0].cardInventory.filter(id=>id==='fateCoin').length!==1) throw new Error('硬币没有逐张消费并锁定')
+  await page.reload()
+  await page.getByRole('button',{name:/继续第 1 轮/}).click()
+  await enterPrivateTurn(page)
+  await dismissPrivateNotices(page)
+  for (let i=0;i<2;i++) {
+    await openBackpack(page)
+    await page.locator('.card-choice').filter({hasText:/^红卡/}).click()
+    await page.getByRole('button',{name:'确认使用',exact:true}).click()
+  }
+  await openBackpack(page)
+  if (!await page.locator('.card-choice').filter({hasText:/^红卡/}).isDisabled()) throw new Error('红卡数量耗尽后仍能使用')
+  await page.getByRole('button',{name:'撤销一张红卡'}).click()
+  await page.locator('.card-choice').filter({hasText:/^红卡/}).click()
+  await page.getByRole('button',{name:'确认使用',exact:true}).click()
+  await page.getByRole('button',{name:'确认提交',exact:true}).click()
+  await page.getByRole('button',{name:'确定提交',exact:true}).click()
+  const after=await page.evaluate(()=>JSON.parse(localStorage.getItem('who-is-raising:session:v1')))
+  if(after.turns[0].cardUses.filter(use=>use.cardId==='red').length!==2) throw new Error('两张红卡没有成功提交')
+  if(after.turns[0].cardUses.filter(use=>use.cardId==='fateCoin').length!==2 || after.players[0].balanceUnits!==before.players[0].balanceUnits || after.players[0].cardInventory.filter(id=>id==='fateCoin').length!==1) throw new Error('刷新或提交重复结算/消耗了硬币')
+  await submitPrivateTurn(page,2)
+  await submitPrivateTurn(page,4)
+  await page.getByRole('button',{name:'揭晓本轮结果'}).click()
+  await page.getByText(/两张红卡生效/).waitFor()
 }
 
 async function runPresetFlow(page) {
@@ -1036,7 +1091,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'bot-joint') {
+  if (process.env.SMOKE_ONLY === 'stacked-cards') {
+    await runStackedCardsFlow(page)
+    console.log('同玩家双红卡、多硬币、逐张撤销、刷新及实际提交结算通过。')
+  } else if (process.env.SMOKE_ONLY === 'bot-joint') {
     await runBotJointFlow(page)
     console.log('3/6/10 人三轮联合 Bot 对局、市场与刷新恢复通过。')
   } else if (process.env.SMOKE_ONLY === 'setup-modal') {

@@ -311,15 +311,15 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   turns = turns.map((turn) => settledBidUnits.get(turn.playerId) === turn.bidUnits ? turn : { ...turn, bidUnits: settledBidUnits.get(turn.playerId) ?? turn.bidUnits })
 
   let redistributionTransferUnits: number | null = null
-  const redistributionUse = usedCards.find(({ use }) => use.cardId === 'redistribute')
-  if (redistributionUse) {
+  const redistributionUses = usedCards.filter(({ use }) => use.cardId === 'redistribute')
+  for (let index = 0; index < redistributionUses.length; index += 1) {
     const highestBalance = Math.max(...players.map((player) => player.balanceUnits))
     const lowestBalance = Math.min(...players.map((player) => player.balanceUnits))
     const turnOrder = new Map(turns.map((turn, index) => [turn.playerId, index]))
     const richest = players.filter((player) => player.balanceUnits === highestBalance).sort((left, right) => (turnOrder.get(right.id) ?? 0) - (turnOrder.get(left.id) ?? 0)).slice(0, 1)
     const poorest = players.filter((player) => player.balanceUnits === lowestBalance)
     const poolUnits = highestBalance === lowestBalance ? 0 : richest.reduce((total, player) => total + floorToHalfUnits(player.balanceUnits * .33), 0)
-    redistributionTransferUnits = poolUnits
+    redistributionTransferUnits = (redistributionTransferUnits ?? 0) + poolUnits
     for (const player of richest) {
       const payment = highestBalance === lowestBalance ? 0 : floorToHalfUnits(player.balanceUnits * .33)
       player.balanceUnits -= payment

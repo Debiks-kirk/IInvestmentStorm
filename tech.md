@@ -1,5 +1,11 @@
 # 技术基线
 
+## 道具重复使用
+
+- `canStackCard` / `validCardMultiplicity` 为界面与提交共用规则；校验消耗临时库存，不能只检查 `includes`。
+- `pendingFateCoinUse.previousUses` 可选记录此前硬币，`use` 保留最后一枚，兼容旧单枚存档；立即消耗后提交不重复移除。
+- `SMOKE_ONLY=stacked-cards` 覆盖真实同玩家连续使用、撤销、锁定结果刷新与实体库存，而非仅在引擎直接构造两名玩家各用一张。
+
 ## 内置头像
 
 - `AvatarIcon.tsx` 维护 24 个稳定数字 ID 的 SVG 路径，0–7 保留旧几何含义；错误索引安全回退，不存用户图片。
