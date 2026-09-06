@@ -3,6 +3,11 @@ import type { BotDifficulty, BotProfileSelection, CustomBotProfile, MemberAvatar
 
 export const MEMBER_ACCENTS = ['#a35b50', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191']
 
+/** A career link must not replace the already configured controller or strategy snapshot. */
+export function bindParticipantMember<T extends { name: string; memberId?: string }>(participant: T, member: MemberProfile): T {
+  return { ...participant, memberId: member.id, name: member.name }
+}
+
 function createId(prefix: string): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID
     ? `${prefix}-${crypto.randomUUID()}`

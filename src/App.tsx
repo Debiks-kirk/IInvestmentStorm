@@ -20,7 +20,7 @@ import { BOT_PROFILES, appendBotRecord, botProfile, buildBotObservation, decideB
 import { appendSpectatorEvent, appendSpectatorEvents, createRoundResultSpectatorEvent, createSpectatorChart, createSpectatorPlayerStats, createTurnSpectatorEvent, type SpectatorChartKey, type SpectatorEventInput } from './game/spectator'
 import { createBotHistoryHints } from './game/career'
 import { archiveCareerMatch, exportCareerBackup, importCareerBackup, inspectCareerBackup, loadCareerData, loadCareerReplay, removeCareerMatch, saveCareerMembers, type CareerData } from './game/careerStorage'
-import { createBotMember, createHumanMember, createLegacyCustomBotMembers, createSystemBotMembers, memberController, memberNameKey, uniqueMemberName } from './game/members'
+import { bindParticipantMember, createBotMember, createHumanMember, createLegacyCustomBotMembers, createSystemBotMembers, memberController, memberNameKey, uniqueMemberName } from './game/members'
 import type { AssetCategory, AssetAuctionResult, BotDifficulty, BotStrategyConfig, CardId, CardUse, CustomBotProfile, GameHistoryEntry, GameMode, GamePreset, GameSession, GameSettings, IdentityAction, IdentityEvent, IdentityId, KidnapNegotiation, LobbyistTaskType, MemberProfile, Player, ProphetDivination, RelayMethod, RelayOperator, RelaySeatConfig, RoundResult, RoundTurn, SeatConfig, SpectatorEvent } from './game/types'
 
 type Screen = 'home' | 'setup' | 'rules' | 'history' | 'collection' | 'members' | 'game'
@@ -3001,7 +3001,7 @@ export default function App() {
       const candidates = available.filter((member) => member.kind === kind && !usedMemberIds.has(member.id))
       const selected = (preferredId ? candidates.find((member) => member.id === preferredId) : undefined)
         ?? candidates.find((member) => memberNameKey(member.name) === memberNameKey(name))
-        ?? (kind === 'bot' ? candidates.find((member) => member.bot?.profileId === profileId) : undefined)
+        ?? (kind === 'bot' && profileId !== 'custom' ? candidates.find((member) => member.bot?.profileId === profileId) : undefined)
       if (selected) usedMemberIds.add(selected.id)
       return selected
     }
@@ -3011,14 +3011,14 @@ export default function App() {
           const operatorBot = operator.controller.kind === 'bot' ? operator.controller : undefined
           const kind = operatorBot ? 'bot' : 'human'
           const selected = pickMember(operator.name, kind, operator.memberId, operatorBot?.profileId)
-          return { ...operator, ...(selected ? { memberId: selected.id, name: selected.name, controller: selected.kind === 'bot' && selected.bot ? { kind: 'bot' as const, profileId: selected.bot.profileId, difficulty: selected.bot.difficulty, ...(selected.bot.customProfile ? { customProfile: selected.bot.customProfile } : {}) } : { kind: 'human' as const } } : {}) }
+          return selected ? bindParticipantMember(operator, selected) : operator
         })
         return { ...player, relayOperators }
       }
       const botController = player.controller?.kind === 'bot' ? player.controller : undefined
       const kind = botController ? 'bot' : 'human'
       const selected = pickMember(player.name, kind, player.memberId, botController?.profileId)
-      return selected ? { ...player, memberId: selected.id, name: selected.name, controller: selected.kind === 'bot' && selected.bot ? { kind: 'bot' as const, profileId: selected.bot.profileId, difficulty: selected.bot.difficulty, ...(selected.bot.customProfile ? { customProfile: selected.bot.customProfile } : {}) } : { kind: 'human' as const } } : player
+      return selected ? bindParticipantMember(player, selected) : player
     })
     const bound = { ...next, players, careerEnabled: careerReady, botHistoryHints: careerReady ? createBotHistoryHints(careerRecords, available) : {} }
     setSession(bound); setSaved(bound); setScreen('game')

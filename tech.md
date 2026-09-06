@@ -1,5 +1,10 @@
 # 技术基线
 
+## Bot 参数回归
+
+- `botParameters.test.ts` 对九个滑杆做固定种子单变量对照；另测预测方向、快照、免费技能、偷看消耗及藏品得标概率。
+- `bindParticipantMember` 只关联档案，不修改已配置控制器；`botCollectibleChance` 区分排名资格与藏品获得。完整审计边界见 `Bot策略检查记录.md`。
+
 ## Bot 难度信息边界
 
 - 三个难度不再自动获取已提交玩家的下注区间；`BotObservation` 删除额外 `intel` 字段，报价估计只使用公共推断及正常道具偷看结果。历史决策的可选 `intel` 文本保留兼容，但新决策不再生成或读取该情报。
