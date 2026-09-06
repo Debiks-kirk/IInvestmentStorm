@@ -1,4 +1,5 @@
 import { BOT_PROFILES, botProfile, defaultBotStrategy } from './bots'
+import { AVATAR_PRESET_COUNT, cloneAvatar } from './avatars'
 import type { BotDifficulty, BotProfileSelection, CustomBotProfile, MemberAvatar, MemberProfile, PlayerController, SeatConfig } from './types'
 
 export const MEMBER_ACCENTS = ['#a35b50', '#557f74', '#687c9b', '#a57a45', '#8b6f91', '#6c8556', '#9b6676', '#4f8191']
@@ -27,7 +28,7 @@ export function avatarForMember(seed: string, accent?: string): MemberAvatar {
   // once in the profile, never regenerated on rename or refresh.
   let value = 0
   for (const character of seed) value = ((value << 5) - value + character.charCodeAt(0)) | 0
-  return { shape: Math.abs(value) % 24, accent: accent ?? MEMBER_ACCENTS[Math.abs(value >> 3) % MEMBER_ACCENTS.length] }
+  return { shape: Math.abs(value) % AVATAR_PRESET_COUNT, accent: accent ?? MEMBER_ACCENTS[Math.abs(value >> 3) % MEMBER_ACCENTS.length] }
 }
 
 export function createHumanMember(name: string, accent?: string): MemberProfile {
@@ -111,7 +112,7 @@ export function defaultCustomBotProfile(name = '新 Bot'): CustomBotProfile {
 export function cloneMember(member: MemberProfile): MemberProfile {
   return {
     ...member,
-    avatar: { ...member.avatar },
+    avatar: cloneAvatar(member.avatar),
     ...(member.bot ? { bot: { ...member.bot, ...(member.bot.customProfile ? { customProfile: { ...member.bot.customProfile, identityPriority: [...member.bot.customProfile.identityPriority] } } : {}) } } : {}),
   }
 }

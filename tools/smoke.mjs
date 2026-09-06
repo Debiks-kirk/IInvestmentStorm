@@ -5,6 +5,7 @@ import { chromium } from 'playwright-core'
 import { runIconFlow } from './icon-smoke.mjs'
 import { runSetupModalFlow } from './setup-modal-smoke.mjs'
 import { runBotJointFlow } from './bot-joint-smoke.mjs'
+import { runAvatarFlow } from './avatar-smoke.mjs'
 
 const chromeCandidates = process.platform === 'win32'
   ? [
@@ -171,7 +172,7 @@ async function runMemberHallFlow(page) {
   await page.getByRole('button', { name: '编辑资料' }).click()
   const edit = page.getByRole('dialog', { name: '编辑成员' })
   if (!await edit.evaluate(node => node.parentElement === document.body)) throw new Error('编辑头像弹窗必须顶层挂载')
-  if (await edit.locator('.member-avatar-picker button').count() !== 24) throw new Error('预设头像数量不正确')
+  if (await edit.locator('.member-avatar-picker button').count() !== 30) throw new Error('预设头像数量不正确')
   await edit.getByRole('button', { name: '头像：飞船', exact: true }).click()
   await edit.getByRole('button', { name: '头像：灵猫', exact: true }).click()
   if (await edit.getByRole('button', { name: '头像：灵猫', exact: true }).getAttribute('aria-pressed') !== 'true') throw new Error('头像选中状态未更新')
@@ -1150,7 +1151,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'expansion') {
+  if (process.env.SMOKE_ONLY === 'avatars') {
+    await runAvatarFlow(page)
+    console.log('30 款预设头像、手绘触摸/鼠标、撤销清空、取消、保存刷新和档案备份恢复通过。')
+  } else if (process.env.SMOKE_ONLY === 'expansion') {
     await runIconFlow(page)
     await page.setViewportSize({width:360,height:640})
     await runExpansionFlow(page)
@@ -1200,6 +1204,8 @@ try {
     console.log('余额翻牌流程冒烟测试通过。')
   } else {
     await runMemberHallFlow(page)
+    await page.reload()
+    await runAvatarFlow(page)
     await runSetupLayoutFlow(page)
     await runGame(page, 3, true)
     await runGame(page, 6, false, 'fast')

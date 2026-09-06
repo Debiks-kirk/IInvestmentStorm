@@ -24,10 +24,23 @@ export type StrategyMode = 'value' | 'conserve' | 'collect' | 'pressure' | 'reve
 /** A durable local identity, intentionally separate from a temporary in-game seat. */
 export type MemberKind = 'human' | 'bot'
 
+export interface AvatarStroke {
+  color: string
+  width: number
+  points: [number, number][]
+}
+
+export interface AvatarDrawing {
+  version: 1
+  background: string
+  strokes: AvatarStroke[]
+}
+
 export interface MemberAvatar {
-  /** Stable built-in avatar index; no uploaded image data is stored. */
+  /** Stable built-in avatar index, retained as fallback for a drawing. */
   shape: number
   accent: string
+  drawing?: AvatarDrawing
 }
 
 export type PlayerController =

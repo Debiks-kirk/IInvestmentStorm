@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import { avatarForMember } from '../game/members'
+import { avatarStrokePath } from '../game/avatars'
 import type { MemberAvatar, MemberProfile } from '../game/types'
 import './AvatarIcon.css'
 
@@ -29,11 +30,18 @@ export const AVATAR_LIBRARY = [
   ['火苗', 'M24 4C27 21 38 14 39 30c0 21-35 18-30-2l8-13 2 12Z M24 26q-13 16 2 16 10-4-2-16Z'],
   ['四叶', 'M24 24C-9 24 14-8 24 18 34-8 57 24 24 24 57 24 34 56 24 30 14 56-9 24 24 24Z'],
   ['飞船', 'M13 29C12 15 27 6 41 7c0 14-9 29-22 28Z M26 15a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M13 24l-8 8 10 1m9 2-1 9 9-9 M11 37l-5 5'],
+  ['月亮', 'M29 6C8 3 1 31 19 40c11 6 22-1 24-11C25 36 16 17 29 6Z M36 6v6m-3-3h6'],
+  ['小狗', 'M14 14Q24 8 34 14l3 18c0 14-26 14-26 0Z M14 14C2 7 1 33 11 29 M34 14c12-7 13 19 3 15 M18 24v2m12-2v2 M21 31h6l-3 3Z M24 34v4m-5-2q5 5 10 0'],
+  ['小熊', 'M12 17C0 16 5 1 15 10 M33 10c10-9 15 6 3 7 M9 27a15 15 0 1 0 30 0 15 15 0 1 0-30 0 M17 24v2m14-2v2 M17 34c0-10 14-10 14 0 M22 31h4m-2 0v5'],
+  ['熊猫', 'M11 18C-1 12 10 1 17 11 M31 11c7-10 18 1 6 7 M8 27c0-22 32-22 32 0 0 22-32 22-32 0Z M18 20c-8-3-10 12-2 10 4-1 6-8 2-10Z M30 20c8-3 10 12 2 10-4-1-6-8-2-10Z M22 33h4m-2 0v4m-4 0q4 3 8 0'],
+  ['小鸡', 'M20 12q-5-11 1-7l4 6q8-12 8-3l-3 5 M10 28c-7-24 33-24 28 0 13 9-3 14-14 14S-3 37 10 28Z M17 22v2m14-2v2 M20 29l4-3 4 3-4 4Z M19 42v3m10-3v3'],
+  ['青蛙', 'M9 21C-2 6 20 1 20 16h8C28 1 50 6 39 21 M9 21C-6 47 54 47 39 21 M12 13v3m24-3v3 M14 29q10 13 20 0 M8 27h2m28 0h2'],
 ] as const
 
 export const AvatarMembers = createContext<readonly MemberProfile[]>([])
 
 export function AvatarIcon({ avatar }: { avatar: MemberAvatar }) {
+  if (avatar.drawing) return <svg className="avatar-art avatar-art--drawn" viewBox="0 0 256 256" aria-hidden="true" focusable="false" style={{ backgroundColor: avatar.drawing.background }}><g fill="none" strokeLinecap="round" strokeLinejoin="round">{avatar.drawing.strokes.map((stroke, index) => <path key={index} d={avatarStrokePath(stroke)} stroke={stroke.color} strokeWidth={stroke.width} />)}</g></svg>
   const index = Number.isInteger(avatar.shape) && avatar.shape >= 0 && avatar.shape < AVATAR_LIBRARY.length ? avatar.shape : 0
   return <svg className="avatar-art" viewBox="0 0 48 48" aria-hidden="true" focusable="false" style={{ backgroundColor: avatar.accent }}><path d={AVATAR_LIBRARY[index][1]} /></svg>
 }
