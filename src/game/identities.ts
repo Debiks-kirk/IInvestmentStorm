@@ -11,19 +11,35 @@ export interface IdentityDefinition {
   needsMerchantCard?: boolean
 }
 
+export const IDENTITY_STARTING_CARDS: Partial<Record<IdentityId, readonly CardId[]>> = {
+  gambler: ['predictionPolicy'],
+  insurer: ['tieCharm', 'reflectShield'],
+  nightwalker: ['doubleBid'],
+  investor: ['peek'],
+  lobbyist: ['fateCoin'],
+  prophet: ['fateCoin'],
+  assassin: ['peek'],
+  thief: ['sleeveUpgrade'],
+}
+
+/** Extra starting equipment; not drawn from the public pool. Disabled cards stay disabled. */
+export function identityStartingCards(id: IdentityId, disabled: readonly CardId[] = []): CardId[] {
+  return (IDENTITY_STARTING_CARDS[id] ?? []).filter(cardId => !disabled.includes(cardId))
+}
+
 export const IDENTITY_DEFINITIONS: IdentityDefinition[] = [
-  { id: 'insurer', name: '保险师', symbol: '☂', summary: '未进获奖区全额返还下注净损失；免受观望惩罚，购票全额补贴。', repeatable: true },
+  { id: 'insurer', name: '保险师', symbol: '☂', summary: '未进获奖区全额返还下注净损失；免受观望惩罚，购票全额补贴。自带护身符、反弹护盾。', repeatable: true },
   { id: 'connoisseur', name: '鉴赏家', symbol: '⌕', summary: '首次集得新类别依次获 5/10/15/20 金币及道具 1/2/3/4 选 1，各档仅一次。', repeatable: true },
-  { id: 'prophet', name: '预言家', symbol: '◌', summary: '主动发动天机推演：观财、观星或观身份。', repeatable: true },
-  { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。', repeatable: true },
-  { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '主动发起绑票谈判；有人拍下藏品时，可公开索要赎金。', repeatable: false },
+  { id: 'prophet', name: '预言家', symbol: '◌', summary: '主动发动天机推演：观财、观星或观身份。自带命运硬币。', repeatable: true },
+  { id: 'gambler', name: '赌徒', symbol: '♠', summary: '猜中多赚；猜错或跳过会扣钱。自带失算保单。', repeatable: true },
+  { id: 'assassin', name: '绑匪', symbol: '⛓', summary: '主动发起绑票谈判；有人拍下藏品时，可公开索要赎金。自带偷看底牌。', repeatable: false },
   { id: 'collector', name: '收藏家', symbol: '▣', summary: '选一类资产；拿下同类拍品额外得 5 金币。', repeatable: true, needsCategory: true },
-  { id: 'thief', name: '小偷', symbol: '◒', summary: '主动偷走别人的未使用道具；没偷到时会盯上最富者。', repeatable: false },
+  { id: 'thief', name: '小偷', symbol: '◒', summary: '主动偷走别人的未使用道具；没偷到时会盯上最富者。自带袖里乾坤。', repeatable: false },
   { id: 'merchant', name: '道具商人', symbol: '◇', summary: '前期获赠道具并安排竞购，最后两轮可开店。', repeatable: true },
   { id: 'reverser', name: '逆转者', symbol: '↻', summary: '花钱把本轮获奖区名次倒过来。', repeatable: true },
-  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。', repeatable: true },
-  { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。', repeatable: true },
-  { id: 'investor', name: '投资者', symbol: '◈', summary: '秘密跟投一名玩家；其获奖后按比例分红，并享受投资倍率。', repeatable: true },
+  { id: 'lobbyist', name: '说客', symbol: '✉', summary: '给别人发随机任务；加钱可指定。自带命运硬币。', repeatable: true },
+  { id: 'nightwalker', name: '夜行者', symbol: '☾', summary: '主动设两档暗标；揭晓后自动采用本轮更划算的一档。自带反客为主。', repeatable: true },
+  { id: 'investor', name: '投资者', symbol: '◈', summary: '秘密跟投一名玩家；其获奖后按比例分红，并享受投资倍率。自带偷看底牌。', repeatable: true },
 ]
 
 export function getIdentityDefinition(id: IdentityId): IdentityDefinition {

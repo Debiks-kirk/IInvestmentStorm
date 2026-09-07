@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { identityStartingCards } from './identities'
 import { IDENTITY_DEFINITIONS, dealIdentityChoices, defaultIdentitySettings, identityValidationErrors, kidnapTargetCap, normalizeIdentitySettings, randomLobbyistTask, routeCardAwards } from './identities'
 import { coinsToUnits, rankFinalPlayers, settleRound } from './engine'
 import type { Item, Player, RoundTurn } from './types'
@@ -8,6 +9,22 @@ const player = (id: string, balance = 20): Player => ({ id, name: id, color: '#0
 const turn = (playerId: string, bid: number, predictedPlayerId: string | null = null): RoundTurn => ({ playerId, bidUnits: coinsToUnits(bid), predictedPlayerId })
 
 describe('身份选角与私密卡牌', () => {
+  it('八种身份配备指定道具，其他身份不额外发卡', () => {
+    expect(Object.fromEntries(IDENTITY_DEFINITIONS.map(role => [role.id, identityStartingCards(role.id)]))).toEqual({
+      gambler: ['predictionPolicy'], insurer: ['tieCharm','reflectShield'], nightwalker: ['doubleBid'], investor: ['peek'],
+      lobbyist: ['fateCoin'], prophet: ['fateCoin'], assassin: ['peek'], thief: ['sleeveUpgrade'],
+      collector: [], merchant: [], reverser: [], connoisseur: [],
+    })
+  })
+  it('尊重禁用卡，发放保留库存数量并产生领取提示数据', () => {
+    expect(identityStartingCards('insurer',['tieCharm'])).toEqual(['reflectShield'])
+    const actor = player('starter'); actor.cardInventory = ['reflectShield']
+    const awards = identityStartingCards('insurer').map(cardId => ({ playerId:actor.id, cardId }))
+    const result = routeCardAwards({ players:[actor], awards })
+    expect(result.players[0].cardInventory).toEqual(['reflectShield','tieCharm','reflectShield'])
+    expect(result.delivered).toEqual(awards)
+    expect(actor.cardInventory).toEqual(['reflectShield'])
+  })
   it('投资者把资金计入目标排名，并按出资比例拆分奖励与拍品', () => {
     const players = [player('investor', 15), player('target', 10), player('other', 18)]
     players[0].identity = { id: 'investor', thiefSuccesses: 0, lobbyistNextFree: false, lobbyistLastIssuedRound: null }

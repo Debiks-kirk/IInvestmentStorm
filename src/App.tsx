@@ -14,7 +14,7 @@ import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig, fixedAsse
 import { CARD_DEFINITIONS, CARD_RARITY_LABELS, canStackCard, validCardMultiplicity, cardInventoryCounts, cardTargetScope, drawCard, getCardDefinition, removeOneCard } from './game/cards'
 import { createAssetTrajectories, createGameHighlights, createRoundBulletin } from './game/highlights'
 import { chooseConnoisseurCard, rewardConnoisseurItem } from './game/connoisseur'
-import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
+import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, identityStartingCards, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { activeOperator, allOperatorsAreBots, createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, resolveRoundPrize, roundStartPlayerIndex, validateNames, visibleRoundItem } from './game/session'
@@ -2038,12 +2038,12 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   const confirmIdentity = (config: { targetPlayerId?: string; collectorCategory?: AssetCategory; merchantCardId?: CardId }, botRecord?: { mode: import('./game/types').StrategyMode; reason: string }) => {
     const draft = session.identityDraft
     const identityId = draft?.selectedIdentityId
-    if (!draft || !identityId) return
+    if (session.phase !== 'identityDraft' || !draft || !identityId || session.players[draft.playerIndex]?.identity) return
     const definition = getIdentityDefinition(identityId)
     if (definition.needsTarget && (!config.targetPlayerId || config.targetPlayerId === session.players[draft.playerIndex]?.id)) return
     if (definition.needsMerchantCard && (!config.merchantCardId || !draft.merchantCardOfferIds?.includes(config.merchantCardId))) return
     const cardDeck = [...session.cardDeck]
-    const pendingAwards = [...session.pendingIdentityCardAwards]
+    const pendingAwards = [...session.pendingIdentityCardAwards, ...identityStartingCards(identityId, session.settings.disabledCardIds).map(cardId => ({ playerId: session.players[draft.playerIndex].id, cardId }))]
     if (config.merchantCardId) {
       const cardIndex = cardDeck.indexOf(config.merchantCardId)
       if (cardIndex < 0) return
