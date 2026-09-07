@@ -1,0 +1,22 @@
+.career-switch { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0; }
+.career-switch button { min-height:44px; padding:8px 16px; border:1px solid #a7947544; border-radius:12px; background:var(--paper); color:var(--ink); font:inherit; cursor:pointer; }
+.career-switch button[aria-pressed=true] { background:#94554c; color:#fff9ec; border-color:#94554c; }
+.rating-rules { padding:12px 16px; border-radius:12px; background:#a7947514; font-size:13px; line-height:1.8; }
+.rating-rules summary { cursor:pointer; }
+.member-card.member-card--ranked { grid-template-columns:32px 54px minmax(0,1fr) auto; }
+.career-rank { color:#967440; text-align:center; }
+.achievement-heading { display:flex; justify-content:space-between; align-items:center; }
+.achievement-library { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:16px; }
+.achievement-library article { display:flex; gap:12px; padding:18px; border:1px solid #a7947544; border-radius:16px; background:var(--paper); }
+.achievement-library article > span { font-size:26px; color:#928675; }
+.achievement-library article.is-unlocked { background:linear-gradient(135deg,#bf9d4525,var(--paper)); border-color:#b79555; }
+.achievement-library article.is-unlocked > span { color:#a67932; }
+.achievement-library article > div { min-width:0; flex:1; }
+.achievement-library p { font-size:13px; line-height:1.6; color:var(--muted); }
+.achievement-library small { display:block; margin-top:6px; font-size:12px; color:var(--muted); }
+.achievement-library progress { display:block; width:100%; height:6px; accent-color:#557e71; }
+.member-profile { --member-accent:#94554c; }
+.member-profile .member-profile__tabs { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.member-profile .member-profile__tabs button { min-height:44px; }
+.member-profile .member-profile__featured { grid-template-columns:repeat(5,minmax(0,1fr)); }
+@media(max-width:700px) { .achievement-library { grid-template-columns:1fr; } .member-profile .member-profile__featured { grid-template-columns:repeat(2,minmax(0,1fr)); } .member-card.member-card--ranked { grid-template-columns:24px 44px minmax(0,1fr) auto; gap:8px; } }

@@ -1,4 +1,5 @@
 import { calculateFixedAssets } from './assets'
+import { achievementProgress } from './progression'
 import { getCardDefinition } from './cards'
 import { formatCoins, rankFinalPlayers } from './engine'
 import type { AssetCategory, BotHistoryHint, CardId, GameMode, GameSession, IdentityId, MemberProfile, Player, RoundResult, RoundTurn } from './types'
@@ -20,6 +21,9 @@ export interface CareerEvent {
 }
 
 export interface MemberMatchSummary {
+  lotteryWins?: number
+  lotteryPrizeUnits?: number
+  upgradeUses?: number
   memberId: string
   sessionId: string
   seatPlayerId: string
@@ -72,7 +76,7 @@ export interface MatchCareerRecord {
 }
 
 export interface CareerAchievement {
-  id: 'firstChampion' | 'regular' | 'collector' | 'prophet' | 'market' | 'comeback'
+  id: string
   name: string
   detail: string
   modes: GameMode[]
@@ -174,21 +178,25 @@ function summaryForMember(session: GameSession, entry: ReturnType<typeof summari
   const categoryCounts = countCategory(entry.player)
   const assetBreakdown = calculateFixedAssets(entry.player.items, entry.player.identity?.id === 'collector' ? entry.player.identity.collectorCategory : undefined)
   const turns = entry.turns
-  const investments = session.results.flatMap((round) => round.investments.filter((investment) => investment.investorId === entry.player.id))
-  const cardAuctionWins = session.results.flatMap((round) => round.cardAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.winnerId === entry.player.id)
-  const assetAuctionWins = session.results.flatMap((round) => round.assetAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.winnerId === entry.player.id)
-  const assetSales = session.results.flatMap((round) => round.assetAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.sellerId === entry.player.id && Boolean(lot.winnerId))
+  const actedResults = session.results.filter(round => entry.turns.some(turn => turn.result.roundIndex === round.roundIndex))
+  const investments = actedResults.flatMap((round) => round.investments.filter((investment) => investment.investorId === entry.player.id))
+  const cardAuctionWins = actedResults.flatMap((round) => round.cardAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.winnerId === entry.player.id)
+  const assetAuctionWins = actedResults.flatMap((round) => round.assetAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.winnerId === entry.player.id)
+  const assetSales = actedResults.flatMap((round) => round.assetAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.sellerId === entry.player.id && Boolean(lot.winnerId))
   const bidFor = (round: RoundResult, playerId: string, lotId: string) => round.turns.find((turn) => turn.playerId === playerId)?.auctionBids?.find((bid) => bid.lotId === lotId)?.bidUnits ?? 0
   const predictionRows = turns.map(({ result }) => result.predictionOutcomes.find((outcome) => outcome.playerId === entry.player.id)).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
   const rankRows = turns.map(({ result }) => result.rankings.find((rank) => rank.playerId === entry.player.id)).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-  const zeroBalanceRounds = session.results.filter((round) => (round.balancesAfter[entry.player.id] ?? 1) <= 0).length
-  const passivity = session.results.flatMap((round) => round.passivityFeePenalties).filter((penalty) => penalty.playerId === entry.player.id)
+  const zeroBalanceRounds = actedResults.filter((round) => (round.balancesAfter[entry.player.id] ?? 1) <= 0).length
+  const passivity = actedResults.flatMap((round) => round.passivityFeePenalties).filter((penalty) => penalty.playerId === entry.player.id)
   const finalPlace = standing?.place ?? session.players.length
   const lower = standings.filter((candidate) => candidate.totalAssetUnits < finalAssets).length
   const tied = Math.max(0, standings.filter((candidate) => candidate.totalAssetUnits === finalAssets).length - 1)
   const defeatRatio = session.players.length <= 1 ? 0 : (lower + tied * .5) / (session.players.length - 1)
   const changes = turns.map(({ result }) => result.totalAssetUnitsAfter[entry.player.id] ?? finalAssets)
-  const cameFromBackHalf = session.results.some((round) => (round.rankings.find((rank) => rank.playerId === entry.player.id)?.place ?? 1) > Math.ceil(session.players.length / 2))
+  const cameFromBackHalf = turns.some(({ result: round }) => {
+    const own = round.totalAssetUnitsAfter[entry.player.id]
+    return own !== undefined && 1 + Object.values(round.totalAssetUnitsAfter).filter(value => value > own).length > Math.ceil(session.players.length / 2)
+  })
   const operatorNet = entry.role === 'operator'
     ? changes.reduce((sum, after, index) => {
       const round = turns[index]?.result
@@ -198,6 +206,9 @@ function summaryForMember(session: GameSession, entry: ReturnType<typeof summari
     : finalAssets - initialUnits
   return {
     memberId: entry.memberId,
+    lotteryWins: turns.filter(({ result }) => result.lottery?.winnerId === entry.player.id).length,
+    lotteryPrizeUnits: turns.reduce((sum, { result }) => sum + (result.lottery?.winnerId === entry.player.id ? result.lottery.prizeUnits : 0), 0),
+    upgradeUses: turns.reduce((sum, { turn }) => sum + (turn.cardUses ?? []).filter(use => use.cardId === 'sleeveUpgrade' && use.upgradedTo).length, 0),
     sessionId: session.id,
     seatPlayerId: entry.player.id,
     nameAtMatch: entry.player.name,
@@ -220,7 +231,7 @@ function summaryForMember(session: GameSession, entry: ReturnType<typeof summari
     cardUses: turns.reduce((sum, { turn }) => sum + (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).length, 0),
     identityUses: turns.filter(({ turn }) => Boolean(turn.identityAction)).length,
     cardAuctionSpentUnits: cardAuctionWins.reduce((sum, { round, lot }) => sum + bidFor(round, entry.player.id, lot.lotId), 0),
-    cardAuctionIncomeUnits: session.results.flatMap((round) => round.cardAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.merchantId === entry.player.id && lot.winnerId).reduce((sum, { round, lot }) => sum + bidFor(round, lot.winnerId!, lot.lotId), 0),
+    cardAuctionIncomeUnits: actedResults.flatMap((round) => round.cardAuctionResults.map((lot) => ({ round, lot }))).filter(({ lot }) => lot.merchantId === entry.player.id && lot.winnerId).reduce((sum, { round, lot }) => sum + bidFor(round, lot.winnerId!, lot.lotId), 0),
     cardAuctionDeals: cardAuctionWins.length,
     assetAuctionSpentUnits: assetAuctionWins.reduce((sum, { round, lot }) => sum + bidFor(round, entry.player.id, lot.lotId), 0),
     assetAuctionIncomeUnits: assetSales.reduce((sum, { round, lot }) => sum + bidFor(round, lot.winnerId!, lot.lotId), 0),
@@ -233,7 +244,7 @@ function summaryForMember(session: GameSession, entry: ReturnType<typeof summari
     favouriteCategory: mainCategory(categoryCounts),
     categoryCounts,
     fixedAssetUnits: assetBreakdown.reduce((sum, asset) => sum + asset.units, 0),
-    itemsWon: session.results.filter((round) => round.itemWinnerId === entry.player.id).length,
+    itemsWon: actedResults.filter((round) => round.itemWinnerId === entry.player.id).length,
   }
 }
 
@@ -276,19 +287,7 @@ export function createMatchCareerRecord(session: GameSession, completedAt = new 
 }
 
 export function careerAchievements(summaries: readonly MemberMatchSummary[]): CareerAchievement[] {
-  const modesFor = (predicate: (summary: MemberMatchSummary) => boolean) => [...new Set(summaries.filter(predicate).map((summary) => summary.mode))]
-  const definitions: Array<{ id: CareerAchievement['id']; name: string; detail: string; predicate: (summary: MemberMatchSummary) => boolean }> = [
-    { id: 'firstChampion', name: '初尝胜果', detail: '首次取得冠军', predicate: (summary) => summary.champion },
-    { id: 'regular', name: '拍场常客', detail: '完成 10 局', predicate: () => summaries.length >= 10 },
-    { id: 'collector', name: '收藏行家', detail: '单类真实藏品达到 5 件', predicate: (summary) => Math.max(0, ...Object.values(summary.categoryCounts)) >= 5 },
-    { id: 'prophet', name: '神机妙算', detail: '一局猜中至少 3 次', predicate: (summary) => summary.predictionHits >= 3 },
-    { id: 'market', name: '市场红人', detail: '一局成功售出至少 3 件拍品', predicate: (summary) => summary.assetSales >= 3 },
-    { id: 'comeback', name: '绝地翻盘', detail: '后半区起步并夺冠', predicate: (summary) => summary.champion && summary.cameFromBackHalf },
-  ]
-  return definitions.flatMap((definition) => {
-    const modes = modesFor(definition.predicate)
-    return modes.length ? [{ id: definition.id, name: definition.name, detail: definition.detail, modes }] : []
-  })
+  return achievementProgress(summaries).filter(entry => entry.unlocked)
 }
 
 export function careerRelationships(memberId: string, records: readonly MatchCareerRecord[]): CareerRelationship[] {

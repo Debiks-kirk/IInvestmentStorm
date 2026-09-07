@@ -1,5 +1,12 @@
 # 技术基线
 
+## 成就与等级分（2026-09-07）
+
+- `progression.ts`：`ratingDelta` 实现按 N/R 的整数积分；`careerRatings` 单次按 session/member 去重并聚合，缺席成员不创建分数。
+- `achievementProgress` 为 31 项成就输出条件、分类、进度与模式来源；`careerAchievements` 只取解锁项，保持精选成就兼容。
+- 生涯摘要可选新增 lotteryWins/lotteryPrizeUnits/upgradeUses；旧记录按缺失处理，不要求存储版本迁移，不重跑旧结算。
+- 等级榜和个人页复用归档战绩；导入与删除天然重算，不额外保存累计分数。`SMOKE_ONLY=progression` 为浏览器验收入口。
+
 ## 彩票购票更新（2026-09-07）
 
 - `LOTTERY_PRICE_UNITS=4` 为入池额；`LOTTERY_PAYMENT_UNITS=3` 为实付上限；`LOTTERY_PURCHASE_LIMIT=2`。低余额差额继续系统补齐。
