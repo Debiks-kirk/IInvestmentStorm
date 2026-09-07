@@ -33,7 +33,7 @@ export async function runExpansionCardsFlow(page) {
   await page.getByRole('button',{name:/天降彩券/}).click()
   await page.getByRole('dialog',{name:/天降彩券/}).getByRole('button',{name:'确认使用',exact:true}).click()
   await page.getByRole('dialog',{name:'道具使用结果'}).getByRole('button',{name:'收下'}).click()
-  assert.equal((await state()).lottery.poolUnits,15)
+  assert.equal((await state()).lottery.poolUnits,23)
   await page.reload(); await page.getByRole('button',{name:/继续第/}).click(); await enter()
   await page.getByRole('dialog',{name:'道具使用结果'}).getByRole('button',{name:'收下'}).click()
   assert.equal((await state()).instantCardUses.length,4)

@@ -14,12 +14,12 @@ describe('天降彩券', () => {
   it('赠号注入每号2金币，不占购买次数，刷新不能重抽', () => {
     let s = game(); const id = s.players[0].id; const cash = s.players[0].balanceUnits
     Object.assign(s, useInstantCard(s, id, 'luckyTickets', undefined, [], () => 0))
-    expect(s.lottery!.tickets.map(t => t.number)).toEqual([1, 2, 3])
-    expect(s.lottery!.poolUnits).toBe(15)
+    expect(s.lottery!.tickets.map(t => t.number)).toEqual([1, 2, 3, 4, 5])
+    expect(s.lottery!.poolUnits).toBe(23)
     expect(s.players[0].balanceUnits).toBe(cash)
     s = JSON.parse(JSON.stringify(s))
     expect(useInstantCard(s, id, 'luckyTickets')).toBeNull()
-    expect(buyLotteryTicket(s, id, 4)).not.toBeNull()
+    expect(buyLotteryTicket(s, id, 6)).not.toBeNull()
   })
   it('只剩一个号只发一个，池增加2；无号不消耗', () => {
     const s = game(); const id = s.players[0].id

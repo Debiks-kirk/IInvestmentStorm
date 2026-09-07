@@ -32,7 +32,7 @@ export function cardTargetScope(cardId: CardId): CardTargetScope {
 }
 
 export const CARD_DEFINITIONS: CardDefinition[] = [
-  { id: 'luckyTickets', name: '天降彩券', symbol: '▧', description: '随机获得至多 3 个号码，每号注入奖池 2 金币，不占购票机会。每轮一次。', needsTarget: false, rarity: 'uncommon' },
+  { id: 'luckyTickets', name: '天降彩券', symbol: '▧', description: '随机获得至多 5 个号码，每号注入奖池 2 金币，不占购票机会。每轮一次。', needsTarget: false, rarity: 'uncommon' },
   { id: 'tieCharm', name: '护身符', symbol: '◇', description: '并列时自动消耗：仅你持有则保留排名；多人持有则全部失效。', needsTarget: false, rarity: 'rare' },
   { id: 'sleeveUpgrade', name: '袖里乾坤', symbol: '✦', description: '消耗一张未使用的非传奇卡，随机升一档。有多张可连续升级。', needsTarget: false, rarity: 'common' },
   { id: 'triumphRebate', name: '凯旋礼金', symbol: '♕', description: '最终第一名返还下注的 1/3。', needsTarget: false, rarity: 'common' },
