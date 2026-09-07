@@ -30,6 +30,14 @@ function members() {
 }
 
 describe('成员档案与长期战绩', () => {
+  it('半数加分区：六人第三与十人第五可加分，奇数向上取整', () => {
+    expect(ratingDelta(6,3,120,100)).toBe(2)
+    expect(ratingDelta(6,4,80,100)).toBe(-2)
+    expect(ratingDelta(10,5,120,100)).toBe(2)
+    expect(ratingDelta(5,3,120,100)).toBe(1)
+    expect(ratingDelta(6,3,100,100)).toBe(0)
+    expect(ratingDelta(6,3,100,100,2)).toBe(0)
+  })
   it('人数分数上限与非法输入', () => {
     expect([2,3,4,5,6,7,8,9,10].map(ratingLimit)).toEqual([4,6,8,11,13,15,17,18,20])
     expect(ratingLimit(20)).toBe(38)
@@ -37,7 +45,7 @@ describe('成员档案与长期战绩', () => {
     expect(ratingDelta(6, 0)).toBe(0)
     expect(ratingDelta(6, 6, 0, 100, 2)).toBe(0)
     expect(ratingDelta(6, 1, 0, 0, 6)).toBe(0)
-    expect(ratingDelta(6, 1, 125, 100, 2)).toBe(7)
+    expect(ratingDelta(6, 1, 125, 100, 2)).toBe(9)
   })
   it.each(Array.from({length:19},(_,i)=>i+2))('%i 人的合法资产局面覆盖负上限到正上限全部整数', count => {
     const found = new Set<number>()
@@ -46,7 +54,7 @@ describe('成员档案与长期战绩', () => {
     for (let rank=1;rank<=count;rank++) {
       for (let step=1;step<=1000;step++) {
         const fraction=step/1000
-        const cutoff=Math.ceil(count/3)
+        const cutoff=Math.ceil(count/2)
         const own=rank<=cutoff ? 100*(1+0.5*fraction) : 100*(1-0.5*fraction)
         // Feasibility: ranks above own need >= own; ranks below need <= own.
         if (rank*own>count*100 || (rank===1 && own<100) || (rank===count && own>100)) continue
@@ -68,10 +76,10 @@ describe('成员档案与长期战绩', () => {
     expect(careerRatings([partial]).get(partial.summaries[0].memberId)?.rating).toBe(1200+ratingDelta(record.playerCount,partial.summaries[0].finalPlace))
     expect(careerRatings([{...record,summaries:[record.summaries[0]]}]).get(record.summaries[0].memberId)?.rating).toBe(original.get(record.summaries[0].memberId)?.rating)
   })
-  it.each([3,4,5,6,7,8,9,10])('%i 人等级分：前向上取整三分之一加分，其他扣分，越靠前收益越高', count => {
+  it.each([2,3,4,5,6,7,8,9,10])('%i 人等级分：前向上取整二分之一为加分区，其他为扣分区', count => {
     const deltas = Array.from({length:count},(_,i)=>ratingDelta(count,i+1))
-    expect(deltas.slice(0,Math.ceil(count/3)).every(d=>d>0)).toBe(true)
-    expect(deltas.slice(Math.ceil(count/3)).every(d=>d<0)).toBe(true)
+    expect(deltas.slice(0,Math.ceil(count/2)).every(d=>d>0)).toBe(true)
+    expect(deltas.slice(Math.ceil(count/2)).every(d=>d<0)).toBe(true)
     expect(deltas).toEqual([...deltas].sort((a,b)=>b-a))
   })
   it('等级分初始基准、无参赛空值、去重、撤销与并列相同', () => {

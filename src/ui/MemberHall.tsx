@@ -87,7 +87,7 @@ export function MemberHall({
       <div className="member-hall__tools"><button className="icon-button" title="导出成员档案" aria-label="导出成员档案" onClick={() => setExportOpen(true)}>⇩</button><button className="icon-button" title="导入成员档案" aria-label="导入成员档案" onClick={() => setImportOpen(true)}>⇧</button></div>
     </header>
     <nav className="career-switch" aria-label="大厅视图"><button aria-pressed={!showRanking} onClick={()=>{setShowRanking(false);setPage(0)}}>名册</button><button aria-pressed={showRanking} onClick={()=>{setShowRanking(true);setPage(0)}}>等级榜</button></nav>
-    {showRanking && <details className="rating-rules"><summary>等级分规则</summary><p>首局以 1200 分为基准；前 ⌈人数÷3⌉ 名进入加分段，其余进入扣分段，允许 0 分。3／6／10 人局上限分别为 ±6／±13／±20，其他人数线性插值。总资产与全场均值的差距决定段内得分，偏离 50% 封顶，最终取整数。并列平均占用名次的分段，全员并列不加不扣。旧战绩资产不全时取分段中点。标准与接力均计入，接力须实际操作过回合。未参赛不排名；移除战绩会撤回该局分数。</p></details>}
+    {showRanking && <details className="rating-rules"><summary>等级分规则</summary><p>首局以 1200 分为基准；前 ⌈人数÷2⌉ 名进入加分段，其余进入扣分段，允许 0 分。3／6／10 人局上限分别为 ±6／±13／±20，其他人数线性插值。总资产与全场均值的差距决定段内得分，偏离 50% 封顶，最终取整数。并列平均占用名次的分段，全员并列不加不扣。旧战绩资产不全时取分段中点。标准与接力均计入，接力须实际操作过回合。未参赛不排名；移除战绩会撤回该局分数。</p></details>}
     <div className="member-hall__bar">
       <label className="member-search"><span>⌕</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(0) }} placeholder="搜索成员" aria-label="搜索成员" /></label>
       <div className="member-filter" role="group" aria-label="筛选成员">

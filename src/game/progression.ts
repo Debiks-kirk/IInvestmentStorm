@@ -12,7 +12,7 @@ export function ratingDelta(playerCount: number, place: number, totalAssets?: nu
   if (!Number.isInteger(playerCount) || playerCount < 2 || !Number.isInteger(place) || place < 1 || place > playerCount) return 0
   if (!Number.isInteger(tiedCount) || tiedCount < 1 || place + tiedCount - 1 > playerCount) return 0
   if (tiedCount === playerCount) return 0
-  const cutoff = Math.ceil(playerCount / 3)
+  const cutoff = Math.ceil(playerCount / 2)
   const limit = ratingLimit(playerCount)
   const knownAssets = Number.isFinite(totalAssets) && totalAssets! >= 0 && Number.isFinite(averageAssets) && averageAssets! > 0
   const deviation = knownAssets ? (totalAssets! - averageAssets!) / averageAssets! : 0
