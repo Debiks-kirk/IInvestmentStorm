@@ -2,7 +2,7 @@ import './lottery.css'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GameSession, LotteryDraw, Player } from '../game/types'
-import { availableLotteryNumbers, LOTTERY_PAYMENT_UNITS, LOTTERY_PURCHASE_LIMIT, lotterySummary } from '../game/lottery'
+import { availableLotteryNumbers, lotteryPaymentUnits, LOTTERY_PURCHASE_LIMIT, lotterySummary } from '../game/lottery'
 import { formatCoins } from '../game/engine'
 
 export function LotteryOpening({ session }: { session: GameSession }) {
@@ -43,7 +43,7 @@ export function LotteryPanel({ session, reservedUnits, onBuy }: { session: GameS
   const purchaseCount = tickets.filter(ticket => ticket.roundIndex === session.roundIndex && ticket.source !== 'gift').length
   const bought = purchaseCount >= LOTTERY_PURCHASE_LIMIT
   const available = availableLotteryNumbers(lottery, session.players.length)
-  const paid = Math.min(player.balanceUnits, LOTTERY_PAYMENT_UNITS)
+  const paid = lotteryPaymentUnits(player)
   const shortage = Math.max(0, reservedUnits + paid - player.balanceUnits)
   const reason = bought ? '本轮已购 2 / 2 张' : !available.length ? '号码已售罄，旧票继续有效' : shortage > 0 ? `购票后预算不足，请先减少 ${formatCoins(shortage)} 金币的下注、竞购或技能预留。` : ''
   return <><button type="button" className="lottery-entry" data-testid="lottery-entry" aria-haspopup="dialog" onClick={() => { setOpen(true); setError('') }}><span className="lottery-ticket-icon" aria-hidden="true">✦</span><strong>彩票</strong><span className="lottery-entry__status">{tickets.length ? `持有 ${tickets.map(ticket => String(ticket.number).padStart(2, '0')).join(' / ')}` : `奖池 ${formatCoins(lottery.openingPoolUnits)} 金币`}</span><b>{bought ? '查看' : '选号'} →</b></button>{open && createPortal(<div ref={modal} className="modal-backdrop lottery-purchase" role="dialog" aria-modal="true" aria-labelledby="lottery-purchase-title" data-testid="lottery-panel"><section className="lottery-purchase__sheet"><header><div><p className="eyebrow">第 {session.roundIndex + 1} 轮</p><h2 id="lottery-purchase-title">幸运彩票</h2></div><button type="button" className="icon-button" aria-label="关闭彩票" onClick={() => setOpen(false)}>×</button></header><div className="lottery-panel__body">

@@ -3,6 +3,7 @@ import { activeOperator, createDefaultSettings, createRematchSession, createSess
 import { settleRound, rankFinalPlayers } from './engine'
 import { availableLotteryNumbers, botWantsLottery, buyLotteryTicket, createLottery, lotterySummary, nextLotteryRound, settleLottery } from './lottery'
 import { loadSession } from './storage'
+import { createPlayerIdentity } from './identities'
 import type { GameSession } from './types'
 
 function game(count = 3) {
@@ -23,6 +24,19 @@ function draw(session: GameSession, random = () => 0) {
 }
 
 describe('彩票购票与独占号码', () => {
+  it.each([0, 1, 60])('保险师余额 %i：两张全额补贴、不占预算，刷新后仍限购', balance => {
+    const s = game(); const player = s.players[0]
+    player.identity = createPlayerIdentity('insurer'); player.balanceUnits = balance
+    for (const number of [1,2]) {
+      const bought = buyLotteryTicket(s, player.id, number, balance)
+      expect(bought).not.toBeNull(); Object.assign(s, bought)
+    }
+    expect(s.players[0].balanceUnits).toBe(balance)
+    expect(s.lottery!.poolUnits).toBe(11)
+    expect(s.lottery!.tickets.map(t => [t.paidUnits,t.subsidyUnits])).toEqual([[0,4],[0,4]])
+    expect(buyLotteryTicket(JSON.parse(JSON.stringify(s)), player.id, 3)).toBeNull()
+    expect(botWantsLottery('test',0,player,3,3,false)).toBe(true)
+  })
   it.each([3, 6, 10])('%i 人的新局基础池精确为人数一半金币', count => {
     expect(game(count).lottery?.poolUnits).toBe(count)
   })

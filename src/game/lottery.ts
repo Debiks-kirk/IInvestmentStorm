@@ -5,6 +5,10 @@ export const LOTTERY_PRICE_UNITS = 4
 export const LOTTERY_PAYMENT_UNITS = 3
 export const LOTTERY_PURCHASE_LIMIT = 2
 
+export function lotteryPaymentUnits(player: Pick<Player, 'identity' | 'balanceUnits'>): number {
+  return player.identity?.id === 'insurer' ? 0 : Math.min(LOTTERY_PAYMENT_UNITS, player.balanceUnits)
+}
+
 export function createLottery(playerCount: number, roundIndex = 0): LotteryState {
   return { poolUnits: playerCount, openingPoolUnits: playerCount, baseUnits: playerCount, poolStartRound: roundIndex, tickets: [], lastDrawRound: roundIndex - 1 }
 }
@@ -22,7 +26,7 @@ export function buyLotteryTicket(session: GameSession, playerId: string, number:
   if (state.tickets.filter(ticket => ticket.playerId === playerId && ticket.roundIndex === session.roundIndex && ticket.source !== 'gift').length >= LOTTERY_PURCHASE_LIMIT) return null
   const available = availableLotteryNumbers(state, session.players.length)
   if (!available.length || (number !== null && !available.includes(number))) return null
-  const paidUnits = Math.min(LOTTERY_PAYMENT_UNITS, player.balanceUnits)
+  const paidUnits = lotteryPaymentUnits(player)
   if (!Number.isInteger(reservedUnits) || reservedUnits < 0 || reservedUnits > player.balanceUnits - paidUnits) return null
   const selected = number ?? available[Math.min(available.length - 1, Math.floor(Math.max(0, random()) * available.length))]
   return {
@@ -65,7 +69,7 @@ export function lotterySummary(draw: LotteryDraw, players: Player[]): string {
 
 /** Public opening pool + own cash/style only; no opponent ticket ownership or balances. */
 export function botWantsLottery(seed: string, roundIndex: number, player: Player, openingPoolUnits: number, playerCount: number, finalRound: boolean): boolean {
-  if (player.balanceUnits === 0) return true
+  if (player.balanceUnits === 0 || player.identity?.id === 'insurer') return true
   const hash = [...`${seed}:lottery:${player.id}:${roundIndex}`].reduce((value, char) => Math.imul(value ^ char.charCodeAt(0), 16777619) >>> 0, 2166136261)
   const risk = player.botMemory?.strategy.risk ?? 50
   const chance = Math.min(.9, .12 + risk / 250 + (player.balanceUnits < 8 ? .2 : 0) + (finalRound ? .2 : 0) + Math.min(.2, openingPoolUnits / (playerCount * 40)))
