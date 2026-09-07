@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBotObservation, decideBotKidnapResponse, decideBotTurn, updateBotGrudges } from '../src/game/bots'
 import { drawCard } from '../src/game/cards'
-import { rewardConnoisseurItem } from '../src/game/connoisseur'
+import { chooseConnoisseurCard, rewardConnoisseurItem } from '../src/game/connoisseur'
 import { rankFinalPlayers, settleRound } from '../src/game/engine'
 import { createPlayerIdentity } from '../src/game/identities'
 import { ITEM_POOL } from '../src/game/items'
@@ -145,7 +145,12 @@ function playMatch(seed: string, profileIds: BotProfileId[], forcedIdentity?: { 
     const order = roundPlayerIndices(roundIndex, players.length)
     let submittedPlayers = players
     for (const playerIndex of order) {
-      const player = submittedPlayers[playerIndex]
+      let player = submittedPlayers[playerIndex]
+      while (player.identity?.connoisseurOffers?.length) {
+        const chosen = chooseConnoisseurCard(player, player.identity.connoisseurOffers[0].offeredCardIds[0], cardDeck)!
+        player = chosen.player; cardDeck = chosen.cardDeck
+      }
+      submittedPlayers = submittedPlayers.map((p, i) => i === playerIndex ? player : p)
       const session = {
         ...raw,
         id: `arena:${seed}`,

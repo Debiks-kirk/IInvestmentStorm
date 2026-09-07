@@ -1,6 +1,6 @@
 import { calculateFixedAssets, fixedAssetCoins, itemFixedAssetCoins } from './assets'
 import { cardTargetScope } from './cards'
-import { connoisseurCategoryReward, connoisseurItemKey } from './connoisseur'
+import { connoisseurCategoryReward } from './connoisseur'
 import { coinsToUnits } from './engine'
 import { getIdentityDefinition } from './identities'
 import type { AssetAuctionLot, AssetCategory, BotBehavior, BotDifficulty, BotMemory, BotProfileId, BotProfileSelection, BotStrategyConfig, CardId, CardUse, GameSession, IdentityAction, IdentityId, Item, LobbyistTaskType, Player, PlayerController, StrategyMode } from './types'
@@ -436,7 +436,7 @@ function marginalAssetForItem(observation: BotObservation, item: NonNullable<Bot
   const after = calculateFixedAssets([...observation.self.items, { item, roundIndex: observation.roundIndex }], collectorCategory).find((entry) => entry.category === category)?.units ?? 0
   // Collector's matching-item income is real cash at settlement, while the set value stays end-game only.
   const collectorBonus = observation.self.identity?.id === 'collector' && collectorCategory === category ? coinsToUnits(5) : 0
-  const connoisseurBonus = connoisseurCategoryReward(observation.self, category) + (observation.self.identity?.id === 'connoisseur' ? coinsToUnits(2) : 0)
+  const connoisseurBonus = connoisseurCategoryReward(observation.self, category) + (connoisseurCategoryReward(observation.self, category) > 0 ? coinsToUnits(2 + (observation.self.identity?.connoisseurCategories?.length ?? 0)) : 0)
   return Math.max(0, after - before) + collectorBonus + connoisseurBonus
 }
 
@@ -1075,7 +1075,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const categorySetValue = assetUnits * (1 + Math.min(1.1, categoryItems * .16) + (collectorTarget ? .45 : 0))
       // A unique bid only preserves ranking eligibility; it does not award the collectible.
       const itemChance = botCollectibleChance(estimate.place, estimate.firstChance, estimate.uniqueChance, plan.reversalCount, observation.rewardMultipliers.length)
-      const insurerRefund = observation.self.identity?.id === 'insurer' ? Math.floor(bidUnits * .75) * (1 - (rewardMultiplier > 0 ? estimate.uniqueChance : 0)) : 0
+      const insurerRefund = observation.self.identity?.id === 'insurer' ? bidUnits * (1 - (rewardMultiplier > 0 ? estimate.uniqueChance : 0)) : 0
       const triumphRefund = plan.cardUses.filter((use) => use.cardId === 'triumphRebate').length * Math.floor(bidUnits / 3) * itemChance
       const expectedReward = estimate.uniqueChance * valueUnits * rewardMultiplier + itemChance * categorySetValue * assetWeight + insurerRefund + triumphRefund
       const invertedPlace = estimate.place <= observation.rewardMultipliers.length ? observation.rewardMultipliers.length - estimate.place + 1 : estimate.place
@@ -1265,7 +1265,7 @@ function assetAuctionValues({ player, lots, roundIndex, totalRounds, sessionSeed
     .filter((lot) => lot.sellerId !== player.id)
     .map((lot) => {
       const afterAssets = calculateFixedAssets([...player.items, { item: lot.item, roundIndex }], collectorCategory).reduce((total, entry) => total + entry.units, 0)
-      const assetGain = Math.max(0, afterAssets - beforeAssets) + connoisseurCategoryReward(player, lot.item.category) + (player.identity?.id === 'connoisseur' && !player.identity.connoisseurItemKeys?.includes(connoisseurItemKey({ item: lot.item, roundIndex: lot.itemRoundIndex })) ? coinsToUnits(2) : 0)
+      const assetGain = Math.max(0, afterAssets - beforeAssets) + connoisseurCategoryReward(player, lot.item.category) + (connoisseurCategoryReward(player, lot.item.category) > 0 ? coinsToUnits(2 + (player.identity?.connoisseurCategories?.length ?? 0)) : 0)
       const matchingItems = player.items.filter((won) => won.item.category === lot.item.category).length
       const collectorMatch = collectorCategory === lot.item.category
       const marketHeat = categoryHeat(lot.item.category)

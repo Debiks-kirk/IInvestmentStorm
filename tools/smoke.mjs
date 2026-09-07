@@ -6,6 +6,7 @@ import { runIconFlow } from './icon-smoke.mjs'
 import { runSetupModalFlow } from './setup-modal-smoke.mjs'
 import { runBotJointFlow } from './bot-joint-smoke.mjs'
 import { runAvatarFlow } from './avatar-smoke.mjs'
+import { runConnoisseurFlow } from './connoisseur-smoke.mjs'
 
 const chromeCandidates = process.platform === 'win32'
   ? [
@@ -622,7 +623,7 @@ async function runExpansionFlow(page) {
   if(saved.results[0].deltas[0].cardUnits!==12) throw new Error('两张凯旋礼金未按实际下注逐张返还')
   if(saved.players[0].identity.connoisseurItemKeys.length!==1 || saved.players[0].identity.connoisseurCategories.length!==1) throw new Error('鉴赏家奖励未持久化')
   if(!saved.pendingIdentityNotices.some(notice=>notice.title==='鉴赏家收藏奖励' && notice.detail.includes('获得'))) throw new Error('缺少鉴赏家具体道具奖励通知')
-  if(saved.results[0].deltas[2].identityUnits!==1) throw new Error('保险师落榜退款未进入实际结算')
+  if(saved.results[0].deltas[2].identityUnits!==2) throw new Error('保险师落榜全额退款未进入实际结算')
   if(!saved.results[0].cardEffects.some(effect=>effect.cardId==='predictionPolicy')) throw new Error('保单猜错减免未进入实际结算')
   await page.screenshot({path:'.artifacts/expansion-settlement-360.png',fullPage:true})
   await page.reload()
@@ -1185,7 +1186,12 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'player-pickers') {
+  if (process.env.SMOKE_ONLY === 'connoisseur') {
+    await runConnoisseurFlow(page)
+    await runExpansionFlow(page)
+    await runBotJointFlow(page, true)
+    console.log('鉴赏家四档、刷新、终局领取、保险师全额退款及 Bot 流程通过。')
+  } else if (process.env.SMOKE_ONLY === 'player-pickers') {
     await runSpectatorTakeoverFlow(page)
     console.log('接管选人布局专项通过。')
   } else if (process.env.SMOKE_ONLY === 'avatars') {

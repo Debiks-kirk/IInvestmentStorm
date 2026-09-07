@@ -111,7 +111,9 @@ export function loadSession(): GameSession | null {
     const safeSession = !migrated.spectatorMode && migrated.phase === 'privateTurn' ? { ...migrated, phase: 'handoff' as const }
       : !migrated.spectatorMode && migrated.phase === 'identityDraft' ? { ...migrated, phase: 'identityHandoff' as const }
         : !migrated.spectatorMode && migrated.phase === 'auctionBid' ? { ...migrated, phase: 'auctionHandoff' as const }
-          : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
+          : migrated.phase === 'finalReceipt' || migrated.phase === 'finalReceiptHandoff' ? migrated.players.some(p => p.identity?.connoisseurOffers?.length)
+            ? { ...migrated, phase: 'finalReceiptHandoff' as const, finalReceiptIndex: migrated.players.findIndex(p => p.identity?.connoisseurOffers?.length) }
+            : { ...migrated, phase: 'finalResult' as const, finalReceiptIndex: null, pendingIdentityNotices: migrated.pendingIdentityNotices.filter((notice) => notice.title !== '本轮拍品结果') }
           : migrated
     if (parsed.version !== 36 || migrated.phase !== safeSession.phase || parsed.mode === undefined || parsed.relayMethod === undefined || parsed.careerEnabled === undefined || !parsed.botHistoryHints || parsed.settings?.systemAuctionCardsPerRound === undefined || parsed.settings?.turnTimeLimitSeconds === undefined || parsed.settings?.turnTimerEnabled === undefined || parsed.settings?.identitySettings?.identityChoiceCount === undefined || parsed.settings?.identitySettings?.investorDividendMultiplier === undefined || !Array.isArray(parsed.prophecyDeck) || !parsed.roundStartBalanceUnits || !Array.isArray(parsed.prophetDivinations) || !('pendingFateCoinUse' in parsed) || !Array.isArray(parsed.roundAuctions) || !parsed.prophetIdentityProgress || !('pendingKidnapNegotiation' in parsed) || !Array.isArray(parsed.pendingPrizeChanges) || !Array.isArray(parsed.merchantShops) || !Array.isArray(parsed.spectatorEvents) || !Array.isArray(parsed.pendingSpectatorEvents) || !Array.isArray(parsed.spectatorTakeoverPlayerIds) || !parsed.players.every((player) => player.controller?.kind !== 'bot' || (typeof player.botMemory?.behavior?.bankrollBias === 'number' && typeof player.botMemory?.behavior?.assetFocusBias === 'number' && Array.isArray(player.botMemory?.strategy?.identityPriority))) || (parsed.merchantAuction && !parsed.merchantAuction.source)) saveSession(safeSession)
     return safeSession
@@ -169,6 +171,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
         collectorCategory: identity.collectorCategory,
         ...(Array.isArray(identity.connoisseurCategories) ? { connoisseurCategories: [...new Set(identity.connoisseurCategories.filter((category) => ['leisure', 'transport', 'luxury', 'property'].includes(category)))] } : {}),
         ...(Array.isArray(identity.connoisseurItemKeys) ? { connoisseurItemKeys: [...new Set(identity.connoisseurItemKeys.filter((key) => typeof key === 'string'))] } : {}),
+        ...(Array.isArray(identity.connoisseurOffers) ? { connoisseurOffers: identity.connoisseurOffers.map(offer => ({ ...offer, offeredCardIds: [...offer.offeredCardIds] })) } : {}),
         thiefSuccesses: identity.thiefSuccesses ?? 0,
         merchantAuctionCount: identity.merchantAuctionCount ?? (identity.merchantAuctionUsed ? 1 : 0),
         merchantLastAuctionRound: identity.merchantLastAuctionRound ?? null,

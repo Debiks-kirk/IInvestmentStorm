@@ -541,7 +541,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     if (!player || !delta) continue
     if (player.identity?.id === 'insurer' && !rankings.some((entry) => entry.playerId === player.id)) {
       const loss = Math.max(0, turn.bidUnits - (bananaRefunds.get(player.id) ?? 0))
-      const refund = floorToHalfUnits(loss * .75)
+      const refund = loss
       player.balanceUnits += refund
       delta.identityUnits += refund
       identityEvents.push({ playerId: player.id, identityId: 'insurer', roundIndex, title: '保险师返还', detail: `未进入获奖区，下注净损失 ${formatCoins(loss)} 金币，返还 ${formatCoins(refund)} 金币。`, deltaUnits: refund })

@@ -5,7 +5,7 @@ import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets
 import { defaultBotStrategy } from './bots'
 import { createCardDeck } from './cards'
 import { createPlayerIdentity } from './identities'
-import { rewardConnoisseurItem } from './connoisseur'
+import { chooseConnoisseurCard, rewardConnoisseurItem } from './connoisseur'
 
 const values = new Map<string, string>()
 const localStorageMock = {
@@ -41,6 +41,28 @@ it('真实存档读取保留鉴赏家历史，出售后刷新再获得也不重�
   expect(loaded.players[0].balanceUnits).toBe(balance)
   expect(loaded.players[0].cardInventory).toEqual(['red'])
   expect(reward.cardDeck).toEqual(['black'])
+})
+
+it('鉴赏家多个选卡队列经 loadSession 恢复后候选不重抽，领取后不重复', () => {
+  const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
+  const p = session.players[0]; p.identity = createPlayerIdentity('connoisseur')
+  let deck = createCardDeck([])
+  for (const [index, category] of (['leisure', 'transport', 'luxury', 'property'] as const).entries()) {
+    deck = rewardConnoisseurItem(p, { item: { ...session.itemDeck[0], id: category, category }, roundIndex: index }, index, deck, [], () => 0).cardDeck
+  }
+  session.cardDeck = deck
+  session.phase = 'finalReceipt'; session.finalReceiptIndex = 0
+  values.set('who-is-raising:session:v1', JSON.stringify(session))
+  const restored = loadSession()!
+  expect(restored.phase).toBe('finalReceiptHandoff')
+  expect(restored.players[0].identity?.connoisseurOffers).toEqual(p.identity.connoisseurOffers)
+  const offer = restored.players[0].identity!.connoisseurOffers![0]
+  expect(chooseConnoisseurCard(restored.players[0], 'legendaryLoot', restored.cardDeck)).toBeNull()
+  const chosen = chooseConnoisseurCard(restored.players[0], offer.offeredCardIds[0], restored.cardDeck)!
+  restored.players[0] = chosen.player; restored.cardDeck = chosen.cardDeck
+  values.set('who-is-raising:session:v1', JSON.stringify(restored))
+  expect(loadSession()!.players[0].identity?.connoisseurOffers?.map(o => o.offeredCardIds.length)).toEqual([3, 4])
+  expect(loadSession()!.players[0].cardInventory).toHaveLength(2)
 })
 
 describe('配置预设存储', () => {

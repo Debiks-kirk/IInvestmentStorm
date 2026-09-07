@@ -10,7 +10,7 @@ import { moveRelayOperator } from './game/relaySetup'
 import { ASSET_CATEGORY_CONFIGS, calculateFixedAssets, categoryConfig, fixedAssetCoins, itemFixedAssetCoins } from './game/assets'
 import { CARD_DEFINITIONS, CARD_RARITY_LABELS, canStackCard, validCardMultiplicity, cardInventoryCounts, cardTargetScope, drawCard, getCardDefinition, removeOneCard } from './game/cards'
 import { createAssetTrajectories, createGameHighlights, createRoundBulletin } from './game/highlights'
-import { rewardConnoisseurItem } from './game/connoisseur'
+import { chooseConnoisseurCard, rewardConnoisseurItem } from './game/connoisseur'
 import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, createPlayerIdentity, dealIdentityChoices, enabledIdentityIds, getIdentityDefinition, identitySkillMode, identityValidationErrors, kidnapTargetCap, randomLobbyistTask, routeCardAwards, taskLabel, taskRequiresComparison } from './game/identities'
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
@@ -218,7 +218,7 @@ function TutorialCoach({ roundIndex }: { roundIndex: number }) {
 }
 
 const COLLECTION_IDENTITY_TEXT: Record<IdentityId, string> = {
-  insurer: '落榜返还 75% 净下注；免观望惩罚。', connoisseur: '新类别获递增金币，新拍品赠道具。',
+  insurer: '落榜全额返还净下注；免观望惩罚。', connoisseur: '新类别获递增金币及选卡奖励，各档一次。',
   prophet: '看钱、看未来、猜身份。', gambler: '预测收益更高，也会受罚。', assassin: '拍品得主面临赎金选择。', collector: '同类拍品额外获得 5 金币。', thief: '先偷道具；失败再偷钱。', merchant: '前期领卡竞购，末两轮开店。', reverser: '倒转本轮获奖区名次。', lobbyist: '发布任务，收取违约金。', nightwalker: '两档暗标，自动选更赚的一档。', investor: '跟投他人，按比例分享奖励。',
 }
 
@@ -930,8 +930,14 @@ function FinalReceipt({ session, onReady, onAcknowledge }: { session: GameSessio
   const operator = player ? activeOperator(session, player, session.settings.rounds - 1) : null
   const receipt = player ? session.pendingIdentityNotices.find((notice) => notice.playerId === player.id && notice.title === '本轮拍品结果') : undefined
   if (!player) return null
-  if (session.phase === 'finalReceiptHandoff') return <section className="handoff screen-center"><div className="privacy-seal"><span>密</span></div><p className="eyebrow">终局前的私人回执</p><h1 style={{ color: player.color }}>{operator?.name ?? player.name}</h1><p className="lead">请替 <strong>{player.name}</strong> 确认最后一轮的拍品结果。</p><button className="handoff-enter" onClick={onReady}>查看结果 <span>→</span></button></section>
-  return <section className="handoff screen-center"><div className="card-grant-sheet"><span>{receipt?.detail.includes('获得了') ? '★' : '○'}</span><p className="eyebrow">本轮拍品结果</p><h2>{receipt?.detail ?? '本轮没有拍品回执。'}</h2><button className="button button--primary" onClick={onAcknowledge}>知道了</button></div></section>
+  if (session.phase === 'finalReceiptHandoff') return <section className="handoff screen-center"><div className="privacy-seal"><span>密</span></div><p className="eyebrow">终局奖励</p><h1 style={{ color: player.color }}>{operator?.name ?? player.name}</h1><p className="lead">请替 <strong>{player.name}</strong> 领取最后一轮的奖励。</p><button className="handoff-enter" onClick={onReady}>查看结果 <span>→</span></button></section>
+  return <section className="handoff screen-center"><div className="card-grant-sheet"><span>{receipt?.detail.includes('获得了') ? '★' : '○'}</span><p className="eyebrow">本轮拍品结果</p><h2>{receipt?.detail ?? '收藏奖励已领取。'}</h2><button className="button button--primary" onClick={onAcknowledge}>知道了</button></div></section>
+}
+
+function ConnoisseurOffer({ player, onChoose }: { player: Player; onChoose: (cardId: CardId) => void }) {
+  const [selected, setSelected] = useState<CardId | null>(null)
+  const offer = player.identity!.connoisseurOffers![0]
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="鉴赏家选卡奖励"><CardOfferPicker eyebrow="鉴赏家 · 收藏奖励" title={`道具 ${offer.offeredCardIds.length} 选 1`} detail={`首次收藏${categoryConfig(offer.category).name}`} cardIds={offer.offeredCardIds} chosenCardIds={selected ? [selected] : []} requiredCount={1} onChoose={setSelected} onConfirm={() => { if (selected) onChoose(selected) }} /></div>
 }
 
 function BotThinking({ player, allBots, operatorName }: { player: Player; allBots: boolean; operatorName?: string }) {
@@ -1079,7 +1085,7 @@ function ProphetResult({ divination, session }: { divination: ProphetDivination;
   return <div className="prophet-result"><strong>观身份记录</strong>{guesses.map((guess, index) => <span key={`${guess.targetPlayerId}-${guess.identityId}-${index}`}>{guess.correct ? `✓ ${playerName(session.players, guess.targetPlayerId)} 是${getIdentityDefinition(guess.identityId).name}。${guess.rewardCardId ? `获得 ${getCardDefinition(guess.rewardCardId).name}。` : '卡池没有可用道具。'}` : `× ${playerName(session.players, guess.targetPlayerId)} 不是${getIdentityDefinition(guess.identityId).name}，已排除。`}</span>)}<small>同一玩家与身份组合不能再次猜测。</small></div>
 }
 
-function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], requiredCount, onChoose }: {
+function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], requiredCount, onChoose, onConfirm }: {
   eyebrow: string
   title: string
   detail: string
@@ -1087,6 +1093,7 @@ function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], 
   chosenCardIds?: CardId[]
   requiredCount: number
   onChoose: (cardId: CardId) => void
+  onConfirm?: () => void
 }) {
   const selectedCount = chosenCardIds.length
   const remainingCount = Math.max(0, requiredCount - selectedCount)
@@ -1107,6 +1114,7 @@ function CardOfferPicker({ eyebrow, title, detail, cardIds, chosenCardIds = [], 
         </button>
       })}
     </div>
+    {onConfirm && <button type="button" className="button button--primary" disabled={!selectedCount} onClick={onConfirm}>确认领取</button>}
   </section>
 }
 
@@ -1493,7 +1501,7 @@ function PrivateTurn({ session, onSubmit, onAcknowledgeGrant, onAcknowledgeNotic
           {identity.id === 'prophet' && <div className="prophet-skill"><p><strong>天机推演</strong>：每回合可免费使用一次<b className="status-token status-token--free">观财或观星</b>；另可免费观身份。观身份初始有 <b className="status-token status-token--count">2 次</b>机会，<b>每猜对一人会重置为 2 次</b>。每个目标只给你 6 个固定候选，猜错会排除，猜对获得道具。</p>{currentProphetDivination ? <ProphetResult divination={currentProphetDivination} session={session} /> : <button className="button button--prophet" disabled={prophetUses >= session.settings.identitySettings.prophetDivinationLimit} onClick={() => setProphetDialog('menu')}>{prophetUses >= session.settings.identitySettings.prophetDivinationLimit ? '观财/观星次数已用完' : '发动观财或观星'}</button>}{currentProphetIdentityDivination && <ProphetResult divination={currentProphetIdentityDivination} session={session} />}{<button className="button button--prophet" disabled={!canUseIdentityDivination} onClick={() => setProphetDialog('target')}>{canUseIdentityDivination ? `观身份（本轮还可猜 ${prophetIdentityGuessesLeft} 人）` : '本轮观身份已完成'}</button>}</div>}
           {identity.id === 'assassin' && <><p><b className="status-token status-token--free">每回合免费发动</b>。选择至多 <b className="status-token status-token--count">{kidnapTargetLimit} 人</b>；名单中唯一拍到藏品的人将公开选择：支付赎金保住藏品，或放弃给绑匪。高档赎金与额外名单费用会在确认前写清。</p><button className={cx('button', identityAction?.type === 'kidnap' && 'button--primary')} disabled={!identityAction && !kidnapAffordable} onClick={() => { if (identityAction?.type === 'kidnap') { setIdentityAction(undefined); return } setKidnapTargetIds([]); setKidnapRansomUnits(Math.round(session.settings.identitySettings.kidnapLowRansomCoins * 2)); setTargetPicker('kidnap') }}>{identityAction?.type === 'kidnap' ? `已安排绑票名单 ${identityAction.targetPlayerIds?.length ?? 1} 人 · 点击撤销` : kidnapAffordable ? '发动绑票谈判' : `余额不足，还差 ${formatCoins(kidnapShortfallUnits)} 金币`}</button></>}
           {identity.id === 'collector' && <p>已为 <strong>{categoryConfig(identity.collectorCategory ?? 'leisure').name}</strong> 永久额外计入 1 件固定资产。</p>}
-          {identity.id === 'connoisseur' && <p>已集得 {(identity.connoisseurCategories ?? []).length}/4 类 · {(identity.connoisseurCategories ?? []).map((category) => categoryConfig(category).name).join('、') || '尚未收藏'}<br />类别奖励：5 / 10 / 20 / 50 金币。同一件拍品只赠卡一次。</p>}
+          {identity.id === 'connoisseur' && <p>已集得 {(identity.connoisseurCategories ?? []).length}/4 类 · {(identity.connoisseurCategories ?? []).map((category) => categoryConfig(category).name).join('、') || '尚未收藏'}<br />类别奖励：5 / 10 / 15 / 20 金币；道具依次为随机一张、2 / 3 / 4 选 1。每种类别仅奖励一次。</p>}
           {identity.id === 'thief' && <><p>每个非最后回合都可发动。{thiefIsFree ? <b className="status-token status-token--free">免费发动</b> : <>花费 {session.settings.identitySettings.thiefActivationCoins} 金币；</>}已偷到 <b className="status-token status-token--count">{identity.thiefSuccesses ?? 0}/{thiefCardStealLimit} 张</b>道具卡。达到上限后，技能会改为偷钱，极小概率偷走拍品。</p><button className={cx('button', identityAction?.type === 'thiefSteal' && 'button--primary')} disabled={!identityAction && (!thiefAffordable || session.roundIndex >= session.settings.rounds - 1)} onClick={() => identityAction?.type === 'thiefSteal' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'thiefSteal' })}>{identityAction?.type === 'thiefSteal' ? '已发动盗取 · 点击撤销' : session.roundIndex >= session.settings.rounds - 1 ? '最后一轮不可发动' : thiefAffordable ? (thiefIsFree ? '免费发动盗取' : `花费 ${session.settings.identitySettings.thiefActivationCoins} 金币发动`) : `余额不足，还差 ${formatCoins(thiefShortfallUnits)} 金币`}</button></>}
           {identity.id === 'reverser' && <><p>本局还可发动 <b className="status-token status-token--count">{Math.max(0, activeSkillLimit - activeSkillUses)} 次</b>。{reverserFreeThisRound ? <b className="status-token">本回合免费发动</b> : <>花费 {reverserCost} 金币</>}，倒转本轮获奖区内的所有名次；最后两轮费用翻倍。若同时使用“逆转排名”道具卡，两次逆转会抵消。</p><button className={cx('button', identityAction?.type === 'reverserInvert' && 'button--primary')} disabled={!identityAction && (!reverserAffordable || activeSkillLimitReached)} onClick={() => identityAction?.type === 'reverserInvert' ? setIdentityAction(undefined) : setIdentityConfirming({ type: 'reverserInvert' })}>{identityAction?.type === 'reverserInvert' ? '已安排逆转排名 · 点击撤销' : activeSkillLimitReached ? `本局发动次数已用完（${activeSkillUses}/${activeSkillLimit}）` : reverserAffordable ? (reverserFreeThisRound ? '免费发动逆转' : `花费 ${reverserCost} 金币发动`) : `余额不足，还差 ${formatCoins(reverserShortfallUnits)} 金币`}</button></>}
           {identity.id === 'investor' && <><p>秘密投资一名其他玩家，金额可从 0.5 金币起。目标获奖后，按出资比例分享排名奖励；你的投入会计入其排名金额。</p>{identityAction?.type === 'invest' ? <div className="identity-config"><strong>已投资 {playerName(session.players, identityAction.targetPlayerId)}</strong><input className="range" type="range" min="1" max={Math.max(1, player.balanceUnits - bidUnits - auctionBidTotal)} step="1" value={identityAction.investmentUnits} onChange={(event) => setIdentityAction({ ...identityAction, investmentUnits: Math.max(1, Math.min(player.balanceUnits - bidUnits - auctionBidTotal, Number(event.target.value))) })} /><b>投资 {formatCoins(identityAction.investmentUnits)} 金币</b><button className="button" onClick={() => setIdentityAction(undefined)}>取消投资</button></div> : <button className="button" disabled={player.balanceUnits - bidUnits - auctionBidTotal < 1} onClick={() => setTargetPicker('invest')}>{player.balanceUnits - bidUnits - auctionBidTotal < 1 ? '余额不足 0.5 金币，无法投资' : '选择投资对象'}</button>}</>}
@@ -2619,7 +2627,10 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     patch({ phase: 'roundIntro', roundIndex, currentTurnIndex: roundStartPlayerIndex(roundIndex, routed.players.length), turns: [], players: routed.players, roundStartBalanceUnits: Object.fromEntries(routed.players.map((player) => [player.id, player.balanceUnits])), cardDeck: deck, pendingCardGrants: pendingAwards.filter((grant) => deliveredKeys.has(`${grant.playerId}-${grant.cardId}`)), pendingIdentityNotices: [...notices.filter((notice) => !rewardNoticeTitles.has(notice.title)), ...identityRewardNotices, ...cardAuctionNotices, ...assetAuctionNotices, ...routed.notices], identityEvents: [...events, ...routed.events], merchantAuction: null, auctionQueue: [], roundAuctions, pendingAssetAuctions: remainingAssetAuctions, roundAssetAuctions, pendingKidnapCardOffers: [], operationDeadlineAt: null, ...takeoverState, ...spectatorState })
   }
   const nextRound = (takeoverPlayerIds: string[] = []) => {
-    if (session.roundIndex + 1 >= session.settings.rounds) patch({ phase: 'finalResult', finalReceiptIndex: null })
+    if (session.roundIndex + 1 >= session.settings.rounds) {
+      const index = session.players.findIndex(p => p.identity?.connoisseurOffers?.length)
+      patch(index >= 0 ? { phase: 'finalReceiptHandoff', finalReceiptIndex: index } : { phase: 'finalResult', finalReceiptIndex: null })
+    }
     else {
       const nextRoundIndex = session.roundIndex + 1
       const recycledCardDeck = recycleUsedCards(session.cardDeck, session.turns, session.results.at(-1)?.autoConsumedCardIds ?? [])
@@ -2732,6 +2743,23 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
   const manualSpectatorRound = spectatorMode && session.spectatorTakeoverRoundIndex === session.roundIndex && session.spectatorTakeoverPlayerIds.length > 0 && !['revealReady', 'roundResult', 'finalResult'].includes(session.phase)
   const spectatorUiActive = spectatorMode && !manualSpectatorRound
   const currentPlayerTakeover = Boolean(manualSpectatorRound && currentPlayer && session.spectatorTakeoverPlayerIds.includes(currentPlayer.id))
+  const rewardPlayer = session.phase === 'privateTurn' ? currentPlayer : ['finalReceipt', 'finalReceiptHandoff'].includes(session.phase) ? session.players[session.finalReceiptIndex ?? 0] : undefined
+  const rewardOffer = rewardPlayer?.identity?.connoisseurOffers?.[0]
+  const chooseCollectionReward = (cardId: CardId) => {
+    if (!rewardPlayer || !rewardOffer) return
+    const choice = chooseConnoisseurCard(rewardPlayer, cardId, session.cardDeck)
+    if (!choice) return
+    patch({ players: session.players.map(p => p.id === rewardPlayer.id ? choice.player : p), cardDeck: choice.cardDeck })
+  }
+  useEffect(() => {
+    if (!rewardPlayer || !rewardOffer || (spectatorUiActive && botPaused)) return
+    const actor = playerForOperator(rewardPlayer, activeOperator(session, rewardPlayer))
+    const bot = isBot(actor) && !currentPlayerTakeover
+    const expired = session.phase === 'privateTurn' && session.operationDeadlineAt != null
+    if (!bot && !expired) return
+    const timer = window.setTimeout(() => chooseCollectionReward(rewardOffer.offeredCardIds[0]), bot ? 250 : Math.max(0, session.operationDeadlineAt! - Date.now()))
+    return () => clearTimeout(timer)
+  }, [session, rewardOffer, botPaused, currentPlayerTakeover])
   const armTurnDeadline = () => {
     if (session.phase !== 'privateTurn' || !session.settings.turnTimerEnabled || !currentPlayer || (isCurrentBot && !currentPlayerTakeover) || session.operationDeadlineAt) return
     patch({ operationDeadlineAt: Date.now() + session.settings.turnTimeLimitSeconds * 1000 })
@@ -2768,7 +2796,9 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       return
     }
     const timer = window.setTimeout(() => {
-      if (session.phase === 'identityHandoff') {
+      if (session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') {
+        if (rewardPlayer && isBot(playerForOperator(rewardPlayer, activeOperator(session, rewardPlayer))) && !rewardOffer) acknowledgeFinalReceipt()
+      } else if (session.phase === 'identityHandoff') {
         if (draftActor && isBot(draftActor)) patch({ phase: 'identityDraft' })
       } else if (session.phase === 'identityDraft') {
         const draft = session.identityDraft
@@ -2783,6 +2813,7 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
       } else if (session.phase === 'handoff' && isCurrentBot && !currentPlayerTakeover) {
         patch({ phase: 'privateTurn' })
       } else if (session.phase === 'privateTurn' && currentPlayer && currentActor && currentOperator && isCurrentBot && !currentPlayerTakeover) {
+        if (rewardOffer) return
         try {
         const controller = currentActor.controller as Extract<Player['controller'], { kind: 'bot' }>
         const actorHints = currentOperator.memberId && currentOperator.controller.kind === 'bot'
@@ -2894,7 +2925,8 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     const index = session.finalReceiptIndex ?? 0
     const player = session.players[index]
     const notices = player ? session.pendingIdentityNotices.filter((notice) => !(notice.playerId === player.id && notice.title === '本轮拍品结果')) : session.pendingIdentityNotices
-    patch(index + 1 >= session.players.length ? { phase: 'finalResult', finalReceiptIndex: null, pendingIdentityNotices: notices } : { phase: 'finalReceiptHandoff', finalReceiptIndex: index + 1, pendingIdentityNotices: notices })
+    const next = session.players.findIndex((p, i) => i > index && p.identity?.connoisseurOffers?.length)
+    patch(next < 0 ? { phase: 'finalResult', finalReceiptIndex: null, pendingIdentityNotices: notices } : { phase: 'finalReceiptHandoff', finalReceiptIndex: next, pendingIdentityNotices: notices })
   }
   const result = session.results[session.results.length - 1]
   const spectatorEvent = spectatorUiActive ? session.pendingSpectatorEvents[0] : undefined
@@ -2906,11 +2938,11 @@ function Game({ session, setSession, onExit, onNewGame, onRematch, onRevenge }: 
     {session.phase === 'auctionBid' && (auctionActor && isBot(auctionActor) ? <BotThinking player={auctionActor} operatorName={auctionOperator?.name} allBots={spectatorMode} /> : <AuctionBid key={session.merchantAuction?.bidderIndex} session={session} onSubmit={submitAuctionBid} />)}
     {session.phase === 'roundIntro' && <RoundIntro key={session.roundIndex} session={session} auto={spectatorUiActive} onContinue={() => patch({ phase: 'handoff' })} />}
     {session.phase === 'handoff' && (spectatorMode && !currentPlayerTakeover ? <BotThinking player={currentPlayer} allBots={spectatorUiActive} /> : <Handoff session={session} onReady={() => { primeCountdownVoice(); patch({ phase: 'privateTurn', operationDeadlineAt: session.settings.turnTimerEnabled && currentPlayerTakeover ? Date.now() + session.settings.turnTimeLimitSeconds * 1000 : null }) }} />)}
-    {session.phase === 'privateTurn' && (!currentPlayerTakeover && isCurrentBot && currentActor ? <BotThinking player={currentActor} operatorName={currentOperator?.name} allBots={spectatorUiActive} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onConfirmPrizeReroll={confirmPrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onOpenMerchantShop={openMerchantShop} onBuyMerchantShopCard={buyMerchantShopCard} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
+    {session.phase === 'privateTurn' && (rewardOffer ? (!isCurrentBot || currentPlayerTakeover ? <ConnoisseurOffer key={rewardOffer.category} player={currentPlayer} onChoose={chooseCollectionReward} /> : <BotThinking player={currentPlayer} allBots={spectatorUiActive} />) : !currentPlayerTakeover && isCurrentBot && currentActor ? <BotThinking player={currentActor} operatorName={currentOperator?.name} allBots={spectatorUiActive} /> : <PrivateTurn key={`${session.roundIndex}-${session.currentTurnIndex}`} session={session} onSubmit={(turn, timedOut) => submitTurn(turn, undefined, timedOut)} onAcknowledgeGrant={acknowledgeGrant} onAcknowledgeNotice={acknowledgeNotice} onStartPrizeReroll={startPrizeReroll} onChoosePrizeReroll={choosePrizeReroll} onConfirmPrizeReroll={confirmPrizeReroll} onStartMerchantOffer={startMerchantOffer} onChooseMerchantOffer={chooseMerchantOffer} onOpenMerchantShop={openMerchantShop} onBuyMerchantShopCard={buyMerchantShopCard} onChooseProphetOffer={chooseProphetOffer} onUseProphetDivination={useProphetDivination} onResolveFateCoin={resolveFateCoin} onArmDeadline={armTurnDeadline} />)}
     {session.phase === 'revealReady' && <RevealReady session={session} onReveal={reveal} />}
     {session.phase === 'kidnapNegotiation' && session.pendingKidnapNegotiation && (!manualSpectatorRound && isBot(spectatorActor) ? <BotThinking player={spectatorActor as Player} allBots={spectatorUiActive} /> : <KidnapNegotiationPanel negotiation={session.pendingKidnapNegotiation} onResolve={resolveKidnapNegotiation} />)}
     {session.phase === 'roundResult' && result && <RoundResults key={session.roundIndex} session={session} result={result} onNext={() => { setBotPaused(false); nextRound() }} onStartTakeover={spectatorMode ? startSpectatorRoundTakeover : undefined} />}
-    {(session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') && <FinalReceipt session={session} onReady={() => patch({ phase: 'finalReceipt' })} onAcknowledge={acknowledgeFinalReceipt} />}
+    {(session.phase === 'finalReceiptHandoff' || session.phase === 'finalReceipt') && (rewardPlayer && isBot(playerForOperator(rewardPlayer, activeOperator(session, rewardPlayer))) ? <BotThinking player={rewardPlayer} allBots={spectatorUiActive} /> : session.phase === 'finalReceipt' && rewardOffer && rewardPlayer ? <ConnoisseurOffer key={rewardOffer.category} player={rewardPlayer} onChoose={chooseCollectionReward} /> : <FinalReceipt session={session} onReady={() => patch({ phase: 'finalReceipt' })} onAcknowledge={acknowledgeFinalReceipt} />)}
     {session.phase === 'finalResult' && <FinalResult session={session} onNewGame={onNewGame} onRematch={onRematch} onRevenge={onRevenge} />}
   </>
   return (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { cardTargetScope, createCardDeck, validCardMultiplicity } from './cards'
-import { connoisseurCategoryReward, rewardConnoisseurItem } from './connoisseur'
+import { chooseConnoisseurCard, connoisseurCategoryReward, rewardConnoisseurItem } from './connoisseur'
 import { settleRound } from './engine'
 import { createPlayerIdentity, defaultIdentitySettings, identitySkillMode } from './identities'
 import { buildBotObservation, decideBotAssetAuctionBids, decideBotIdentity, decideBotTurn, defaultBotStrategy, emptyBotMemory } from './bots'
@@ -17,17 +17,17 @@ function settle(ps = players(), ts = turns(), extra: Partial<Parameters<typeof s
 function uses(ts: RoundTurn[], index: number, ids: CardId[]) { ts[index].cardUses = ids.map((cardId) => ({ cardId })) }
 
 describe('保险师', () => {
-  it.each([{ bids: [12, 20, 16], refund: 9 }, { bids: [20, 20, 12], refund: 15 }])('落榜或并列返还真实普通下注的 75%（$refund）', ({ bids, refund }) => {
+  it.each([{ bids: [12, 20, 16], refund: 12 }, { bids: [20, 20, 12], refund: 20 }])('落榜或并列全额返还真实普通下注（$refund）', ({ bids, refund }) => {
     const ps = players(); ps[0].identity = createPlayerIdentity('insurer')
     const result = settle(ps, turns(bids))
     expect(result.result.deltas[0].identityUnits).toBe(refund)
     expect(ps[0].balanceUnits).toBe(100)
   })
-  it('香蕉皮先退一半，只对净损失退款且按半金币向下取整', () => {
+  it('香蕉皮先退一半，保险补足剩余损失，不重复退款', () => {
     const ps = players(); ps[0].identity = createPlayerIdentity('insurer')
     const ts = turns(); ts[1].cardUses = [{ cardId: 'bananaPeel', targetPlayerId: 'p0' }]
     const output = settle(ps, ts)
-    expect(output.result.deltas[0]).toMatchObject({ cardUnits: 10, identityUnits: 7 })
+    expect(output.result.deltas[0]).toMatchObject({ cardUnits: 10, identityUnits: 10 })
   })
   it('获奖但被夺宝不退款；零下注不退款；永久免观望惩罚', () => {
     const ps = players(); ps[0].identity = createPlayerIdentity('insurer')
@@ -40,7 +40,7 @@ describe('保险师', () => {
   it('不返还投资、市场报价或技能费用', () => {
     const ps = players(); ps[0].identity = createPlayerIdentity('insurer')
     const ts = turns([4, 20, 16]); ts[0].auctionBids = [{ lotId: 'lot', bidUnits: 80 }]
-    expect(settle(ps, ts).result.deltas[0].identityUnits).toBe(3)
+    expect(settle(ps, ts).result.deltas[0].identityUnits).toBe(4)
   })
 })
 
@@ -96,38 +96,49 @@ describe('凯旋礼金与失算保单', () => {
 })
 
 describe('鉴赏家实际获得与持久化', () => {
-  it('四类别按获得顺序发 5/10/20/50，每件新拍品赠卡', () => {
+  it('四类别发 5/10/15/20 及 1/2/3/4 选一，各档锁定一次并归还未选卡', () => {
     const p = players()[0]; p.identity = createPlayerIdentity('connoisseur')
-    let deck: CardId[] = ['red', 'black', 'fateCoin', 'peek']
+    let deck = createCardDeck([])
+    const total = deck.length
     const categories: AssetCategory[] = ['property', 'leisure', 'luxury', 'transport']
     const bonuses = categories.map((category, roundIndex) => {
       const won = { item: { ...prize, id: category, category }, roundIndex }
       const reward = rewardConnoisseurItem(p, won, roundIndex, deck, [], () => 0); deck = reward.cardDeck
       return reward.event?.deltaUnits
     })
-    expect(bonuses).toEqual([10, 20, 40, 100]); expect(deck).toEqual([])
-    expect(p.balanceUnits).toBe(270); expect(p.cardInventory).toHaveLength(4)
+    expect(bonuses).toEqual([10, 20, 30, 40]); expect(deck).toHaveLength(total - 10)
+    expect(p.balanceUnits).toBe(200); expect(p.cardInventory).toHaveLength(1)
+    expect(p.identity.connoisseurOffers?.map(o => o.offeredCardIds.length)).toEqual([2, 3, 4])
+    for (const offer of [...p.identity.connoisseurOffers!]) {
+      expect(new Set(offer.offeredCardIds).size).toBe(offer.offeredCardIds.length)
+      const choice = chooseConnoisseurCard(p, offer.offeredCardIds[0], deck)!
+      Object.assign(p, choice.player); deck = choice.cardDeck
+    }
+    expect(p.cardInventory).toHaveLength(4); expect(deck).toHaveLength(total - 4)
+    expect(chooseConnoisseurCard(p, 'red', deck)).toBeNull()
     expect(p.identity.connoisseurCategories).toEqual(categories)
   })
-  it('卖掉再买回、JSON 刷新均不重复；同类另一件只赠卡', () => {
+  it('卖掉再买回、JSON 刷新均不重复；同类另一件也不重复发卡', () => {
     let p = players()[0]; p.identity = createPlayerIdentity('connoisseur')
     const won = { item: prize, roundIndex: 0 }
     rewardConnoisseurItem(p, won, 0, ['red'], [], () => 0)
     p = JSON.parse(JSON.stringify(p)) as Player
     expect(rewardConnoisseurItem(p, won, 2, ['black']).event).toBeUndefined()
     const output = rewardConnoisseurItem(p, { ...won, item: { ...prize, id: 'another' } }, 2, ['black'], [], () => 0)
-    expect(output.event?.deltaUnits).toBe(0); expect(p.cardInventory).toEqual(['red', 'black'])
+    expect(output.event).toBeUndefined(); expect(p.cardInventory).toEqual(['red'])
   })
   it('市场买入与本轮得标均奖励；不计收藏家虚拟件；不改输入', () => {
     const ps = players(); ps[0].identity = createPlayerIdentity('connoisseur')
     ps[0].items.push({ item: { ...prize, id: 'market', category: 'transport' }, roundIndex: 0 })
     const output = settle(ps, turns(), { roundIndex: 1 })
     expect(output.result.deltas[0].identityUnits).toBe(30)
-    expect(output.players[0].cardInventory).toEqual(['red', 'black'])
-    expect(output.cardDeck).toEqual(['fateCoin', 'peek'])
+    expect(output.players[0].cardInventory).toEqual(['red'])
+    expect(output.players[0].identity?.connoisseurOffers?.[0].offeredCardIds).toEqual(['black', 'fateCoin'])
+    expect(output.cardDeck).toEqual(['peek'])
     expect(ps[0].identity.connoisseurCategories).toBeUndefined()
     const resumed = settle(output.players, turns([0, 16, 12]), { roundIndex: 2, cardDeck: output.cardDeck })
-    expect(resumed.players[0].cardInventory).toHaveLength(2)
+    expect(resumed.players[0].cardInventory).toHaveLength(1)
+    expect(resumed.players[0].identity?.connoisseurOffers).toEqual(output.players[0].identity?.connoisseurOffers)
   })
   it('绑票待决定不预发，赎回才奖励；夺宝优先按实际得主发放', () => {
     const ps = players(); ps[0].identity = createPlayerIdentity('connoisseur'); ps[1].identity = createPlayerIdentity('assassin')
@@ -175,7 +186,7 @@ describe('新增内容接入', () => {
   it('鉴赏家新类别有真实增益；Bot 愿为第四类支付合理溢价', () => {
     const p = players()[0]; p.identity = createPlayerIdentity('connoisseur')
     p.identity.connoisseurCategories = ['transport', 'luxury', 'property']
-    expect(connoisseurCategoryReward(p, 'leisure')).toBe(100)
+    expect(connoisseurCategoryReward(p, 'leisure')).toBe(40)
     p.controller = { kind: 'bot', profileId: 'collectorBot', difficulty: 'expert' }; p.botMemory = emptyBotMemory('fourth')
     const quote = decideBotAssetAuctionBids({ player: p, lots: [{ id: 'lot', sellerId: 'p1', item: prize, itemRoundIndex: 0, roundIndex: 2, minimumBidUnits: 40 }], budgetUnits: 100, roundIndex: 2, totalRounds: 5, sessionSeed: 'fourth' })
     expect(quote[0].bidUnits).toBeGreaterThanOrEqual(40)

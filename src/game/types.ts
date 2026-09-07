@@ -316,6 +316,7 @@ export interface ProphetIdentityProgress {
 export interface PlayerIdentity {
   connoisseurCategories?: AssetCategory[]
   connoisseurItemKeys?: string[]
+  connoisseurOffers?: Array<{ category: AssetCategory; roundIndex: number; offeredCardIds: CardId[] }>
   id: IdentityId
   targetPlayerId?: string
   collectorCategory?: AssetCategory
