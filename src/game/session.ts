@@ -1,3 +1,4 @@
+import { createLottery } from './lottery'
 import { coinsToUnits, defaultRewards } from './engine'
 import { createCardDeck, drawCard, getCardDefinition } from './cards'
 import { emptyBotMemory, strategyForController } from './bots'
@@ -152,7 +153,8 @@ export function createSession(seatsOrNames: SeatConfig[] | RelaySeatConfig[] | s
   })
   // 先把系统竞购卡从常规卡池中取出，保证同一张卡不会既参与竞购又被发放。
   return {
-    version: 36,
+    version: 37,
+    lottery: createLottery(players.length),
     id: gameId,
     phase: settings.identitySettings.enabled ? 'identityHandoff' : 'roundIntro',
     mode,

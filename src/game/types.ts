@@ -547,6 +547,7 @@ export interface KidnapNegotiation {
 }
 
 export interface RoundResult {
+  lottery?: LotteryDraw
   roundIndex: number
   item: Item
   effectiveValueUnits: number
@@ -610,7 +611,9 @@ export interface SpectatorEvent {
 }
 
 export interface GameSession {
-  version: 36
+  version: 37
+  /** Absent in legacy games: never introduce tickets halfway through a saved match. */
+  lottery?: LotteryState
   id: string
   phase: GamePhase
   mode: GameMode
@@ -687,6 +690,39 @@ export interface GameSession {
   tutorial?: { kind: 'firstGame' }
   createdAt: string
   updatedAt: string
+}
+
+export interface LotteryTicket {
+  playerId: string
+  operatorMemberId?: string
+  roundIndex: number
+  number: number
+  paidUnits: number
+  subsidyUnits: number
+}
+
+export interface LotteryState {
+  poolUnits: number
+  /** Frozen public opening pool; private purchases never change the displayed amount. */
+  openingPoolUnits: number
+  baseUnits: number
+  poolStartRound: number
+  tickets: LotteryTicket[]
+  lastDrawRound: number
+}
+
+export interface LotteryDraw {
+  roundIndex: number
+  poolUnits: number
+  baseUnits: number
+  carriedUnits: number
+  newTicketCount: number
+  tickets: LotteryTicket[]
+  number: number | null
+  winnerId: string | null
+  prizeUnits: number
+  finalRound: boolean
+  acknowledged?: boolean
 }
 
 /** A deliberately small, public-only historical prior supplied to one Bot at game start. */

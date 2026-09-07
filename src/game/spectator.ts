@@ -41,6 +41,8 @@ export function createTurnSpectatorEvent(session: GameSession, turn: RoundTurn):
     `下注 ${formatCoins(turn.bidUnits)} 金币`,
     turn.predictedPlayerId ? `预测 ${session.players.find((entry) => entry.id === turn.predictedPlayerId)?.name ?? '未知玩家'} 第一` : '未预测',
   ]
+  const ticket = session.lottery?.tickets.find(ticket => ticket.playerId === turn.playerId && ticket.roundIndex === session.roundIndex)
+  if (ticket) details.push(`彩票 ${String(ticket.number).padStart(2, '0')} 号 · 支付 ${formatCoins(ticket.paidUnits)} 金币`)
   const skill = actionDetail(turn.identityAction, session.players)
   if (skill) details.push(skill)
   for (const use of turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])) {

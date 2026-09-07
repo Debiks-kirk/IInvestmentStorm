@@ -3,7 +3,7 @@ import { createGamePreset, exportGamePreset, importGamePreset } from './presets'
 import { createDefaultSettings, createSession } from './session'
 import { archiveGameHistory, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers, validateHumanPlayerSelection } from './storage'
 import { defaultBotStrategy } from './bots'
-import { createCardDeck } from './cards'
+import { CARD_DEFINITIONS, createCardDeck } from './cards'
 import { createPlayerIdentity } from './identities'
 import { chooseConnoisseurCard, rewardConnoisseurItem } from './connoisseur'
 
@@ -57,7 +57,8 @@ it('鉴赏家多个选卡队列经 loadSession 恢复后候选不重抽，领取
   expect(restored.phase).toBe('finalReceiptHandoff')
   expect(restored.players[0].identity?.connoisseurOffers).toEqual(p.identity.connoisseurOffers)
   const offer = restored.players[0].identity!.connoisseurOffers![0]
-  expect(chooseConnoisseurCard(restored.players[0], 'legendaryLoot', restored.cardDeck)).toBeNull()
+  const unavailableCard = CARD_DEFINITIONS.find(card => !offer.offeredCardIds.includes(card.id))!.id
+  expect(chooseConnoisseurCard(restored.players[0], unavailableCard, restored.cardDeck)).toBeNull()
   const chosen = chooseConnoisseurCard(restored.players[0], offer.offeredCardIds[0], restored.cardDeck)!
   restored.players[0] = chosen.player; restored.cardDeck = chosen.cardDeck
   values.set('who-is-raising:session:v1', JSON.stringify(restored))
@@ -268,7 +269,7 @@ describe('对局存档迁移', () => {
     delete legacy.settings.turnTimerEnabled
     legacy.operationDeadlineAt = 123456789
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
-    expect(loadSession()).toMatchObject({ version: 36, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
+    expect(loadSession()).toMatchObject({ version: 37, operationDeadlineAt: null, settings: { turnTimeLimitSeconds: 20, turnTimerEnabled: false, systemAuctionCardsPerRound: 2 } })
   })
 
   it('v14 Bot 存档会稳定补齐本局行为倾向，而不会重写已提交记录', () => {
@@ -285,7 +286,7 @@ describe('对局存档迁移', () => {
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const first = loadSession()
     const second = loadSession()
-    expect(first?.version).toBe(36)
+    expect(first?.version).toBe(37)
     expect(first?.players[0].botMemory?.behavior).toEqual(second?.players[0].botMemory?.behavior)
     expect(typeof first?.players[0].botMemory?.behavior.bankrollBias).toBe('number')
     expect(typeof first?.players[0].botMemory?.behavior.assetFocusBias).toBe('number')
@@ -306,7 +307,7 @@ describe('对局存档迁移', () => {
     delete strategy.identityPriority
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(36)
+    expect(migrated?.version).toBe(37)
     expect(migrated?.players[0].botMemory?.strategy.identityPriority[0]).toBe(legacy.players[0].botMemory.strategy.identityTactics ? Object.keys(legacy.players[0].botMemory.strategy.identityTactics).find((identityId) => legacy.players[0].botMemory.strategy.identityTactics[identityId] === 100) : undefined)
   })
 
@@ -320,7 +321,7 @@ describe('对局存档迁移', () => {
     delete legacy.players[0].items[0].item.category
     values.set('who-is-raising:session:v1', JSON.stringify(legacy))
     const migrated = loadSession()
-    expect(migrated?.version).toBe(36)
+    expect(migrated?.version).toBe(37)
     expect(migrated?.settings.identitySettings.enabled).toBe(false)
     expect(migrated?.settings.wrongPredictionMultiplier).toBe(0.5)
     expect(migrated?.settings.identitySettings.gamblerWrongPenaltyMultiplier).toBe(migrated?.settings.identitySettings.gamblerSkipPenaltyMultiplier)

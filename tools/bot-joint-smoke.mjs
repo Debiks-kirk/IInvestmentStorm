@@ -6,7 +6,12 @@ async function acknowledgePublicEffects(page) {
     const swap = page.getByRole('button', { name: /继续揭晓/ })
     if (await banana.isVisible()) await banana.getByRole('button', { name: '知道了', exact: true }).click()
     else if (await swap.isVisible()) await swap.click()
-    else break
+    else if (await page.getByRole('dialog', { name: '幸运开奖', exact: true }).isVisible()) {
+      const dialog = page.getByRole('dialog', { name: '幸运开奖', exact: true })
+      const skip = dialog.getByRole('button', { name: '跳过开奖动画' })
+      if (await skip.isVisible()) await skip.click()
+      await dialog.getByRole('button', { name: '收起开奖结果' }).click()
+    } else break
   }
 }
 
