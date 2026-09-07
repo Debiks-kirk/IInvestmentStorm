@@ -68,23 +68,23 @@ describe('凯旋礼金与失算保单', () => {
     expect(withCard.result.investments).toEqual(withoutCard.result.investments)
     expect(withCard.players[0].balanceUnits - withoutCard.players[0].balanceUnits).toBe(6)
   })
-  it.each([1, 2, 3])('%i 张保单依次减半，只改变猜错罚款', (count) => {
+  it.each([1, 2, 3])('%i 张保单免除猜错罚款，不重复获益', (count) => {
     const ts = turns(); ts[1].predictedPlayerId = 'p2'; uses(ts, 1, Array.from({ length: count }, () => 'predictionPolicy'))
     const output = settle(players(), ts)
-    expect(output.result.deltas[1].predictionUnits).toBe(-Math.floor(10 * .5 ** count))
+    expect(output.result.deltas[1]).toMatchObject({ predictionUnits: 0, publicPredictionUnits: 0 })
   })
-  it('赌徒真实与公开罚款均按保单减半，跳过不减免', () => {
+  it('赌徒真实与公开猜错罚款均免除，跳过不减免', () => {
     const ps = players(); ps[1].identity = createPlayerIdentity('gambler')
     const settings = { ...defaultIdentitySettings(true), gamblerWrongPenaltyMultiplier: .4, gamblerSkipPenaltyMultiplier: .6 }
     const ts = turns(); ts[1].predictedPlayerId = 'p2'; uses(ts, 1, ['predictionPolicy'])
-    expect(settle(ps, ts, { identitySettings: settings }).result.deltas[1]).toMatchObject({ predictionUnits: -2, publicPredictionUnits: -5 })
+    expect(settle(ps, ts, { identitySettings: settings }).result.deltas[1]).toMatchObject({ predictionUnits: 0, publicPredictionUnits: 0 })
     ts[1].predictedPlayerId = null
     expect(settle(ps, ts, { identitySettings: settings }).result.deltas[1].identityUnits).toBe(-6)
   })
   it('无唯一第一也减免；余额不足仍按应罚显示，不泄露余额', () => {
     const ps = players(); ps[1].balanceUnits = 1
     const ts = turns([4, 4, 4]); ts[1].predictedPlayerId = 'p0'; uses(ts, 1, ['predictionPolicy'])
-    expect(settle(ps, ts).result.deltas[1]).toMatchObject({ predictionUnits: -1, publicPredictionUnits: -5 })
+    expect(settle(ps, ts).result.deltas[1]).toMatchObject({ predictionUnits: 0, publicPredictionUnits: 0 })
   })
   it('猜对与不预测不受保单影响', () => {
     for (const prediction of ['p0', null]) {

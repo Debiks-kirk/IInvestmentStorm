@@ -624,7 +624,7 @@ function taskScore(observation: BotObservation, bidUnits: number, place: number)
 function predictionDecision(observation: BotObservation, ownRankingBidUnits: number, profile: BotProfile, mode: StrategyMode, behavior: BotBehavior, strategy: BotStrategyConfig, excludedTargetId?: string, uses: CardUse[] = []): { playerId: string | null; expectedUnits: number } {
   const valueUnits = coinsToUnits(observation.item?.value ?? 0) * uses.reduce((factor, use) => use.cardId === 'red' ? factor * 2 : use.cardId === 'black' ? factor * .5 : factor, 1)
   const gambler = observation.self.identity?.id === 'gambler'
-  const wrongPenalty = Math.floor(Math.floor(valueUnits * (gambler ? observation.gamblerWrongPenaltyMultiplier : observation.wrongPredictionMultiplier)) * .5 ** uses.filter((use) => use.cardId === 'predictionPolicy').length)
+  const wrongPenalty = uses.some(use => use.cardId === 'predictionPolicy') ? 0 : Math.floor(valueUnits * (gambler ? observation.gamblerWrongPenaltyMultiplier : observation.wrongPredictionMultiplier))
   const skipValue = gambler ? -valueUnits * observation.gamblerSkipPenaltyMultiplier : 0
   let best = { playerId: null as string | null, expectedUnits: skipValue }
   for (const opponent of observation.opponents) {

@@ -223,7 +223,7 @@ const COLLECTION_IDENTITY_TEXT: Record<IdentityId, string> = {
 }
 
 const COLLECTION_CARD_TEXT: Record<CardId, string> = {
-  triumphRebate: '最终第一名返还下注的 1/3。', predictionPolicy: '猜错罚款减半。',
+  triumphRebate: '最终第一名返还下注的 1/3。', predictionPolicy: '免除本轮猜错罚款。',
   red: '本轮价值翻倍。', peek: '查看一人的下注。', swap: '交换两人的排名下注。', redistribute: '富者转钱给穷者。', doubleBid: '你的下注双倍计排名。', black: '本轮价值减半。', reverseRank: '倒转获奖区名次。', fateCoin: '掷硬币：+10 或无事发生。', bananaPeel: '指定者下注作废。', reflectShield: '反弹首个指定效果。', prizeReroll: '更换下一轮拍品。', legendaryLoot: '夺走本轮最终拍品。', prizeSwap: '秘密更换本轮拍品。',
 }
 

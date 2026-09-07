@@ -34,7 +34,7 @@ export function fixedAssetCoins(category: AssetCategory, itemCount: number): num
 
 /** A real item contributes a small, value-based fixed asset bonus by itself. */
 export function itemFixedAssetCoins(value: number): number {
-  return Math.max(1, Math.ceil(value / 5))
+  return Math.max(1, Math.ceil(value / 4))
 }
 
 export function calculateFixedAssets(items: WonItem[], bonusCategory?: AssetCategory): FixedAssetBreakdown[] {

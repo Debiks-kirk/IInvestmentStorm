@@ -580,9 +580,9 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       const gambler = player.identity?.id === 'gambler'
       const availableBeforePrediction = player.balanceUnits
       const policies = cardUses(turn).filter((use) => use.cardId === 'predictionPolicy').length
-      const policyFactor = .5 ** policies
+      const policyFactor = policies ? 0 : 1
       const due = floorToHalfUnits(floorToHalfUnits(effectiveValueUnits * (gambler ? identitySettings.gamblerWrongPenaltyMultiplier : wrongPredictionMultiplier)) * policyFactor)
-      if (policies) cardEffects.push(cardEffect('predictionPolicy', `${cardCopiesLabel('失算保单', policies)}生效：猜错罚款按 ${(policyFactor * 100).toFixed(2).replace(/\.?0+$/, '')}% 结算。`))
+      if (policies) cardEffects.push(cardEffect('predictionPolicy', `${cardCopiesLabel('失算保单', policies)}生效：免除本轮猜错罚款。`))
       const paid = Math.min(availableBeforePrediction, due)
       player.balanceUnits -= paid
       if (gambler) {

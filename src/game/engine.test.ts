@@ -586,9 +586,14 @@ describe('固定资产与默认配置', () => {
     expect(fixedAssetCoins('property', 5)).toBe(100)
     expect(fixedAssetCoins('property', 6)).toBe(130)
     expect(itemFixedAssetCoins(3)).toBe(1)
-    expect(itemFixedAssetCoins(5)).toBe(1)
+    expect(itemFixedAssetCoins(4)).toBe(1)
+    expect(itemFixedAssetCoins(5)).toBe(2)
+    expect(itemFixedAssetCoins(8)).toBe(2)
+    expect(itemFixedAssetCoins(9)).toBe(3)
+    expect(itemFixedAssetCoins(12)).toBe(3)
+    expect(itemFixedAssetCoins(13)).toBe(4)
     expect(itemFixedAssetCoins(6)).toBe(2)
-    expect(itemFixedAssetCoins(15)).toBe(3)
+    expect(itemFixedAssetCoins(15)).toBe(4)
   })
 
   it('固定资产只在终局并入总资产并改变终局名次', () => {
