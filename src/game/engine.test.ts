@@ -5,7 +5,7 @@ import { CARD_DEFINITIONS, cardTargetScope, createCardDeck, validCardMultiplicit
 import { ITEM_POOL } from './items'
 import { SYSTEM_PRESETS } from './presets'
 import { createDefaultSettings, drawPrizeRerollOffers, prepareCardGrants, recycleUsedCards, replaceNextPrize, replacePrizeAt } from './session'
-import type { CardUse, Item, Player, RoundTurn } from './types'
+import type { CardId, CardUse, Item, Player, RoundTurn } from './types'
 
 const item: Item = { id: 'test', name: '测试物品', value: 5, emoji: '🎁', tone: '#000', category: 'leisure' }
 
@@ -463,9 +463,9 @@ describe('道具发放', () => {
     expect(granted.cardDeck).toEqual(['black'])
   })
 
-  it('正余额并列最低者不发卡，零余额并列者各自独立判定', () => {
+  it('补偿边界并列均纳入，零余额并列者各自独立判定', () => {
     const noGrant = prepareCardGrants({ players: players([3, 3, 8]), cardDeck: ['red'], roundIndex: 1, probability: 100, roll: () => 0 })
-    expect(noGrant.pendingCardGrants).toEqual([])
+    expect(noGrant.pendingCardGrants.map(g => g.playerId)).toEqual(['p1', 'p2'])
     const zeroGrant = prepareCardGrants({ players: players([0, 0, 8]), cardDeck: ['red', 'black'], roundIndex: 1, probability: 100, roll: () => 0 })
     expect(zeroGrant.pendingCardGrants).toHaveLength(2)
     expect(new Set(zeroGrant.pendingCardGrants.map((grant) => grant.cardId)).size).toBe(2)
@@ -514,6 +514,22 @@ describe('小偷的兜底盗取', () => {
     expect(settled.players.find((player) => player.id === 'p3')?.balanceUnits).toBe(coinsToUnits(28.5))
     expect(settled.result.identityEvents).toContainEqual(expect.objectContaining({ playerId: 'p1', title: '偷卡落空，转移金币' }))
     expect(settled.result.identityEvents).toContainEqual(expect.objectContaining({ playerId: 'p2', title: '金币被偷走', detail: '你作为并列最富者，公摊转移了 1.5 金币。' }))
+  })
+
+  it.each([3,4,5,6,7,8,9,10])('%i 人余额后三分之一获得补偿，输入不被修改', count => {
+    const base = players(Array.from({length:count},(_,i)=>count-i))
+    const granted = prepareCardGrants({players:base,cardDeck:Array(count).fill('red'),roundIndex:1,probability:100,roll:()=>0})
+    expect(granted.pendingCardGrants.map(g=>g.playerId)).toEqual(base.slice(count-Math.floor(count/3)).map(p=>p.id))
+    expect(base.every(p=>p.cardInventory.length===0)).toBe(true)
+    expect(granted.cardDeck.length+granted.pendingCardGrants.length).toBe(count)
+  })
+  it('补偿沿用概率、首轮不发；不足三人没有名额', () => {
+    const input = {players:players([1,2,3,4,5,6]),cardDeck:['red','black'] as CardId[],roundIndex:1,probability:50}
+    let index=0
+    expect(prepareCardGrants({...input,roll:()=>[0.2,0.8][index++]}).pendingCardGrants).toHaveLength(1)
+    expect(prepareCardGrants({...input,roundIndex:0}).pendingCardGrants).toHaveLength(0)
+    expect(prepareCardGrants({...input,probability:0}).pendingCardGrants).toHaveLength(0)
+    expect(prepareCardGrants({...input,players:players([1,2]),probability:100}).pendingCardGrants).toHaveLength(0)
   })
 })
 

@@ -11,7 +11,6 @@ const PRESETS_STORAGE_KEY = 'who-is-raising:presets:v1'
 const HISTORY_STORAGE_KEY = 'who-is-raising:history:v1'
 const CUSTOM_BOTS_STORAGE_KEY = 'who-is-raising:custom-bots:v1'
 const REGISTERED_PLAYERS_STORAGE_KEY = 'auction-battle:registered-players:v1'
-const HISTORY_LIMIT = 12
 
 function normalizedRegisteredPlayers(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -403,7 +402,7 @@ export function loadGameHistory(): GameHistoryEntry[] {
     if (!raw) return []
     const parsed = JSON.parse(raw) as { version?: number; entries?: unknown }
     if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return []
-    return parsed.entries.filter(isHistoryEntry).slice(0, HISTORY_LIMIT)
+    return parsed.entries.filter(isHistoryEntry)
   } catch {
     return []
   }
@@ -411,7 +410,7 @@ export function loadGameHistory(): GameHistoryEntry[] {
 
 export function saveGameHistory(entries: GameHistoryEntry[]): void {
   try {
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: 1, entries: entries.slice(0, HISTORY_LIMIT) }))
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({ version: 1, entries: entries }))
   } catch {
     // A full or blocked storage area must not interrupt the completed game.
   }
@@ -422,7 +421,7 @@ export function archiveGameHistory(entries: GameHistoryEntry[], session: GameSes
   if (session.phase !== 'finalResult') return entries
   const previous = entries.find((entry) => entry.id === session.id)
   const snapshot = JSON.parse(JSON.stringify(session)) as GameSession
-  return [{ id: session.id, completedAt: previous?.completedAt ?? completedAt, session: snapshot }, ...entries.filter((entry) => entry.id !== session.id)].slice(0, HISTORY_LIMIT)
+  return [{ id: session.id, completedAt: previous?.completedAt ?? completedAt, session: snapshot }, ...entries.filter((entry) => entry.id !== session.id)]
 }
 
 export function clearSession(): void {

@@ -192,6 +192,15 @@ describe('配置预设存储', () => {
 })
 
 describe('对局历史存储', () => {
+  it('旧存档超过十二局也完整读取和迁移', () => {
+    const session=createSession(['甲','乙','丙'],createDefaultSettings(3))
+    session.phase='finalResult'
+    let entries=archiveGameHistory([],session)
+    for(let i=0;i<30;i++) entries=archiveGameHistory(entries,{...session,id:'history-'+i})
+    saveGameHistory(entries)
+    expect(loadGameHistory()).toHaveLength(31)
+    expect(loadGameHistory().some(entry=>entry.id===session.id)).toBe(true)
+  })
   it('终局快照会按对局 ID 归档、覆盖更新并保持原完成时间', () => {
     const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
     session.phase = 'finalResult'

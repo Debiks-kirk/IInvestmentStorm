@@ -321,7 +321,7 @@
 
 ## 本地对局历史
 
-- `GameHistoryEntry` 保存 `id`、`completedAt` 与完整的终局 `GameSession` 深拷贝。`storage.ts` 以独立键 `who-is-raising:history:v1` 读写，历史容量上限为 12；解析失败或结构不合法时安全返回空列表。
+- `historyStorage.ts` 将终局复盘写入 career IndexedDB v2 的 replays，并在 history 保存轻量摘要与 completedAt 索引；不设数量淘汰。historyMeta 记录一次性迁移，覆盖旧 localStorage 及已存在生涯复盘。按本地日期计算 UTC 左闭右开区间，cursor.advance 分页只读最多 12 个摘要；完整快照仅打开详情时读取。移除生涯战绩不删除历史复盘。
 - 根组件只在 `phase === 'finalResult'` 时调用 `archiveGameHistory`。同一会话 ID 会替换旧快照且保留原完成时间，因此终局页面重渲染或刷新不会产生重复历史。
 - 历史详情复用 `rankFinalPlayers`、`createGameHighlights` 与 `RoundReview` 的纯展示路径；不提供继续、重开、提交或结算入口，因此存档不会被历史浏览污染。
 

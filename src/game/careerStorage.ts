@@ -3,7 +3,7 @@ import { createMatchCareerRecord, type MatchCareerRecord } from './career'
 import type { GameSession, MemberProfile } from './types'
 
 const DB_NAME = 'auction-battle-career'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const MEMBER_STORE = 'members'
 const MATCH_STORE = 'matches'
 const REPLAY_STORE = 'replays'
@@ -31,7 +31,7 @@ export interface CareerImportPreview {
 
 function supportsIndexedDb(): boolean { return typeof indexedDB !== 'undefined' }
 
-function database(): Promise<IDBDatabase> {
+export function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
@@ -39,8 +39,14 @@ function database(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(MEMBER_STORE)) db.createObjectStore(MEMBER_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(MATCH_STORE)) db.createObjectStore(MATCH_STORE, { keyPath: 'sessionId' })
       if (!db.objectStoreNames.contains(REPLAY_STORE)) db.createObjectStore(REPLAY_STORE, { keyPath: 'sessionId' })
+      if (!db.objectStoreNames.contains('history')) {
+        const history = db.createObjectStore('history', { keyPath: 'id' })
+        history.createIndex('completedAt', 'completedAt')
+      }
+      if (!db.objectStoreNames.contains('historyMeta')) db.createObjectStore('historyMeta')
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => { request.result.onversionchange = () => request.result.close(); resolve(request.result) }
+    request.onblocked = () => reject(new Error('请关闭其他游戏标签页后重试存档升级'))
     request.onerror = () => reject(request.error ?? new Error('无法打开本机档案库'))
   })
 }
@@ -141,9 +147,9 @@ export async function removeCareerMatch(sessionId: string): Promise<void> {
   if (!supportsIndexedDb()) return
   const db = await database()
   try {
-    const tx = db.transaction([MATCH_STORE, REPLAY_STORE], 'readwrite')
+    const tx = db.transaction(MATCH_STORE, 'readwrite')
     tx.objectStore(MATCH_STORE).delete(sessionId)
-    tx.objectStore(REPLAY_STORE).delete(sessionId)
+    // Removing a career contribution must not erase the independently retained game history.
     await transactionDone(tx)
   } finally { db.close() }
 }

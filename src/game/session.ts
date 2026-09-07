@@ -351,9 +351,9 @@ export function prepareCardGrants({
   if (roundIndex === 0 || probability <= 0) {
     return { players, cardDeck, pendingCardGrants: [] }
   }
-  const lowestBalance = Math.min(...players.map((player) => player.balanceUnits))
-  const lowestPlayers = players.filter((player) => player.balanceUnits === lowestBalance)
-  const candidates = lowestPlayers.length > 1 && lowestBalance > 0 ? [] : lowestPlayers
+  const count = Math.floor(players.length / 3)
+  const boundary = [...players].sort((a, b) => a.balanceUnits - b.balanceUnits)[count - 1]?.balanceUnits
+  const candidates = boundary === undefined ? [] : players.filter(player => player.balanceUnits <= boundary)
   const nextPlayers = players.map((player) => ({ ...player, items: [...player.items], cardInventory: [...player.cardInventory] }))
   const nextDeck = [...cardDeck]
   const grants: CardGrant[] = []

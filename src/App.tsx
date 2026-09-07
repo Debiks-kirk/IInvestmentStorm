@@ -18,7 +18,9 @@ import { IDENTITY_DEFINITIONS, LOBBYIST_TASKS, identityStartingCards, createPlay
 import { defaultRewards, formatCoins, rankFinalPlayers, settleRound, unitsToCoins, validateSettings } from './game/engine'
 import { cloneSettings, createGamePreset, exportGamePreset, importGamePreset, SYSTEM_PRESETS } from './game/presets'
 import { activeOperator, allOperatorsAreBots, createDefaultSettings, createRematchSession, createSession, drawPrizeRerollOffers, playerIndexForRoundPosition, prepareCardGrants, recycleUsedCards, replacePrizeAt, resolveRoundPrize, roundStartPlayerIndex, validateNames, visibleRoundItem } from './game/session'
-import { archiveGameHistory, clearSession, loadCustomBotProfiles, loadGameHistory, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, saveGameHistory, savePresets, saveRegisteredPlayers, saveSession, validateHumanPlayerSelection } from './game/storage'
+import { clearSession, loadCustomBotProfiles, loadPresets, loadRegisteredPlayers, loadSession, mergeRegisteredPlayers, registeredPlayerNamesFromPreset, saveCustomBotProfiles, savePresets, saveRegisteredPlayers, saveSession, validateHumanPlayerSelection } from './game/storage'
+import { HISTORY_PAGE_SIZE, historyPage, migrateHistory, saveHistory, type HistorySummary } from './game/historyStorage'
+import './ui/history.css'
 import { ITEM_POOL, shuffle } from './game/items'
 import { canMakeIdentityGuess, createStarsDivination, createWealthDivination, drawProphetRewardCard, getProphetIdentityProgress, prophetIdentityGuessesRemaining, prophetModeLabel, shouldQueueProphetMilestoneOffer } from './game/prophet'
 import { BOT_PROFILES, appendBotRecord, botProfile, buildBotObservation, decideBotAssetAuctionOffer, decideBotIdentity, decideBotKidnapResponse, decideBotMerchantBid, decideBotMerchantOffer, decideBotPrizeReroll, decideBotProphetAction, decideBotTurn, defaultBotStrategy, emptyBotMemory, isBot, updateBotGrudges } from './game/bots'
@@ -292,22 +294,57 @@ function Home({ saved, onSetup, onContinue, onRules, onHistory, onCollection, on
   )
 }
 
-function historyWinner(entry: GameHistoryEntry): string {
-  const standings = rankFinalPlayers(entry.session.players)
-  const firstPlace = standings.filter((standing) => standing.place === 1)
-  return firstPlace.length ? firstPlace.map((standing) => standing.player.name).join('、') : '未产生赢家'
-}
-
-function History({ entries, onBack, onOpen, onDelete }: { entries: GameHistoryEntry[]; onBack: () => void; onOpen: (entry: GameHistoryEntry) => void; onDelete: (id: string) => void }) {
-  return (
-    <AppShell>
-      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回">←</button><Brand /><span /></header>
-      <section className="history-page">
-        <div className="history-heading"><div><p className="eyebrow">本机存档</p><h1>对局<em>历史</em></h1><p>已结束的对局会自动保存在这台设备上，不会影响正在进行的游戏。</p></div><span className="history-count">{entries.length} 局</span></div>
-        {entries.length === 0 ? <section className="history-empty panel"><span>▣</span><h2>还没有完成的对局</h2><p>完成一局后，这里会保留最终排行榜、名场面和逐轮复盘。</p><button className="button button--primary" onClick={onBack}>去开一局</button></section> : <div className="history-list">{entries.map((entry) => <article className="history-card" key={entry.id} onClick={() => onOpen(entry)} tabIndex={0} role="button" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(entry) }}><div className="history-card__date"><small>{new Date(entry.completedAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}</small><span>{new Date(entry.completedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></div><div className="history-card__copy"><small>{entry.session.players.length} 人 · {entry.session.settings.rounds} 轮</small><h2>{historyWinner(entry)}</h2><p>最终赢家{rankFinalPlayers(entry.session.players).filter((standing) => standing.place === 1).length > 1 ? '们' : ''} · 点击查看完整复盘</p></div><div className="history-card__players">{entry.session.players.slice(0, 5).map((player) => <span key={player.id} style={{ '--player-color': player.color } as React.CSSProperties}><PlayerAvatar player={player} /></span>)}{entry.session.players.length > 5 && <i>+{entry.session.players.length - 5}</i>}</div><button className="history-card__delete" aria-label="删除这局历史" title="删除这局历史" onClick={(event) => { event.stopPropagation(); onDelete(entry.id) }}>×</button><b>查看复盘 →</b></article>)}</div>}
-      </section>
-    </AppShell>
-  )
+function History({ onBack, onOpen }: { onBack: () => void; onOpen: (entry: GameHistoryEntry) => void }) {
+  const [page, setPage] = useState(0)
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [data, setData] = useState<{ entries: HistorySummary[]; total: number }>({ entries: [], total: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  const [opening, setOpening] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true); setError('')
+    void migrateHistory().then(() => historyPage(page, from, to)).then(result => {
+      if (!cancelled) setData(result)
+    }).catch(() => { if (!cancelled) setError('读取失败，请检查日期范围和浏览器存储权限后重试。') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [page, from, to, retry])
+  const open = async (entry: HistorySummary) => {
+    setOpening(true); setError('')
+    try {
+      const replay = await loadCareerReplay(entry.id)
+      if (!replay) throw new Error('missing')
+      onOpen({ id: entry.id, completedAt: entry.completedAt, session: replay })
+    } catch { setError('这局复盘暂时无法读取，请重试。') }
+    finally { setOpening(false) }
+  }
+  return <AppShell>
+    <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回">←</button><Brand /><span /></header>
+    <section className="history-page">
+      <div className="history-heading"><div><p className="eyebrow">本机存档</p><h1>对局<em>历史</em></h1></div><span className="history-count">{data.total} 局</span></div>
+      <div className="history-filters">
+        <label>开始日期<input type="date" aria-label="开始日期" value={from} onChange={e => { setFrom(e.target.value); setPage(0) }} /></label>
+        <label>结束日期<input type="date" aria-label="结束日期" value={to} onChange={e => { setTo(e.target.value); setPage(0) }} /></label>
+        <button className="button button--paper" onClick={() => { setFrom(''); setTo(''); setPage(0) }}>全部日期</button>
+      </div>
+      {error && <p role="alert">{error} <button className="text-button" onClick={() => setRetry(n => n + 1)}>重试</button></p>}
+      {loading ? <p role="status">正在读取…</p> : !error && !data.entries.length ? <p className="history-empty">暂无对局记录</p> : !error && <div className="history-list">{data.entries.map(entry =>
+        <button type="button" className="history-card history-summary-card" key={entry.id} disabled={opening} onClick={() => void open(entry)}>
+          <span className="history-card__date"><small>{new Date(entry.completedAt).toLocaleDateString('zh-CN')}</small><span>{new Date(entry.completedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span></span>
+          <span className="history-card__copy"><small>{entry.mode === 'relay' ? '接力' : '标准'} · {entry.playerCount} 人 · {entry.rounds} 轮</small><strong>{entry.winner}</strong></span>
+          <b aria-hidden="true">→</b>
+        </button>
+      )}</div>}
+      <nav className="history-pagination" aria-label="历史分页">
+        <button className="button button--paper" disabled={loading || page === 0} onClick={() => setPage(n => n - 1)}>上一页</button>
+        <span>{page + 1} / {Math.max(1, Math.ceil(data.total / HISTORY_PAGE_SIZE))}</span>
+        <button className="button button--paper" disabled={loading || (page + 1) * HISTORY_PAGE_SIZE >= data.total} onClick={() => setPage(n => n + 1)}>下一页</button>
+      </nav>
+    </section>
+  </AppShell>
 }
 
 function HistoryDetail({ entry, onBack }: { entry: GameHistoryEntry; onBack: () => void }) {
@@ -3024,7 +3061,6 @@ export default function App() {
   const [presets, setPresets] = useState<GamePreset[]>(() => loadPresets())
   const [customBotProfiles, setCustomBotProfiles] = useState<CustomBotProfile[]>(() => loadCustomBotProfiles())
   const [registeredPlayers, setRegisteredPlayers] = useState<string[]>(() => loadRegisteredPlayers())
-  const [history, setHistory] = useState<GameHistoryEntry[]>(() => loadGameHistory())
   const [historyEntry, setHistoryEntry] = useState<GameHistoryEntry | null>(null)
   const [session, setSession] = useState<GameSession | null>(null)
   const [members, setMembers] = useState<MemberProfile[]>([])
@@ -3033,6 +3069,9 @@ export default function App() {
   const [careerMessage, setCareerMessage] = useState('')
   const membersRef = useRef<MemberProfile[]>([])
   const archivedCareerSessions = useRef(new Set<string>())
+  const archivedHistorySessions = useRef(new Set<string>())
+  const [historySaveError, setHistorySaveError] = useState(false)
+  const [historyRetry, setHistoryRetry] = useState(0)
 
   useEffect(() => { membersRef.current = members }, [members])
 
@@ -3079,11 +3118,13 @@ export default function App() {
     saveSession(session)
     setSaved(session)
     if (session.phase === 'finalResult') {
-      setHistory((current) => {
-        const next = archiveGameHistory(current, session)
-        saveGameHistory(next)
-        return next
-      })
+      if (!archivedHistorySessions.current.has(session.id)) {
+        archivedHistorySessions.current.add(session.id)
+        void migrateHistory().then(() => saveHistory(session)).then(() => setHistorySaveError(false)).catch(() => {
+          archivedHistorySessions.current.delete(session.id)
+          setHistorySaveError(true)
+        })
+      }
       if (session.careerEnabled && !archivedCareerSessions.current.has(session.id)) {
         archivedCareerSessions.current.add(session.id)
         void archiveCareerMatch(session).then((savedCareer) => {
@@ -3095,7 +3136,7 @@ export default function App() {
         })
       }
     }
-  }, [session])
+  }, [session, historyRetry])
 
   const begin = (next: GameSession) => {
     const available = membersRef.current.filter((member) => !member.archived)
@@ -3203,7 +3244,6 @@ export default function App() {
     setHistoryEntry({ id: `career:${sessionId}`, completedAt: replay.updatedAt, session: replay })
   }
   const removeCareerRecord = async (sessionId: string) => { await removeCareerMatch(sessionId); const data = await loadCareerData(); setCareerRecords(data.records) }
-  const deleteHistory = (id: string) => setHistory((current) => { const next = current.filter((entry) => entry.id !== id); saveGameHistory(next); return next })
   const removeSaved = () => { clearSession(); setSaved(null); setSession(null) }
   const newGame = () => { clearSession(); setSaved(null); setSession(null); setScreen('setup') }
   const rematch = (keepBotGrudges: boolean) => { if (session) begin(createRematchSession(session, keepBotGrudges)) }
@@ -3211,7 +3251,8 @@ export default function App() {
   if (screen === 'rules') return <Rules onBack={() => setScreen('home')} />
   if (screen === 'setup') return <Setup onBack={() => setScreen('home')} onStart={begin} presets={presets} onSavePresets={persistPresets} customBotProfiles={customBotProfiles} onSaveCustomBotProfiles={persistCustomBotProfiles} registeredPlayers={registeredPlayers} onSaveRegisteredPlayers={persistRegisteredPlayers} members={members} onRegisterMember={ensureRegisteredMember} />
   if (historyEntry) return <AvatarMembers.Provider value={members}><HistoryDetail entry={historyEntry} onBack={() => { setHistoryEntry(null); setScreen('history') }} /></AvatarMembers.Provider>
-  if (screen === 'history') return <AvatarMembers.Provider value={members}><History entries={history} onBack={() => setScreen('home')} onOpen={setHistoryEntry} onDelete={deleteHistory} /></AvatarMembers.Provider>
+  if (historySaveError) return <AppShell><section className="panel"><h2>历史尚未保存</h2><p>请检查浏览器存储权限或空间。当前对局仍保留，不会自动删除旧历史。</p><button className="button button--primary" onClick={() => { setHistorySaveError(false); setHistoryRetry(n => n + 1) }}>重试保存</button><button className="button button--paper" onClick={() => setHistorySaveError(false)}>返回对局</button></section></AppShell>
+  if (screen === 'history') return <AvatarMembers.Provider value={members}><History onBack={() => setScreen('home')} onOpen={setHistoryEntry} /></AvatarMembers.Provider>
   if (screen === 'collection') return <CollectionBook onBack={() => setScreen('home')} />
   if (screen === 'members') return <AppShell><MemberHall members={members} records={careerRecords} notice={careerMessage} onBack={() => setScreen('home')} onChangeMember={persistMember} onCreateHuman={(name) => createCareerMember('human', name)} onCreateBot={(name) => createCareerMember('bot', name)} onArchiveMember={(id) => archiveMember(id, true)} onRestoreMember={(id) => archiveMember(id, false)} onExport={exportMembers} onImport={importMembers} onOpenMatch={openCareerReplay} onRemoveMatch={removeCareerRecord} onCloneBot={cloneCareerBot} /></AppShell>
   if (screen === 'game' && session) return <AvatarMembers.Provider value={members}><Game session={session} setSession={setSession} onExit={() => setScreen('home')} onNewGame={newGame} onRematch={() => rematch(false)} onRevenge={() => rematch(true)} /></AvatarMembers.Provider>
