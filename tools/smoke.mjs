@@ -56,6 +56,19 @@ async function assertNoHorizontalOverflow(page, label) {
   if (sizes.scrollWidth > sizes.width) throw new Error(`${label} 存在横向溢出：${sizes.scrollWidth}px > ${sizes.width}px。`)
 }
 
+async function assertPlayerPickerLayout(page) {
+  const problems = await page.locator('.target-picker-grid > button, .prediction-picker-grid > button, .spectator-takeover-picker__grid > button').evaluateAll(buttons => buttons.flatMap(button => {
+    const avatar = button.querySelector('.avatar-art')
+    const text = button.querySelector('strong')
+    if (!avatar || !text) return []
+    const a = avatar.getBoundingClientRect(), t = text.getBoundingClientRect(), b = button.getBoundingClientRect()
+    if (!b.width || !b.height) return []
+    return a.width > 64 || a.height > 64 || a.width < 20 || a.height < 20 || t.left < a.right || t.right > b.right + 1 || button.scrollWidth > button.clientWidth + 1
+      ? [{ name: text.textContent, avatar: [a.width, a.height], textLeft: t.left, avatarRight: a.right }] : []
+  }))
+  assert.deepEqual(problems, [], '选人卡应有固定头像尺寸，文字不与头像重叠或横向溢出')
+}
+
 async function resetLocalGame(page) {
   await page.evaluate(async () => {
     localStorage.clear()
@@ -261,6 +274,7 @@ async function dismissPrivateNotices(page) {
 
 async function choosePrediction(page, index = 0) {
   await page.getByTestId('prediction-picker').click()
+  await assertPlayerPickerLayout(page)
   await page.locator('.prediction-picker-grid button').nth(index).click()
 }
 
@@ -472,6 +486,7 @@ async function runCardFlow(page) {
   if (await targetConfirm.count() > 0) {
     await targetConfirm.click()
     const targetCards = page.locator('.target-picker-grid button')
+    await assertPlayerPickerLayout(page)
     if (await targetCards.count() > 0) await targetCards.first().click()
   }
   const confirmUse = page.getByRole('button', { name: '确认使用' })
@@ -745,6 +760,7 @@ async function runLobbyistTaskFlow(page) {
   await assertNoHorizontalOverflow(page, '说客发布方式选择')
   await page.getByRole('button', { name: /随机发布/ }).click()
   await page.getByText(/随机任务；基础费用 0 金币/).waitFor()
+  await assertPlayerPickerLayout(page)
   await page.locator('.target-picker-grid button').first().click()
   await page.getByRole('button', { name: '确认安排' }).click()
   await openIdentityTool(page)
@@ -759,6 +775,7 @@ async function runLobbyistTaskFlow(page) {
   await page.getByRole('button', { name: /指定发布/ }).click()
   await page.getByRole('button', { name: /获得第二名/ }).click()
   await page.getByText('选择任务对象', { exact: true }).waitFor()
+  await assertPlayerPickerLayout(page)
   await page.locator('.target-picker-grid button').first().click()
   await page.getByRole('button', { name: '确认安排' }).click()
   await openIdentityTool(page)
@@ -770,6 +787,7 @@ async function runLobbyistTaskFlow(page) {
   await page.locator('.target-picker-grid button').first().click()
   await page.getByText('选择比较对象', { exact: true }).waitFor()
   const comparisonCards = page.locator('.target-picker-grid button')
+  await assertPlayerPickerLayout(page)
   if (await comparisonCards.count() < 2) throw new Error('说客的比较对象应包含说客本人和其他非任务对象玩家。')
   await comparisonCards.first().click()
   await page.getByRole('button', { name: '确认安排' }).click()
@@ -850,7 +868,7 @@ async function runBotSpectatorFlow(page, playerCount = 3, inspectControls = true
 
 async function runSpectatorTakeoverFlow(page) {
   await page.goto('http://127.0.0.1:5181')
-  await page.evaluate(() => localStorage.clear())
+  await resetLocalGame(page)
   await page.reload()
   await page.getByRole('button', { name: '创建新对局' }).click()
   await setRange(page.locator('#player-count'), 3)
@@ -866,7 +884,22 @@ async function runSpectatorTakeoverFlow(page) {
   await page.getByRole('button', { name: '接管下一轮' }).click()
   const picker = page.locator('.spectator-takeover-picker')
   await picker.waitFor()
+  for (const [width, height] of [[360, 640], [844, 390], [768, 1024], [1440, 900]]) {
+    await page.setViewportSize({ width, height })
+    await assertPlayerPickerLayout(page)
+    const names = picker.locator('.target-picker-grid strong')
+    const originals = await names.allTextContents()
+    await names.evaluateAll(nodes => nodes.forEach(node => { node.textContent = '二十字超长玩家名称用于检验头像文字换行排版' }))
+    await assertPlayerPickerLayout(page)
+    await names.evaluateAll((nodes, values) => nodes.forEach((node, index) => { node.textContent = values[index] }), originals)
+    await assertNoHorizontalOverflow(page, '接管玩家弹窗')
+    const footer = await picker.locator('.spectator-takeover-picker__footer').boundingBox()
+    assert.ok(footer && footer.y >= 0 && footer.y + footer.height <= height, '接管确认按钮必须始终留在视口内')
+    await page.screenshot({ path: `.artifacts/takeover-picker-${width}.png` })
+  }
+  await page.setViewportSize({ width: 360, height: 640 })
   await picker.locator('.spectator-takeover-picker__grid button').first().click()
+  assert.equal(await picker.locator('.spectator-takeover-picker__grid button').first().getAttribute('aria-pressed'), 'true')
   await picker.getByRole('button', { name: '开始接管下一轮' }).click()
   await page.getByRole('button', { name: '启动抽奖机' }).waitFor({ timeout: 10000 })
   if (await page.locator('.spectator-controls').count()) throw new Error('接管下一轮后不应继续显示观战控制')
@@ -945,6 +978,7 @@ async function runFirstPlayerBananaFlow(page) {
   await page.getByRole('button', { name: '确认并选择玩家' }).click()
   if (await page.locator('.target-picker-grid button').count() !== 2) throw new Error('香蕉皮应允许第一位玩家选择全部两名其他玩家')
   await assertNoHorizontalOverflow(page, '首位香蕉皮目标选择')
+  await assertPlayerPickerLayout(page)
 }
 
 async function runTurnTimeoutFlow(page) {
@@ -1151,7 +1185,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 360, height: 640 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
-  if (process.env.SMOKE_ONLY === 'avatars') {
+  if (process.env.SMOKE_ONLY === 'player-pickers') {
+    await runSpectatorTakeoverFlow(page)
+    console.log('接管选人布局专项通过。')
+  } else if (process.env.SMOKE_ONLY === 'avatars') {
     await runAvatarFlow(page)
     console.log('30 款预设头像、手绘触摸/鼠标、撤销清空、取消、保存刷新和档案备份恢复通过。')
   } else if (process.env.SMOKE_ONLY === 'expansion') {
@@ -1206,6 +1243,7 @@ try {
     await runMemberHallFlow(page)
     await page.reload()
     await runAvatarFlow(page)
+    await runSpectatorTakeoverFlow(page)
     await runSetupLayoutFlow(page)
     await runGame(page, 3, true)
     await runGame(page, 6, false, 'fast')

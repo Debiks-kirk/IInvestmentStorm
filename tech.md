@@ -17,6 +17,9 @@
 
 ## 内置头像
 
+- 选人弹窗必须复用 `target-picker-grid`／`prediction-picker-grid` 三列结构（头像 span、文本 div、标记 i），不能只有裸 SVG 百分比尺寸；头像容器固定 44px，文字列为 `minmax(0,1fr)` 并允许长名字换行。
+- `assertPlayerPickerLayout` 检查实际头像尺寸、头像与姓名相交及按钮横向溢出；接管专项 `SMOKE_ONLY=player-pickers` 覆盖四种视口、长名字与确认按钮可见性。接管测试需清理自身隔离上下文的 IndexedDB，避免前序名册测试污染开局选择。
+
 - `AvatarIcon.tsx` 维护 30 个稳定数字 ID 的 SVG 路径，0–23 保留旧含义，24–29 为月亮、小狗、小熊、熊猫、小鸡、青蛙；新成员从 30 款中分配默认头像。
 - `MemberAvatar.drawing` 为可选的版本化矢量笔画（256×256 坐标、可选背景色，默认米白），不是 SVG 字符串或上传图片；`cloneAvatar` 深拷贝并校验色值、坐标、笔宽、128 笔／每笔 512 点上限，兼容旧成员数据。
 - `AvatarDrawingEditor` 在原编辑弹窗内切换独立步骤；Pointer Capture 支持触摸、鼠标与触控笔，Canvas 使用 2 倍分辨率及帧合并绘制。保存后统一由 SVG 展示；取消丢弃草稿，选预设清除手绘，清空可撤销。

@@ -1631,8 +1631,8 @@ function SpectatorRoundTakeoverPicker({ players, onClose, onConfirm }: { players
       <h2 id="spectator-takeover-title">选择要操作的玩家</h2>
       <p>所选玩家的下一轮由你操作；其余玩家仍由 Bot 处理。回合结算时会自动回到观战。</p>
       <div className="spectator-takeover-picker__actions"><button type="button" className="text-button" onClick={() => setSelectedIds(allSelected ? [] : players.map((player) => player.id))}>{allSelected ? '清空选择' : '全部接管'}</button><span>已选 {selectedIds.length} 人</span></div>
-      <div className="player-target-grid spectator-takeover-picker__grid">{players.map((player) => <button type="button" key={player.id} className={cx(selectedIds.includes(player.id) && 'is-selected')} onClick={() => togglePlayer(player.id)}><span style={{ background: player.color }}><PlayerAvatar player={player} /></span><strong>{player.name}</strong><small>{selectedIds.includes(player.id) ? '下一轮由你操作' : '继续由 Bot 操作'}</small></button>)}</div>
-      <div><button className="button button--paper" onClick={onClose}>取消</button><button className="button button--primary" disabled={selectedIds.length === 0} onClick={() => onConfirm(selectedIds)}>开始接管下一轮</button></div>
+      <div className="target-picker-grid spectator-takeover-picker__grid">{players.map((player) => <button type="button" key={player.id} aria-pressed={selectedIds.includes(player.id)} className={cx(selectedIds.includes(player.id) && 'is-selected')} onClick={() => togglePlayer(player.id)}><span style={{ background: player.color }}><PlayerAvatar player={player} /></span><div><strong>{player.name}</strong><small>{selectedIds.includes(player.id) ? '下一轮由你操作' : '继续由 Bot 操作'}</small></div><i aria-hidden="true">{selectedIds.includes(player.id) ? '✓' : '+'}</i></button>)}</div>
+      <div className="spectator-takeover-picker__footer"><button className="button button--paper" onClick={onClose}>取消</button><button className="button button--primary" disabled={selectedIds.length === 0} onClick={() => onConfirm(selectedIds)}>开始接管下一轮</button></div>
     </section>
   </div>
 }
