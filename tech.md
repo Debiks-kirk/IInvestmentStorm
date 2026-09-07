@@ -1,5 +1,12 @@
 # 技术基线
 
+## 扩展道具事务
+
+- `expansionCards.ts` 提供即时赠票、实体升档与纯并列组判定。v37 可选 `instantCardUses` 保留确认结果；提交只合并锁定动作，回收同时归还升级耗材。
+- 彩票 `source: gift` 与正常购买分别限制，获赠票实付 0、系统补贴 4 半金币单位，入池同普通票。
+- 新版存档不再执行旧新增卡补齐，避免刷新凭空增加实体卡。
+- `SMOKE_ONLY=expansion-cards` 验证移动端连续升级和刷新提交。
+
 ## 彩票模块（v37）
 
 - `game/lottery.ts` 统一创建奖池、空号列表、原子购票、幂等开奖与下轮初始化；金额均为半金币整数单位。`LotteryState.openingPoolUnits` 为公开冻结值，不能用实时 `poolUnits` 替代。

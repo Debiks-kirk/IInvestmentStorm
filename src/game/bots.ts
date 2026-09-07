@@ -673,7 +673,7 @@ interface ScoredPlan extends TurnPlan {
 function cardUseVariants(observation: BotObservation, difficulty: BotDifficulty): CardUse[][] {
   const candidates: CardUse[] = []
   for (const cardId of [...new Set(observation.self.cardInventory)]) {
-    if (cardId === 'reflectShield' || (cardId === 'prizeReroll' && observation.roundIndex >= observation.totalRounds - 1)) continue
+    if (['reflectShield', 'tieCharm', 'luckyTickets', 'sleeveUpgrade'].includes(cardId) || (cardId === 'prizeReroll' && observation.roundIndex >= observation.totalRounds - 1)) continue
     const scope = cardTargetScope(cardId)
     const targets = scope === 'previous' ? observation.previousSubmitterIds : scope === 'other' ? observation.opponents.map((opponent) => opponent.id) : [undefined]
     for (const targetPlayerId of targets) candidates.push({ cardId, ...(targetPlayerId ? { targetPlayerId } : {}) })

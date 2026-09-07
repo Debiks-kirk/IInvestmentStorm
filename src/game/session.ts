@@ -329,7 +329,7 @@ export interface CardGrantPreparation {
 /** 已使用卡在结算后的下一轮开始前回洗；未使用库存始终不动。 */
 export function recycleUsedCards(cardDeck: CardId[], turns: RoundTurn[], autoConsumedCardIds: CardId[] = []): CardId[] {
   const returnedCards = [
-    ...turns.flatMap((turn) => (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).map((use) => use.cardId)),
+    ...turns.flatMap((turn) => (turn.cardUses ?? (turn.cardUse ? [turn.cardUse] : [])).flatMap((use) => use.cardId === 'sleeveUpgrade' && use.upgradedFrom ? [use.cardId, use.upgradedFrom] : [use.cardId])),
     ...autoConsumedCardIds,
   ]
   return returnedCards.length > 0 ? shuffle([...cardDeck, ...returnedCards]) : [...cardDeck]

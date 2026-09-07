@@ -129,7 +129,7 @@ describe('配置与终局', () => {
 describe('道具卡结算', () => {
   it('逐张卡的目标范围明确：香蕉皮和换日均可指定任意其他玩家', () => {
     expect(CARD_DEFINITIONS.map((card) => [card.id, cardTargetScope(card.id)])).toEqual([
-      ['triumphRebate', 'none'], ['predictionPolicy', 'none'],
+      ['luckyTickets', 'none'], ['tieCharm', 'none'], ['sleeveUpgrade', 'none'], ['triumphRebate', 'none'], ['predictionPolicy', 'none'],
       ['red', 'none'], ['peek', 'previous'], ['swap', 'other'], ['redistribute', 'none'], ['doubleBid', 'none'],
       ['black', 'none'], ['reverseRank', 'none'], ['fateCoin', 'none'], ['bananaPeel', 'other'], ['reflectShield', 'none'], ['prizeReroll', 'none'], ['legendaryLoot', 'none'], ['prizeSwap', 'none'],
     ])

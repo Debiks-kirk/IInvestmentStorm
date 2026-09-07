@@ -7,6 +7,10 @@ import { CardIcon, IdentityIcon } from './GameIcon'
 describe('game icon mappings', () => {
   it.each(CARD_DEFINITIONS)('renders $name without changing the accessible button name', ({ id, name }) => {
     const markup = renderToStaticMarkup(<button><CardIcon id={id} />{name}</button>)
+    if (['luckyTickets', 'tieCharm', 'sleeveUpgrade'].includes(id)) {
+      expect(markup).toContain('<svg'); expect(markup).toContain('aria-hidden="true"'); expect(markup).toContain(name)
+      return
+    }
     expect(markup).toContain(['triumphRebate', 'predictionPolicy'].includes(id) ? `/assets/icons/expansion-v1/cards/${id}.png` : `/assets/icons/minimal-v1/cards/${id}.webp`)
     expect(markup).toContain('alt=""')
     expect(markup).toContain('aria-hidden="true"')

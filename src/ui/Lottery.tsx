@@ -40,7 +40,7 @@ export function LotteryPanel({ session, reservedUnits, onBuy }: { session: GameS
   const lottery = session.lottery!
   const player = session.players[session.currentTurnIndex]
   const tickets = lottery.tickets.filter(ticket => ticket.playerId === player.id)
-  const bought = tickets.some(ticket => ticket.roundIndex === session.roundIndex)
+  const bought = tickets.some(ticket => ticket.roundIndex === session.roundIndex && ticket.source !== 'gift')
   const available = availableLotteryNumbers(lottery, session.players.length)
   const paid = Math.min(player.balanceUnits, LOTTERY_PRICE_UNITS)
   const shortage = Math.max(0, reservedUnits + paid - player.balanceUnits)
@@ -56,7 +56,7 @@ export function LotteryPanel({ session, reservedUnits, onBuy }: { session: GameS
     {!bought && available.length > 0 && <><button className={`button button--paper ${selected === null ? 'is-selected' : ''}`} aria-pressed={selected === null} onClick={() => setSelected(null)}>随机选号</button><p>你支付 {formatCoins(paid)} 金币，奖池固定 +2 金币{paid < 4 ? `；系统补足 ${formatCoins(4 - paid)} 金币` : ''}。确认后不可退改。</p></>}
     {reason && <p role="status" className="lottery-feedback">{reason}</p>}{error && <p role="alert" className="lottery-feedback">{error}</p>}
     {!bought && available.length > 0 && <button className="button button--primary" disabled={Boolean(reason)} onClick={() => { if (!onBuy(selected, reservedUnits)) setError('购票未完成，请检查号码、余额或操作时间。') }}>确认购票{selected !== null ? ` · ${String(selected).padStart(2, '0')} 号` : ' · 随机选号'}</button>}
-    {tickets.length > 0 && <ul className="lottery-stubs">{tickets.map(ticket => <li key={ticket.number}><b>{String(ticket.number).padStart(2, '0')}</b><span>第 {ticket.roundIndex + 1} 轮购入<small>已支付 {formatCoins(ticket.paidUnits)} · 系统补贴 {formatCoins(ticket.subsidyUnits)}</small></span></li>)}</ul>}
+    {tickets.length > 0 && <ul className="lottery-stubs">{tickets.map(ticket => <li key={ticket.number}><b>{String(ticket.number).padStart(2, '0')}</b><span>第 {ticket.roundIndex + 1} 轮{ticket.source === 'gift' ? '获赠' : '购入'}<small>已支付 {formatCoins(ticket.paidUnits)} · 系统补贴 {formatCoins(ticket.subsidyUnits)}</small></span></li>)}</ul>}
   </div><footer><button className="button button--paper" onClick={() => setOpen(false)}>{bought ? '完成' : '返回下注'}</button></footer></section></div>, document.body)}</>
 }
 

@@ -17,7 +17,7 @@ export function buyLotteryTicket(session: GameSession, playerId: string, number:
   const state = session.lottery
   const player = session.players[session.currentTurnIndex]
   if (!state || session.phase !== 'privateTurn' || player?.id !== playerId || session.turns.some(turn => turn.playerId === playerId) || state.lastDrawRound >= session.roundIndex) return null
-  if (state.tickets.some(ticket => ticket.playerId === playerId && ticket.roundIndex === session.roundIndex)) return null
+  if (state.tickets.some(ticket => ticket.playerId === playerId && ticket.roundIndex === session.roundIndex && ticket.source !== 'gift')) return null
   const available = availableLotteryNumbers(state, session.players.length)
   if (!available.length || (number !== null && !available.includes(number))) return null
   const paidUnits = Math.min(LOTTERY_PRICE_UNITS, player.balanceUnits)

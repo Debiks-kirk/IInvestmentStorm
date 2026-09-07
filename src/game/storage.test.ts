@@ -23,6 +23,16 @@ afterEach(() => {
   values.clear()
 })
 
+it('新版存档刷新不凭空补卡，保留即时升级记录与空卡池', () => {
+  const s = createSession(['甲','乙','丙'], createDefaultSettings(3))
+  s.cardDeck = []; s.players.forEach(player => { player.cardInventory = [] })
+  s.instantCardUses = [{ playerId: s.players[0].id, roundIndex: 0, use: { cardId: 'sleeveUpgrade', upgradedFrom: 'red', upgradedTo: 'swap' } }]
+  localStorage.setItem('who-is-raising:session:v1', JSON.stringify(s))
+  const restored = loadSession()!
+  expect(restored.cardDeck).toEqual([])
+  expect(restored.instantCardUses).toEqual(s.instantCardUses)
+})
+
 it('真实存档读取保留鉴赏家历史，出售后刷新再获得也不重复领奖', () => {
   const session = createSession(['甲', '乙', '丙'], createDefaultSettings(3))
   const player = session.players[0]

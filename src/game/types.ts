@@ -155,7 +155,7 @@ export interface MemberProfile {
   }
 }
 
-export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot' | 'prizeSwap' | 'triumphRebate' | 'predictionPolicy'
+export type CardId = 'red' | 'peek' | 'swap' | 'redistribute' | 'doubleBid' | 'black' | 'reverseRank' | 'fateCoin' | 'bananaPeel' | 'reflectShield' | 'prizeReroll' | 'legendaryLoot' | 'prizeSwap' | 'triumphRebate' | 'predictionPolicy' | 'luckyTickets' | 'tieCharm' | 'sleeveUpgrade'
 
 export type IdentityId = 'prophet' | 'gambler' | 'assassin' | 'collector' | 'thief' | 'merchant' | 'reverser' | 'lobbyist' | 'nightwalker' | 'investor' | 'insurer' | 'connoisseur'
 export type LobbyistTaskType = 'outbid' | 'underbid' | 'avoidPrize' | 'winFirst' | 'winSecond' | 'bidZero'
@@ -164,6 +164,9 @@ export type AssetCategory = 'leisure' | 'transport' | 'luxury' | 'property'
 
 export interface CardUse {
   cardId: CardId
+  upgradedFrom?: CardId
+  upgradedTo?: CardId
+  lotteryNumbers?: number[]
   targetPlayerId?: string
   coinResult?: 'heads' | 'tails'
   /** 命运硬币在私密操作时已立即结算的实际变动，回合结算仅用于展示。 */
@@ -636,6 +639,7 @@ export interface GameSession {
   pendingPrizeChanges: PendingPrizeChange[]
   /** 命运硬币翻面后立即扣/加余额；在本次提交前保留，防止刷新后重掷。 */
   pendingFateCoinUse: { playerId: string; roundIndex: number; use: CardUse; previousUses?: CardUse[] } | null
+  instantCardUses?: { playerId: string; roundIndex: number; use: CardUse }[]
   cardDeck: CardId[]
   pendingCardGrants: CardGrant[]
   identityAvailableIds: IdentityId[]
@@ -693,6 +697,7 @@ export interface GameSession {
 }
 
 export interface LotteryTicket {
+  source?: 'gift' | 'purchase'
   playerId: string
   operatorMemberId?: string
   roundIndex: number

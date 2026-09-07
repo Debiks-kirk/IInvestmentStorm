@@ -1,5 +1,6 @@
 import { calculateFixedAssets } from './assets'
-import { removeOneCard } from './cards'
+import { resolveCharmTies } from './expansionCards'
+import { getCardDefinition, removeOneCard } from './cards'
 import { rewardConnoisseurItem } from './connoisseur'
 import { defaultIdentitySettings, taskLabel } from './identities'
 import type {
@@ -248,7 +249,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     const ranked = turns.filter((turn) => !voided.has(turn.playerId)).map((turn) => ({ playerId: turn.playerId, bidUnits: rankingBids.get(turn.playerId) ?? 0 }))
     const counts = new Map<number, number>()
     ranked.forEach((turn) => counts.set(turn.bidUnits, (counts.get(turn.bidUnits) ?? 0) + 1))
-    const winners = ranked.filter((turn) => counts.get(turn.bidUnits) === 1).sort((left, right) => right.bidUnits - left.bidUnits).slice(0, rewardMultipliers.length)
+    const previewTies = resolveCharmTies(ranked, new Set(players.filter(player => player.cardInventory.includes('tieCharm')).map(player => player.id)))
+    const winners = ranked.filter((turn) => !previewTies.eliminated.has(turn.playerId)).sort((left, right) => right.bidUnits - left.bidUnits).slice(0, rewardMultipliers.length)
     const finalWinners = reversalCountForNightwalker % 2 === 1 ? [...winners].reverse() : winners
     const placeIndex = finalWinners.findIndex((turn) => turn.playerId === playerId)
     const rewardUnits = placeIndex < 0 ? 0 : floorToHalfUnits(effectiveValueForNightwalker * (rewardMultipliers[placeIndex] ?? 0))
@@ -414,6 +416,8 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
   if (redCount > 0) cardEffects.push(cardEffect('red', `${cardCopiesLabel('红卡', redCount)}生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
   if (blackCount > 0) cardEffects.push(cardEffect('black', `${cardCopiesLabel('黑卡', blackCount)}生效：拍品真实价值为 ${formatCoins(effectiveValueUnits)}。`))
   for (const { use } of usedCards) {
+    if (use.cardId === 'luckyTickets') cardEffects.push(cardEffect('luckyTickets', `天降彩券生效：获得 ${use.lotteryNumbers?.length ?? 0} 个号码，向奖池注入 ${(use.lotteryNumbers?.length ?? 0) * 2} 金币。`))
+    if (use.cardId === 'sleeveUpgrade' && use.upgradedFrom && use.upgradedTo) cardEffects.push(cardEffect('sleeveUpgrade', `袖里乾坤：${getCardDefinition(use.upgradedFrom).name}升级为${getCardDefinition(use.upgradedTo).name}。`))
     if (use.cardId === 'peek') cardEffects.push(cardEffect('peek', '有人偷看了一笔已提交的投资。'))
     if (use.cardId === 'prizeReroll') cardEffects.push(cardEffect('prizeReroll', '有人改写了下一轮拍品。'))
     if (use.cardId === 'prizeSwap') cardEffects.push(cardEffect('prizeSwap', '本轮拍品已被秘密替换。'))
@@ -424,8 +428,15 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
     .map((turn) => ({ ...turn, rankingBidUnits: rankingBids.get(turn.playerId) ?? turn.bidUnits }))
   const bidCounts = new Map<number, number>()
   for (const turn of rankingTurns) bidCounts.set(turn.rankingBidUnits, (bidCounts.get(turn.rankingBidUnits) ?? 0) + 1)
-  const sortedUniqueTurns = rankingTurns.filter((turn) => bidCounts.get(turn.rankingBidUnits) === 1).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)
-  const tiedPlayerIds = rankingTurns.filter((turn) => (bidCounts.get(turn.rankingBidUnits) ?? 0) > 1).map((turn) => turn.playerId)
+  const charmTies = resolveCharmTies(rankingTurns.map(turn => ({ playerId: turn.playerId, bidUnits: turn.rankingBidUnits })), new Set(players.filter(player => player.cardInventory.includes('tieCharm')).map(player => player.id)))
+  for (const id of charmTies.consumed) {
+    const holder = playerById.get(id)!
+    holder.cardInventory = removeOneCard(holder.cardInventory, 'tieCharm')
+    autoConsumedCardIds.push('tieCharm')
+    cardEffects.push(cardEffect('tieCharm', charmTies.eliminated.has(id) ? `${holder.name} 的护身符消耗，同价多人持有，本次未能保留排名。` : `${holder.name} 的护身符生效，保留排名资格。`))
+  }
+  const sortedUniqueTurns = rankingTurns.filter((turn) => !charmTies.eliminated.has(turn.playerId)).sort((left, right) => right.rankingBidUnits - left.rankingBidUnits)
+  const tiedPlayerIds = [...charmTies.eliminated]
   const reverserTurn = turns.find((turn) => turn.identityAction?.type === 'reverserInvert' && playerById.get(turn.playerId)?.identity?.id === 'reverser')
   const rankingReversalCount = usedCards.filter(({ use }) => use.cardId === 'reverseRank').length + (reverserTurn ? 1 : 0)
   if (reverserTurn) {

@@ -7,6 +7,7 @@ import { runSetupModalFlow } from './setup-modal-smoke.mjs'
 import { runBotJointFlow } from './bot-joint-smoke.mjs'
 import { runAvatarFlow } from './avatar-smoke.mjs'
 import { runLotteryFlow } from './lottery-smoke.mjs'
+import { runExpansionCardsFlow } from './expansion-cards-smoke.mjs'
 import { runLedgerFlow } from './ledger-smoke.mjs'
 import { runConnoisseurFlow } from './connoisseur-smoke.mjs'
 
@@ -1189,7 +1190,9 @@ try {
   const page = await context.newPage()
   page.on('pageerror', (error) => console.error(`浏览器运行错误：${error.message}`))
   if (process.env.SMOKE_ONLY !== 'lottery') await page.addLocatorHandler(page.getByRole('dialog', { name: '幸运开奖', exact: true }), async dialog => { const skip = dialog.getByRole('button', { name: '跳过开奖动画' }); if (await skip.isVisible()) await skip.click(); await dialog.getByRole('button', { name: '收起开奖结果' }).click() })
-  if (process.env.SMOKE_ONLY === 'ledger') {
+  if (process.env.SMOKE_ONLY === 'expansion-cards') {
+    await runExpansionCardsFlow(page)
+  } else if (process.env.SMOKE_ONLY === 'ledger') {
     await runLedgerFlow(page)
   } else if (process.env.SMOKE_ONLY === 'lottery') {
     await runLotteryFlow(page)

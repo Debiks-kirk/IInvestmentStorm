@@ -208,7 +208,7 @@ function migrateSession(session: Partial<Omit<GameSession, 'version'>> & { versi
   const originalCardDeck = [...(session.cardDeck ?? createCardDeck(settings.disabledCardIds))]
   const addNewCard = (deck: CardId[], cardId: CardId) => !settings.disabledCardIds.includes(cardId) && !players.some((player) => player.cardInventory.includes(cardId)) && !deck.includes(cardId) ? [...deck, cardId] : deck
   const cardDeck: CardId[] = (['reverseRank', 'fateCoin', 'bananaPeel', 'reflectShield', 'prizeReroll', 'legendaryLoot', 'prizeSwap'] as CardId[])
-    .reduce((deck, cardId) => addNewCard(deck, cardId), originalCardDeck)
+    .reduce((deck, cardId) => (session.version ?? 0) < 37 ? addNewCard(deck, cardId) : deck, originalCardDeck)
   const normalizeAssetLots = (lots: GameSession['pendingAssetAuctions'] | undefined) => [...(lots ?? [])].map((lot) => ({ ...lot, item: normalizeItem(lot.item) }))
   const pendingAssetAuctions = normalizeAssetLots(session.pendingAssetAuctions)
   const roundAssetAuctions = normalizeAssetLots(session.roundAssetAuctions)
