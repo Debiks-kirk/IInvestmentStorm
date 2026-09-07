@@ -66,7 +66,7 @@ export function AvatarDrawingEditor({ initial, onCancel, onSave }: { initial?: A
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
   return <section ref={panel} tabIndex={-1} className="avatar-drawing-editor" aria-label="手绘头像画板">
-    <header><div><h3>手绘头像</h3><small>画一个属于你的头像</small></div><span className="avatar-drawing-preview" aria-label="头像预览">{drawing.strokes.length > 0 && <AvatarIcon avatar={{ shape: 0, accent: drawing.background, drawing }} />}</span></header>
+    <header><div><h3>手绘头像</h3><label className="avatar-background-color">背景色<input type="color" aria-label="画板背景色" value={drawing.background} disabled={active} onChange={event => setDrawing(previous => ({ ...previous, background: event.target.value }))} /></label></div><span className="avatar-drawing-preview" aria-label="头像预览" style={{ backgroundColor: drawing.background }}>{drawing.strokes.length > 0 && <AvatarIcon avatar={{ shape: 0, accent: drawing.background, drawing }} />}</span></header>
     <div className="avatar-drawing-sheet"><canvas ref={canvas} width={512} height={512} aria-label="绘制头像" onPointerDown={event => {
       if (current.current || event.button !== 0) return
       if (drawing.strokes.length >= MAX_AVATAR_STROKES) { setMessage('画板已满，可撤销后继续。'); return }

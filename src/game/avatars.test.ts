@@ -3,7 +3,7 @@ import { avatarStrokePath, cloneAvatar, MAX_AVATAR_STROKES, MAX_STROKE_POINTS, n
 import { cloneMember, createHumanMember } from './members'
 import type { AvatarDrawing } from './types'
 
-const drawing: AvatarDrawing = { version: 1, background: '#fffaf2', strokes: [{ color: '#a35b50', width: 6, points: [[0, 0], [128.5, 256]] }] }
+const drawing: AvatarDrawing = { version: 1, background: '#f2dca9', strokes: [{ color: '#a35b50', width: 6, points: [[0, 0], [128.5, 256]] }] }
 describe('member drawings', () => {
   it('preserves a drawing through JSON backup and deep clones member data', () => {
     const member = createHumanMember('画家')

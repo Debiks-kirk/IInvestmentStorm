@@ -58,6 +58,11 @@ export async function runAvatarFlow(page) {
     return count
   })
   assert.ok(pixels > 500, '画板应实际绘制可见笔画')
+  const background = editor.getByLabel('画板背景色')
+  await background.fill('#f2dca9')
+  assert.equal(await editor.locator('.avatar-drawing-preview svg').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(242, 220, 169)')
+  assert.deepEqual(await canvas.evaluate(el => Array.from(el.getContext('2d').getImageData(0, 0, 1, 1).data)), [242, 220, 169, 255], '换背景应重绘画板且不影响笔画')
+  assert.equal(await editor.locator('.avatar-drawing-preview path').count(), 1)
   for (const [width, height] of [[360, 640], [844, 390], [768, 1024], [1440, 900]]) {
     await page.setViewportSize({ width, height })
     await canvas.scrollIntoViewIfNeeded()
@@ -69,14 +74,18 @@ export async function runAvatarFlow(page) {
   assert.equal(await dialog.locator('.member-drawn-avatar path').count(), 1)
   assert.equal(await dialog.locator('.member-avatar-picker button[aria-pressed="true"]').count(), 0)
   await dialog.getByRole('button', { name: '编辑手绘头像' }).click()
+  assert.equal(await background.inputValue(), '#f2dca9')
+  await background.fill('#303533')
   await editor.getByRole('button', { name: '清空', exact: true }).click()
   await editor.getByRole('button', { name: '取消', exact: true }).click()
   assert.equal(await dialog.locator('.member-drawn-avatar path').count(), 1, '取消不可覆盖已存头像')
+  assert.equal(await dialog.locator('.member-drawn-avatar svg').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(242, 220, 169)', '取消不可覆盖已存背景色')
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
   await page.reload()
   await page.getByRole('button', { name: '玩家大厅', exact: true }).click()
   await page.getByRole('button', { name: /头像画家/ }).first().click()
   assert.equal(await page.locator('.member-profile__top .avatar-art--drawn path').count(), 1, '刷新后主页应保留手绘头像')
+  assert.equal(await page.locator('.member-profile__top .avatar-art--drawn').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(242, 220, 169)', '刷新后背景色应保留')
 
   // Real IndexedDB backup, restore, and rename exercise the same profile persistence as the UI.
   const backupResult = await page.evaluate(async () => {
