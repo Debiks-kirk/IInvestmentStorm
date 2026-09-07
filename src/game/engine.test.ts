@@ -536,8 +536,8 @@ describe('观望惩罚', () => {
     const result = settleWithPassivity(players([20, 20, 20, 20]), [turn('p1', 10), turn('p2', 8), turn('p3', 2), turn('p4', 2)], [20, 25, 30, 30]).result
     expect(result.passivityFeePlayerCount).toBe(2)
     expect(result.passivityFeePenalties.map((entry) => [entry.playerId, entry.occurrence, entry.feeUnits, entry.paidFeeUnits])).toEqual([
-      ['p3', 1, coinsToUnits(1), coinsToUnits(1)],
-      ['p4', 1, coinsToUnits(1), coinsToUnits(1)],
+      ['p3', 1, 0, 0],
+      ['p4', 1, 0, 0],
     ])
     expect(result.cardEffects.some((effect) => effect.description === '本轮有 2 人受到了观望惩罚。')).toBe(true)
   })
@@ -562,6 +562,16 @@ describe('观望惩罚', () => {
     const fourthPenalty = fourthSettled.result.passivityFeePenalties.find((entry) => entry.playerId === 'p3')!
     expect(fourthPenalty).toMatchObject({ occurrence: 4, feeUnits: coinsToUnits(5), removedCardIds: ['red', 'black'] })
     expect(fourthSettled.players.find((player) => player.id === 'p3')?.cardInventory).toEqual([])
+  })
+
+  it.each([0, 1, 4])('已触发 %i 次：警告保留资产、第二次扣五币、后续清空库存', prior => {
+    const base = players([20,20,20,20])
+    base[2].passivityFeeCount = prior; base[2].cardInventory = ['red','black']
+    const settled = settleWithPassivity(base, [turn('p1',10),turn('p2',8),turn('p3',2),turn('p4',2)], [20,25,30,30])
+    const p = settled.players.find(p => p.id === 'p3')!
+    expect(p.passivityFeeCount).toBe(prior + 1)
+    expect(p.balanceUnits).toBe(base[2].balanceUnits - coinsToUnits(prior === 0 ? 0 : 5))
+    expect(p.cardInventory).toEqual(prior >= 3 ? [] : ['red','black'])
   })
 })
 

@@ -1108,9 +1108,7 @@ export function decideBotTurn(observation: BotObservation, profileId: BotProfile
       const estimatedCommitmentFloor = Math.min(...observation.opponents.map((opponent) => Math.max(0, expectedCurrentBid(observation, opponent.id) * .42)))
       const likelyMinimumCommitment = bidUnits <= estimatedCommitmentFloor + 1
       const likelyRewarded = estimate.place <= observation.rewardMultipliers.length && estimate.uniqueChance >= .38
-      const nextPassivityFee = (observation.self.passivityFeeCount ?? 0) === 0 ? coinsToUnits(1)
-        : (observation.self.passivityFeeCount ?? 0) === 1 ? coinsToUnits(3)
-          : coinsToUnits(5)
+      const nextPassivityFee = (observation.self.passivityFeeCount ?? 0) === 0 ? 0 : coinsToUnits(5)
       const passivityCardRisk = (observation.self.passivityFeeCount ?? 0) >= 2 && observation.self.cardInventory.length > 0 ? coinsToUnits(1.5 + profile.cards) : 0
       const passivityPenalty = observation.self.identity?.id !== 'insurer' && likelyMinimumCommitment && !likelyRewarded && !likelyOpeningLow
         ? (nextPassivityFee + passivityCardRisk) * (1.25 + Math.max(0, behavior.reserveBias) * .2)

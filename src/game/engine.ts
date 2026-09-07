@@ -811,7 +811,7 @@ export function settleRound(input: SettlementInput): { players: Player[]; result
       if (player.identity?.id === 'insurer' || commitment !== minimumCommitment || rewardedPlayerIds.has(player.id) || startedAtMinimum) continue
 
       const occurrence = (player.passivityFeeCount ?? 0) + 1
-      const feeUnits = coinsToUnits(occurrence === 1 ? 1 : occurrence === 2 ? 3 : 5)
+      const feeUnits = coinsToUnits(occurrence === 1 ? 0 : 5)
       const paidFeeUnits = Math.min(player.balanceUnits, feeUnits)
       player.balanceUnits -= paidFeeUnits
       player.passivityFeeCount = occurrence

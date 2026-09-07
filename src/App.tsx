@@ -35,7 +35,7 @@ type PrivateToolPanel = 'prediction' | 'identity' | 'assets' | 'backpack' | 'mer
 const MERCHANT_SHOP_ENTRY_FEE_UNITS = 4
 
 function merchantShopPriceUnits(cardId: CardId): number {
-  const ranges = { common: [6, 12], rare: [9, 13], uncommon: [10, 15], legendary: [12, 20] } as const
+  const ranges = { common: [2, 8], rare: [3, 10], uncommon: [4, 12], legendary: [8, 20] } as const
   const [low, high] = ranges[getCardDefinition(cardId).rarity]
   return low + Math.floor(Math.random() * (high - low + 1))
 }
@@ -98,14 +98,14 @@ function identityFeedbackNotice(event: IdentityEvent, index: number) {
 
 function passivityFeeNotice(penalty: RoundResult['passivityFeePenalties'][number], roundIndex: number, index: number) {
   const removedCards = penalty.removedCardIds.map((cardId) => getCardDefinition(cardId).name)
-  const paid = penalty.paidFeeUnits === penalty.feeUnits
+  const paid = penalty.occurrence === 1 && penalty.feeUnits === 0 ? '仅警告，不扣金币或道具' : penalty.paidFeeUnits === penalty.feeUnits
     ? `支付 ${formatCoins(penalty.paidFeeUnits)} 金币`
     : `应付 ${formatCoins(penalty.feeUnits)} 金币，余额不足，本次扣除 ${formatCoins(penalty.paidFeeUnits)} 金币`
   const cardLoss = removedCards.length === 0 ? '' : penalty.occurrence === 3
     ? `；失去 1 张道具卡（${removedCards[0]}）`
     : `；道具卡已清空（${removedCards.join('、')}）`
   const nextPenalty = penalty.occurrence === 1
-    ? '下次触发：支付 3 金币。'
+    ? '下次触发：支付 5 金币。'
     : penalty.occurrence === 2
       ? '下次触发：支付 5 金币，并失去 1 张道具卡（若有）。'
       : '下次触发：支付 5 金币，并清空全部道具卡。'
