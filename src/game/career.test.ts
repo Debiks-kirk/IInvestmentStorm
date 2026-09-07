@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ACHIEVEMENT_LIBRARY, achievementProgress, careerRatings, ratingDelta } from './progression'
+import { ACHIEVEMENT_LIBRARY, achievementProgress, careerRatings, ratingDelta, ratingLimit } from './progression'
 import { createMatchCareerRecord, createBotHistoryHints, createCareerDashboard } from './career'
 import { coinsToUnits, settleRound } from './engine'
 import { createBotMember, createHumanMember, uniqueMemberName } from './members'
@@ -30,6 +30,44 @@ function members() {
 }
 
 describe('成员档案与长期战绩', () => {
+  it('人数分数上限与非法输入', () => {
+    expect([2,3,4,5,6,7,8,9,10].map(ratingLimit)).toEqual([4,6,8,11,13,15,17,18,20])
+    expect(ratingLimit(20)).toBe(38)
+    expect(ratingLimit(NaN)).toBe(0)
+    expect(ratingDelta(6, 0)).toBe(0)
+    expect(ratingDelta(6, 6, 0, 100, 2)).toBe(0)
+    expect(ratingDelta(6, 1, 0, 0, 6)).toBe(0)
+    expect(ratingDelta(6, 1, 125, 100, 2)).toBe(7)
+  })
+  it.each(Array.from({length:19},(_,i)=>i+2))('%i 人的合法资产局面覆盖负上限到正上限全部整数', count => {
+    const found = new Set<number>()
+    // Construct sorted, nonnegative asset vectors with the selected rank fixed.
+    // Interpolate from almost-equal assets to all affordable extremes.
+    for (let rank=1;rank<=count;rank++) {
+      for (let step=1;step<=1000;step++) {
+        const fraction=step/1000
+        const cutoff=Math.ceil(count/3)
+        const own=rank<=cutoff ? 100*(1+0.5*fraction) : 100*(1-0.5*fraction)
+        // Feasibility: ranks above own need >= own; ranks below need <= own.
+        if (rank*own>count*100 || (rank===1 && own<100) || (rank===count && own>100)) continue
+        const score=ratingDelta(count,rank,own,100)
+        expect(Number.isInteger(score)).toBe(true)
+        found.add(score)
+      }
+    }
+    const cap=ratingLimit(count)
+    expect([...found].sort((a,b)=>a-b)).toEqual(Array.from({length:2*cap+1},(_,i)=>i-cap))
+  })
+  it('旧战绩按席位去重平均；不完整记录不臆测资产', () => {
+    const {session}=finishedSession()
+    const record=createMatchCareerRecord(session)!
+    const original=careerRatings([record])
+    const relay={...record,finalSeats:undefined,summaries:[...record.summaries,{...record.summaries[0],memberId:'relay-extra'}]}
+    expect(careerRatings([relay]).get(record.summaries[0].memberId)?.rating).toBe(original.get(record.summaries[0].memberId)?.rating)
+    const partial={...record,finalSeats:undefined,summaries:[record.summaries[0]]}
+    expect(careerRatings([partial]).get(partial.summaries[0].memberId)?.rating).toBe(1200+ratingDelta(record.playerCount,partial.summaries[0].finalPlace))
+    expect(careerRatings([{...record,summaries:[record.summaries[0]]}]).get(record.summaries[0].memberId)?.rating).toBe(original.get(record.summaries[0].memberId)?.rating)
+  })
   it.each([3,4,5,6,7,8,9,10])('%i 人等级分：前向上取整三分之一加分，其他扣分，越靠前收益越高', count => {
     const deltas = Array.from({length:count},(_,i)=>ratingDelta(count,i+1))
     expect(deltas.slice(0,Math.ceil(count/3)).every(d=>d>0)).toBe(true)
@@ -41,14 +79,19 @@ describe('成员档案与长期战绩', () => {
     const record = createMatchCareerRecord(session)!
     const summary = record.summaries.find(s=>s.memberId===roster.human.id)!
     summary.finalPlace=1
+    summary.totalAssetUnits=200
+    record.finalSeats = [
+      {playerId:summary.seatPlayerId,place:1,totalAssetUnits:200},
+      ...record.summaries.filter(s=>s!==summary).map((s,i)=>({playerId:s.seatPlayerId,place:i+2,totalAssetUnits:0})),
+    ]
     expect(careerRatings([]).get(roster.human.id)).toBeUndefined()
-    expect(careerRatings([record,record]).get(roster.human.id)?.rating).toBe(1260)
-    const second = {...record,sessionId:'second',summaries:record.summaries.map(s=>({...s,sessionId:'second',finalPlace:3}))}
+    expect(careerRatings([record,record]).get(roster.human.id)?.rating).toBe(1206)
+    const second = {...record,sessionId:'second',finalSeats:record.finalSeats.map(s=>({...s,place:s.playerId===summary.seatPlayerId?3:1,totalAssetUnits:s.playerId===summary.seatPlayerId?0:200})),summaries:record.summaries.map(s=>({...s,sessionId:'second',finalPlace:3,totalAssetUnits:0}))}
     expect(careerRatings([second,record]).get(roster.human.id)?.rating).toBe(1200)
-    expect(careerRatings([record]).get(roster.human.id)?.rating).toBe(1260)
+    expect(careerRatings([record]).get(roster.human.id)?.rating).toBe(1206)
     expect(careerRatings([{...record,summaries:record.summaries.map(s=>({...s,roundsActed:0}))}]).size).toBe(0)
-    const tied = {...record,summaries:record.summaries.map(s=>({...s,finalPlace:1}))}
-    expect(new Set([...careerRatings([tied]).values()].map(r=>r.rating))).toEqual(new Set([1260]))
+    const tied = {...record,finalSeats:record.finalSeats.map(s=>({...s,place:1,totalAssetUnits:100})),summaries:record.summaries.map(s=>({...s,finalPlace:1,totalAssetUnits:100}))}
+    expect(new Set([...careerRatings([tied]).values()].map(r=>r.rating))).toEqual(new Set([1200]))
   })
   it('成就库条件、进度、旧数据缺失与重复记录', () => {
     const {session} = finishedSession(); const s = createMatchCareerRecord(session)!.summaries[0]

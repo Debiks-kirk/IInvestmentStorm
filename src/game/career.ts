@@ -69,6 +69,8 @@ export interface MatchCareerRecord {
   completedAt: string
   mode: GameMode
   playerCount: number
+  /** All seats, including unregistered players; relay operators must not multiply the average. */
+  finalSeats?: { playerId: string; place: number; totalAssetUnits: number }[]
   summaries: MemberMatchSummary[]
   events: CareerEvent[]
   /** A complete frozen replay is stored separately and may be removed without touching this record. */
@@ -283,7 +285,8 @@ export function createMatchCareerRecord(session: GameSession, completedAt = new 
   if (!session.careerEnabled || session.phase !== 'finalResult') return null
   const summaries = summariesForSession(session).map((entry) => summaryForMember(session, entry))
   if (!summaries.length) return null
-  return { version: 1, sessionId: session.id, completedAt, mode: session.mode, playerCount: session.players.length, summaries, events: careerEvents(session), hasReplay: true }
+  const finalSeats = rankFinalPlayers(session.players).map(s => ({ playerId: s.player.id, place: s.place, totalAssetUnits: s.totalAssetUnits }))
+  return { version: 1, sessionId: session.id, completedAt, mode: session.mode, playerCount: session.players.length, finalSeats, summaries, events: careerEvents(session), hasReplay: true }
 }
 
 export function careerAchievements(summaries: readonly MemberMatchSummary[]): CareerAchievement[] {

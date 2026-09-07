@@ -2,7 +2,7 @@
 
 ## 成就与等级分（2026-09-07）
 
-- `progression.ts`：`ratingDelta` 实现按 N/R 的整数积分；`careerRatings` 单次按 session/member 去重并聚合，缺席成员不创建分数。
+- `progression.ts`：`ratingLimit` 通过 (3,6)/(6,13)/(10,20) 分段插值；`ratingDelta` 将正负区间按名次分段、资产偏离平均值 50% 封顶，最终正负对称取整，并列占位平均，全员并列归零。`MatchCareerRecord.finalSeats` 可选保存全部席位资产与共享名次；旧局优先按 seatPlayerId 去重还原，数据不足时取分段中点。`careerRatings` 单次按 session/member 去重并聚合，缺席成员不创建分数。
 - `achievementProgress` 为 31 项成就输出条件、分类、进度与模式来源；`careerAchievements` 只取解锁项，保持精选成就兼容。
 - 生涯摘要可选新增 lotteryWins/lotteryPrizeUnits/upgradeUses；旧记录按缺失处理，不要求存储版本迁移，不重跑旧结算。
 - 等级榜和个人页复用归档战绩；导入与删除天然重算，不额外保存累计分数。`SMOKE_ONLY=progression` 为浏览器验收入口。

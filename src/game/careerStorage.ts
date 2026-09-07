@@ -62,6 +62,7 @@ function validMember(value: unknown): value is MemberProfile {
 function validRecord(value: unknown): value is MatchCareerRecord {
   if (!value || typeof value !== 'object') return false
   const record = value as Partial<MatchCareerRecord>
+  if (record.finalSeats !== undefined && (!Array.isArray(record.finalSeats) || record.finalSeats.some(s => !s || typeof s.playerId !== 'string' || !Number.isInteger(s.place) || s.place < 1 || !Number.isFinite(s.totalAssetUnits) || s.totalAssetUnits < 0))) return false
   return record.version === 1 && typeof record.sessionId === 'string' && typeof record.completedAt === 'string' && Array.isArray(record.summaries) && Array.isArray(record.events)
 }
 

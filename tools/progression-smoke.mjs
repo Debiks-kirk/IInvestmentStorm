@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 export async function runProgressionFlow(page) {
   await page.goto('http://127.0.0.1:5181')
-  await page.evaluate(async () => {
+  const expected = await page.evaluate(async () => {
     const {createHumanMember} = await import('/src/game/members.ts')
     const {createSession,createDefaultSettings} = await import('/src/game/session.ts')
     const {settleRound} = await import('/src/game/engine.ts')
@@ -15,11 +15,14 @@ export async function runProgressionFlow(page) {
     const settled=settleRound({playersAfterBids:s.players,turns,item:s.itemDeck[0],roundIndex:0,rewardMultipliers:[2,1],correctPredictionMultiplier:1,wrongPredictionMultiplier:1,fairnessOrderIds:s.players.map(p=>p.id)})
     s.players=settled.players;s.results=[settled.result];s.phase='finalResult'
     await archiveCareerMatch(s);await archiveCareerMatch(s)
+    const {careerRatings}=await import('/src/game/progression.ts')
+    const {createMatchCareerRecord}=await import('/src/game/career.ts')
+    return Math.max(...[...careerRatings([createMatchCareerRecord(s)]).values()].map(r=>r.rating))
   })
   await page.reload();await page.getByRole('button',{name:'玩家大厅',exact:true}).click()
   await page.getByRole('button',{name:'等级榜',exact:true}).click()
   assert.equal(await page.locator('.member-card--ranked').count(),3)
-  assert.ok((await page.locator('.member-card--ranked').first().textContent()).includes('1260'))
+  assert.ok((await page.locator('.member-card--ranked').first().textContent()).includes(String(expected)))
   assert.equal(await page.locator('.member-card--ranked').filter({hasText:'未参赛'}).count(),0)
   for(const width of [360,844,1366]) {
     await page.setViewportSize({width,height:800})

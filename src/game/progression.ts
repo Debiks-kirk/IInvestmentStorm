@@ -1,11 +1,31 @@
 import type { MatchCareerRecord, MemberMatchSummary } from './career'
 import type { GameMode } from './types'
 
-/** Shared final places earn identical points. A positive zone is ceil(N/3). */
-export function ratingDelta(playerCount: number, place: number): number {
+/** Integer cap, linearly interpolated through (3, 6), (6, 13), (10, 20). */
+export function ratingLimit(playerCount: number): number {
+  if (!Number.isInteger(playerCount) || playerCount < 2) return 0
+  return Math.round(playerCount <= 6 ? 6 + (playerCount - 3) * 7 / 3 : 13 + (playerCount - 6) * 7 / 4)
+}
+
+/** Assets use the same unit (coins or half-coins). Missing legacy assets use band midpoints. */
+export function ratingDelta(playerCount: number, place: number, totalAssets?: number, averageAssets?: number, tiedCount = 1): number {
   if (!Number.isInteger(playerCount) || playerCount < 2 || !Number.isInteger(place) || place < 1 || place > playerCount) return 0
+  if (!Number.isInteger(tiedCount) || tiedCount < 1 || place + tiedCount - 1 > playerCount) return 0
+  if (tiedCount === playerCount) return 0
   const cutoff = Math.ceil(playerCount / 3)
-  return place <= cutoff ? Math.round(60 * (cutoff - place + 1) / cutoff) : -Math.round(60 * (place - cutoff) / (playerCount - cutoff))
+  const limit = ratingLimit(playerCount)
+  const knownAssets = Number.isFinite(totalAssets) && totalAssets! >= 0 && Number.isFinite(averageAssets) && averageAssets! > 0
+  const deviation = knownAssets ? (totalAssets! - averageAssets!) / averageAssets! : 0
+  const strength = (direction: number) => knownAssets ? Math.min(1, Math.max(0, direction * deviation / 0.5)) : 0.5
+  let sum = 0
+  for (let rank = place; rank < place + tiedCount; rank++) {
+    sum += rank <= cutoff
+      ? limit * (cutoff - rank + strength(1)) / cutoff
+      : -limit * (rank - cutoff - 1 + strength(-1)) / (playerCount - cutoff)
+  }
+  // Symmetric rounding, including negative halves; never expose JavaScript's -0.
+  const value = sum / tiedCount
+  return Math.sign(value) * Math.round(Math.abs(value)) || 0
 }
 
 /** Derive from unique completed records: refresh/import never adds points twice; deletion rolls back. */
@@ -15,11 +35,16 @@ export function careerRatings(records: readonly MatchCareerRecord[]) {
   for (const record of records) {
     if (seenSessions.has(record.sessionId)) continue
     seenSessions.add(record.sessionId)
+    // Each game seat counts once, irrespective of how many relay operators it had.
+    const seats = record.finalSeats ?? [...new Map(record.summaries.map(s => [s.seatPlayerId, { playerId: s.seatPlayerId, place: s.finalPlace, totalAssetUnits: s.totalAssetUnits }])).values()]
+    const complete = seats.length === record.playerCount && new Set(seats.map(s => s.playerId)).size === record.playerCount && seats.every(s => Number.isFinite(s.totalAssetUnits) && s.totalAssetUnits >= 0)
+    const average = complete ? seats.reduce((sum, seat) => sum + seat.totalAssetUnits, 0) / record.playerCount : undefined
     const seenMembers = new Set<string>()
     for (const summary of record.summaries) {
       if (seenMembers.has(summary.memberId) || summary.roundsActed <= 0 || summary.playerCount < 2 || summary.finalPlace < 1 || summary.finalPlace > summary.playerCount) continue
       seenMembers.add(summary.memberId)
-      const delta = ratingDelta(summary.playerCount, summary.finalPlace)
+      const tiedCount = seats.filter(s => s.place === summary.finalPlace).length || 1
+      const delta = ratingDelta(record.playerCount, summary.finalPlace, complete ? summary.totalAssetUnits : undefined, average, tiedCount)
       const current = ratings.get(summary.memberId) ?? { rating: 1200, matches: 0, changes: {} }
       current.rating += delta; current.matches += 1; current.changes[record.sessionId] = delta
       ratings.set(summary.memberId, current)
