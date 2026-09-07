@@ -1,7 +1,7 @@
 import type { MatchCareerRecord, MemberMatchSummary } from './career'
 import type { GameMode } from './types'
 
-/** Integer cap, linearly interpolated through (3, 6), (6, 13), (10, 20). */
+/** Reference gain at +50% assets (not a gain cap); also the unchanged loss cap. */
 export function ratingLimit(playerCount: number): number {
   if (!Number.isInteger(playerCount) || playerCount < 2) return 0
   return Math.round(playerCount <= 6 ? 6 + (playerCount - 3) * 7 / 3 : 13 + (playerCount - 6) * 7 / 4)
@@ -16,12 +16,13 @@ export function ratingDelta(playerCount: number, place: number, totalAssets?: nu
   const limit = ratingLimit(playerCount)
   const knownAssets = Number.isFinite(totalAssets) && totalAssets! >= 0 && Number.isFinite(averageAssets) && averageAssets! > 0
   const deviation = knownAssets ? (totalAssets! - averageAssets!) / averageAssets! : 0
-  const strength = (direction: number) => knownAssets ? Math.min(1, Math.max(0, direction * deviation / 0.5)) : 0.5
+  const gainStrength = knownAssets ? Math.sqrt(Math.max(0, deviation) / 0.5) : 0.5
+  const lossStrength = knownAssets ? Math.min(1, Math.max(0, -deviation / 0.5)) : 0.5
   let sum = 0
   for (let rank = place; rank < place + tiedCount; rank++) {
     sum += rank <= cutoff
-      ? limit * (cutoff - rank + strength(1)) / cutoff
-      : -limit * (rank - cutoff - 1 + strength(-1)) / (playerCount - cutoff)
+      ? limit * (cutoff - rank + gainStrength) / cutoff
+      : -limit * (rank - cutoff - 1 + lossStrength) / (playerCount - cutoff)
   }
   // Symmetric rounding, including negative halves; never expose JavaScript's -0.
   const value = sum / tiedCount

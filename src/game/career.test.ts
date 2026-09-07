@@ -30,11 +30,26 @@ function members() {
 }
 
 describe('成员档案与长期战绩', () => {
+  it('资产领先平方根增长：超过参考分，等幅领先的边际收益递减', () => {
+    expect([100,125,150,200,300,500].map(assets=>ratingDelta(6,1,assets,100))).toEqual([9,12,13,15,17,21])
+    expect([150,200,250,300].map(assets=>ratingDelta(6,1,assets,100))).toEqual([13,15,16,17])
+    expect(ratingDelta(10,1,500,100)).toBeGreaterThan(20)
+    expect(ratingDelta(6,1,0,100)).toBe(9)
+    expect(ratingDelta(6,1)).toBe(11) // Incomplete legacy assets still use the old midpoint.
+    expect(ratingDelta(6,1,500,100)).toBe(ratingDelta(6,1,1000,200))
+  })
+  it.each([3,6,10])('%i 人扣分曲线不变、不突破原扣分上限', count => {
+    const k=Math.ceil(count/2), reference=ratingLimit(count)
+    for(let rank=k+1;rank<=count;rank++) for(let assets=0;assets<=200;assets++) {
+      const raw=-reference*(rank-k-1+Math.min(1,Math.max(0,(100-assets)/50)))/(count-k)
+      expect(ratingDelta(count,rank,assets,100)).toBe(-Math.round(-raw)||0)
+    }
+  })
   it('半数加分区：六人第三与十人第五可加分，奇数向上取整', () => {
-    expect(ratingDelta(6,3,120,100)).toBe(2)
+    expect(ratingDelta(6,3,120,100)).toBe(3)
     expect(ratingDelta(6,4,80,100)).toBe(-2)
-    expect(ratingDelta(10,5,120,100)).toBe(2)
-    expect(ratingDelta(5,3,120,100)).toBe(1)
+    expect(ratingDelta(10,5,120,100)).toBe(3)
+    expect(ratingDelta(5,3,120,100)).toBe(2)
     expect(ratingDelta(6,3,100,100)).toBe(0)
     expect(ratingDelta(6,3,100,100,2)).toBe(0)
   })
@@ -45,9 +60,9 @@ describe('成员档案与长期战绩', () => {
     expect(ratingDelta(6, 0)).toBe(0)
     expect(ratingDelta(6, 6, 0, 100, 2)).toBe(0)
     expect(ratingDelta(6, 1, 0, 0, 6)).toBe(0)
-    expect(ratingDelta(6, 1, 125, 100, 2)).toBe(9)
+    expect(ratingDelta(6, 1, 125, 100, 2)).toBe(10)
   })
-  it.each(Array.from({length:19},(_,i)=>i+2))('%i 人的合法资产局面覆盖负上限到正上限全部整数', count => {
+  it.each(Array.from({length:19},(_,i)=>i+2))('%i 人覆盖扣分上限到平方根增益的可达最高整数', count => {
     const found = new Set<number>()
     // Construct sorted, nonnegative asset vectors with the selected rank fixed.
     // Interpolate from almost-equal assets to all affordable extremes.
@@ -64,7 +79,9 @@ describe('成员档案与长期战绩', () => {
       }
     }
     const cap=ratingLimit(count)
-    expect([...found].sort((a,b)=>a-b)).toEqual(Array.from({length:2*cap+1},(_,i)=>i-cap))
+    for(let step=0;step<=1000;step++) found.add(ratingDelta(count,1,100*(1+(count-1)*step/1000),100))
+    const max=ratingDelta(count,1,count*100,100)
+    expect([...found].sort((a,b)=>a-b)).toEqual(Array.from({length:cap+max+1},(_,i)=>i-cap))
   })
   it('旧战绩按席位去重平均；不完整记录不臆测资产', () => {
     const {session}=finishedSession()
@@ -93,10 +110,10 @@ describe('成员档案与长期战绩', () => {
       ...record.summaries.filter(s=>s!==summary).map((s,i)=>({playerId:s.seatPlayerId,place:i+2,totalAssetUnits:0})),
     ]
     expect(careerRatings([]).get(roster.human.id)).toBeUndefined()
-    expect(careerRatings([record,record]).get(roster.human.id)?.rating).toBe(1206)
+    expect(careerRatings([record,record]).get(roster.human.id)?.rating).toBe(1209)
     const second = {...record,sessionId:'second',finalSeats:record.finalSeats.map(s=>({...s,place:s.playerId===summary.seatPlayerId?3:1,totalAssetUnits:s.playerId===summary.seatPlayerId?0:200})),summaries:record.summaries.map(s=>({...s,sessionId:'second',finalPlace:3,totalAssetUnits:0}))}
-    expect(careerRatings([second,record]).get(roster.human.id)?.rating).toBe(1200)
-    expect(careerRatings([record]).get(roster.human.id)?.rating).toBe(1206)
+    expect(careerRatings([second,record]).get(roster.human.id)?.rating).toBe(1203)
+    expect(careerRatings([record]).get(roster.human.id)?.rating).toBe(1209)
     expect(careerRatings([{...record,summaries:record.summaries.map(s=>({...s,roundsActed:0}))}]).size).toBe(0)
     const tied = {...record,finalSeats:record.finalSeats.map(s=>({...s,place:1,totalAssetUnits:100})),summaries:record.summaries.map(s=>({...s,finalPlace:1,totalAssetUnits:100}))}
     expect(new Set([...careerRatings([tied]).values()].map(r=>r.rating))).toEqual(new Set([1200]))
