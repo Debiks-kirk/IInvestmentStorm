@@ -29,18 +29,19 @@ describe('彩票购票与独占号码', () => {
   it.each([20, 4, 3, 1, 0])('实际余额 %i 半金币单位，独立实付/补贴/入池', balance => {
     const s = game(); s.players[0].balanceUnits = balance
     purchase(s, 0, 2)
-    expect(s.players[0].balanceUnits).toBe(Math.max(0, balance - 4))
-    expect(s.lottery?.tickets[0]).toMatchObject({ paidUnits: Math.min(4, balance), subsidyUnits: Math.max(0, 4 - balance), number: 2 })
+    expect(s.players[0].balanceUnits).toBe(Math.max(0, balance - 3))
+    expect(s.lottery?.tickets[0]).toMatchObject({ paidUnits: Math.min(3, balance), subsidyUnits: 4 - Math.min(3, balance), number: 2 })
     expect(s.lottery?.poolUnits).toBe(7)
     expect(s.lottery?.openingPoolUnits).toBe(3)
-    expect(buyLotteryTicket(s, s.players[0].id, 3)).toBeNull()
+    purchase(s, 0, 3)
+    expect(buyLotteryTicket(s, s.players[0].id, 4)).toBeNull()
   })
   it('草稿不降低真实票价，不允许超支，不静默修改预算', () => {
     const s = game(); s.players[0].balanceUnits = 10
     const before = JSON.stringify(s)
-    expect(buyLotteryTicket(s, s.players[0].id, 1, 7)).toBeNull()
+    expect(buyLotteryTicket(s, s.players[0].id, 1, 8)).toBeNull()
     expect(JSON.stringify(s)).toBe(before)
-    expect(buyLotteryTicket(s, s.players[0].id, 1, 6)?.players[0].balanceUnits).toBe(6)
+    expect(buyLotteryTicket(s, s.players[0].id, 1, 7)?.players[0].balanceUnits).toBe(7)
   })
   it('不是当前玩家、非操作阶段、非法号码和重复占号不能买', () => {
     const s = game()
@@ -55,6 +56,7 @@ describe('彩票购票与独占号码', () => {
     const random = vi.fn(() => .999)
     purchase(s, 1, null, random)
     expect(s.lottery?.tickets[1].number).toBe(6)
+    purchase(s, 1, 2)
     expect(buyLotteryTicket(s, s.players[1].id, null, 0, random)).toBeNull()
     expect(random).toHaveBeenCalledTimes(1)
   })
@@ -75,7 +77,7 @@ describe('彩票开奖、滚存与资金守恒', () => {
     s.phase = 'privateTurn'
     Object.assign(s, buyLotteryTicket(s, s.players[0].id, 1, 0, () => 0, activeOperator(s, s.players[0]).memberId))
     expect(s.lottery?.tickets[0].operatorMemberId).toBe('member0-0')
-    expect(buyLotteryTicket(s, s.players[0].id, 2, 0, () => 0, 'member0-1')).toBeNull()
+    expect(buyLotteryTicket(s, s.players[0].id, 2, 0, () => 0, 'member0-1')).not.toBeNull()
     s.roundIndex = 1
     Object.assign(s, buyLotteryTicket(s, s.players[0].id, 2, 0, () => 0, activeOperator(s, s.players[0]).memberId))
     expect(s.lottery?.tickets.map(t => t.operatorMemberId)).toEqual(['member0-0', 'member0-1'])

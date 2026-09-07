@@ -42,3 +42,5 @@
 @keyframes lottery-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 420px) { .lottery-panel__body { padding: 0 16px 16px; } }
 @media (prefers-reduced-motion: reduce) { .lottery-reveal__sheet, .lottery-purchase__sheet, .lottery-ball { animation: none; } .lottery-number-grid button { transition: none; } }
+.lottery-number-grid button.is-purchased-now:disabled { background: #557d71; border: 2px solid #365b51; color: #fff9e9; opacity: 1; }
+.lottery-number-grid button.is-purchased-now:disabled strong, .lottery-number-grid button.is-purchased-now:disabled small { color: #fff9e9; }

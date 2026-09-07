@@ -2,6 +2,8 @@ import type { GameSession, LotteryState, LotteryDraw, Player, RoundResult } from
 import { rankFinalPlayers, formatCoins } from './engine'
 
 export const LOTTERY_PRICE_UNITS = 4
+export const LOTTERY_PAYMENT_UNITS = 3
+export const LOTTERY_PURCHASE_LIMIT = 2
 
 export function createLottery(playerCount: number, roundIndex = 0): LotteryState {
   return { poolUnits: playerCount, openingPoolUnits: playerCount, baseUnits: playerCount, poolStartRound: roundIndex, tickets: [], lastDrawRound: roundIndex - 1 }
@@ -17,10 +19,10 @@ export function buyLotteryTicket(session: GameSession, playerId: string, number:
   const state = session.lottery
   const player = session.players[session.currentTurnIndex]
   if (!state || session.phase !== 'privateTurn' || player?.id !== playerId || session.turns.some(turn => turn.playerId === playerId) || state.lastDrawRound >= session.roundIndex) return null
-  if (state.tickets.some(ticket => ticket.playerId === playerId && ticket.roundIndex === session.roundIndex && ticket.source !== 'gift')) return null
+  if (state.tickets.filter(ticket => ticket.playerId === playerId && ticket.roundIndex === session.roundIndex && ticket.source !== 'gift').length >= LOTTERY_PURCHASE_LIMIT) return null
   const available = availableLotteryNumbers(state, session.players.length)
   if (!available.length || (number !== null && !available.includes(number))) return null
-  const paidUnits = Math.min(LOTTERY_PRICE_UNITS, player.balanceUnits)
+  const paidUnits = Math.min(LOTTERY_PAYMENT_UNITS, player.balanceUnits)
   if (!Number.isInteger(reservedUnits) || reservedUnits < 0 || reservedUnits > player.balanceUnits - paidUnits) return null
   const selected = number ?? available[Math.min(available.length - 1, Math.floor(Math.max(0, random()) * available.length))]
   return {

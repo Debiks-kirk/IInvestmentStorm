@@ -32,7 +32,8 @@ export function useInstantCard(session: GameSession, playerId: string, cardId: '
     const available = availableLotteryNumbers(lottery, session.players.length)
     if (!available.length) return null
     const numbers: number[] = []
-    while (available.length && numbers.length < 5) numbers.push(available.splice(pick(available.length), 1)[0])
+    const limit = session.roundIndex >= session.settings.rounds - 1 ? 3 : 5
+    while (available.length && numbers.length < limit) numbers.push(available.splice(pick(available.length), 1)[0])
     use.lotteryNumbers = numbers
     lottery = { ...lottery, poolUnits: lottery.poolUnits + numbers.length * 4, tickets: [...lottery.tickets, ...numbers.map(number => ({ playerId, roundIndex: session.roundIndex, number, paidUnits: 0, subsidyUnits: 4, source: 'gift' as const }))] }
   } else {

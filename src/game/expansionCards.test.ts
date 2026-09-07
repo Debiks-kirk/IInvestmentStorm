@@ -11,6 +11,12 @@ const game = () => {
   return s
 }
 describe('天降彩券', () => {
+  it('末轮最多三个号码，仍每号注入两金币', () => {
+    const s = game(); s.roundIndex = s.settings.rounds - 1
+    Object.assign(s, useInstantCard(s, s.players[0].id, 'luckyTickets'))
+    expect(s.lottery!.tickets).toHaveLength(3)
+    expect(s.lottery!.poolUnits).toBe(15)
+  })
   it('赠号注入每号2金币，不占购买次数，刷新不能重抽', () => {
     let s = game(); const id = s.players[0].id; const cash = s.players[0].balanceUnits
     Object.assign(s, useInstantCard(s, id, 'luckyTickets', undefined, [], () => 0))

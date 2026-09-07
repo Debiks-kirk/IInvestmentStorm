@@ -2,13 +2,13 @@ import './lottery.css'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GameSession, LotteryDraw, Player } from '../game/types'
-import { availableLotteryNumbers, LOTTERY_PRICE_UNITS, lotterySummary } from '../game/lottery'
+import { availableLotteryNumbers, LOTTERY_PAYMENT_UNITS, LOTTERY_PURCHASE_LIMIT, lotterySummary } from '../game/lottery'
 import { formatCoins } from '../game/engine'
 
 export function LotteryOpening({ session }: { session: GameSession }) {
   const state = session.lottery
   if (!state) return null
-  return <div className="lottery-opening"><strong>轮初彩票奖池 {formatCoins(state.openingPoolUnits)} 金币</strong><span>基础 {formatCoins(state.baseUnits)} · 滚存 {formatCoins(state.openingPoolUnits - state.baseUnits)} · 每票 2 金币 · 号码 1–{session.players.length * 2}</span>{session.roundIndex === session.settings.rounds - 1 && <b>末轮 · 有票必开出中奖号</b>}</div>
+  return <div className="lottery-opening"><strong>轮初彩票奖池 {formatCoins(state.openingPoolUnits)} 金币</strong><span>基础 {formatCoins(state.baseUnits)} · 滚存 {formatCoins(state.openingPoolUnits - state.baseUnits)} · 每票实付 1.5 · 补贴 0.5 · 每轮最多 2 张 · 号码 1–{session.players.length * 2}</span>{session.roundIndex === session.settings.rounds - 1 && <b>末轮 · 有票必开出中奖号</b>}</div>
 }
 
 export function LotteryPanel({ session, reservedUnits, onBuy }: { session: GameSession; reservedUnits: number; onBuy: (number: number | null, reservedUnits: number) => boolean }) {
@@ -40,22 +40,24 @@ export function LotteryPanel({ session, reservedUnits, onBuy }: { session: GameS
   const lottery = session.lottery!
   const player = session.players[session.currentTurnIndex]
   const tickets = lottery.tickets.filter(ticket => ticket.playerId === player.id)
-  const bought = tickets.some(ticket => ticket.roundIndex === session.roundIndex && ticket.source !== 'gift')
+  const purchaseCount = tickets.filter(ticket => ticket.roundIndex === session.roundIndex && ticket.source !== 'gift').length
+  const bought = purchaseCount >= LOTTERY_PURCHASE_LIMIT
   const available = availableLotteryNumbers(lottery, session.players.length)
-  const paid = Math.min(player.balanceUnits, LOTTERY_PRICE_UNITS)
+  const paid = Math.min(player.balanceUnits, LOTTERY_PAYMENT_UNITS)
   const shortage = Math.max(0, reservedUnits + paid - player.balanceUnits)
-  const reason = bought ? '本轮已购票' : !available.length ? '号码已售罄，旧票继续有效' : shortage > 0 ? `购票后预算不足，请先减少 ${formatCoins(shortage)} 金币的下注、竞购或技能预留。` : ''
+  const reason = bought ? '本轮已购 2 / 2 张' : !available.length ? '号码已售罄，旧票继续有效' : shortage > 0 ? `购票后预算不足，请先减少 ${formatCoins(shortage)} 金币的下注、竞购或技能预留。` : ''
   return <><button type="button" className="lottery-entry" data-testid="lottery-entry" aria-haspopup="dialog" onClick={() => { setOpen(true); setError('') }}><span className="lottery-ticket-icon" aria-hidden="true">✦</span><strong>彩票</strong><span className="lottery-entry__status">{tickets.length ? `持有 ${tickets.map(ticket => String(ticket.number).padStart(2, '0')).join(' / ')}` : `奖池 ${formatCoins(lottery.openingPoolUnits)} 金币`}</span><b>{bought ? '查看' : '选号'} →</b></button>{open && createPortal(<div ref={modal} className="modal-backdrop lottery-purchase" role="dialog" aria-modal="true" aria-labelledby="lottery-purchase-title" data-testid="lottery-panel"><section className="lottery-purchase__sheet"><header><div><p className="eyebrow">第 {session.roundIndex + 1} 轮</p><h2 id="lottery-purchase-title">幸运彩票</h2></div><button type="button" className="icon-button" aria-label="关闭彩票" onClick={() => setOpen(false)}>×</button></header><div className="lottery-panel__body">
     <LotteryOpening session={session} />
-    <p className="lottery-rule">命中独得奖池；未中时，号码与奖池一起保留。</p>
+    <p className="lottery-rule">命中独得奖池；未中时，号码与奖池一起保留。本轮已购 {purchaseCount} / 2 张。</p>
     <div className="lottery-number-grid" style={{ gridTemplateColumns: `repeat(${session.players.length === 3 ? 3 : 4}, minmax(0, 1fr))` }} role="group" aria-label="选择彩票号码">{Array.from({ length: session.players.length * 2 }, (_, i) => i + 1).map(number => {
       const own = tickets.some(ticket => ticket.number === number)
+      const purchasedNow = tickets.some(ticket => ticket.number === number && ticket.roundIndex === session.roundIndex && ticket.source !== 'gift')
       const taken = !available.includes(number)
-      return <button key={number} type="button" aria-label={`${number} 号${own ? ' 已持有' : taken ? ' 已被选' : ''}`} aria-pressed={selected === number} disabled={taken || bought} className={selected === number ? 'is-selected' : own ? 'is-owned' : ''} onClick={() => { setSelected(number); setError('') }}><strong>{String(number).padStart(2, '0')}</strong>{taken && <small>{own ? '已持有' : '已被选'}</small>}</button>
+      return <button key={number} type="button" aria-label={`${number} 号${own ? ' 已持有' : taken ? ' 已被选' : ''}`} aria-pressed={selected === number} disabled={taken || bought} className={purchasedNow ? 'is-purchased-now' : own ? 'is-owned' : selected === number ? 'is-selected' : ''} onClick={() => { setSelected(number); setError('') }}><strong>{String(number).padStart(2, '0')}</strong>{taken && <small>{purchasedNow ? '本轮购入' : own ? '已持有' : '已被选'}</small>}</button>
     })}</div>
     {!bought && available.length > 0 && <><button className={`button button--paper ${selected === null ? 'is-selected' : ''}`} aria-pressed={selected === null} onClick={() => setSelected(null)}>随机选号</button><p>你支付 {formatCoins(paid)} 金币，奖池固定 +2 金币{paid < 4 ? `；系统补足 ${formatCoins(4 - paid)} 金币` : ''}。确认后不可退改。</p></>}
     {reason && <p role="status" className="lottery-feedback">{reason}</p>}{error && <p role="alert" className="lottery-feedback">{error}</p>}
-    {!bought && available.length > 0 && <button className="button button--primary" disabled={Boolean(reason)} onClick={() => { if (!onBuy(selected, reservedUnits)) setError('购票未完成，请检查号码、余额或操作时间。') }}>确认购票{selected !== null ? ` · ${String(selected).padStart(2, '0')} 号` : ' · 随机选号'}</button>}
+    {!bought && available.length > 0 && <button className="button button--primary" disabled={Boolean(reason)} onClick={() => { if (!onBuy(selected, reservedUnits)) setError('购票未完成，请检查号码、余额或操作时间。'); else { setSelected(null); setError('') } }}>确认购票{selected !== null ? ` · ${String(selected).padStart(2, '0')} 号` : ' · 随机选号'}</button>}
     {tickets.length > 0 && <ul className="lottery-stubs">{tickets.map(ticket => <li key={ticket.number}><b>{String(ticket.number).padStart(2, '0')}</b><span>第 {ticket.roundIndex + 1} 轮{ticket.source === 'gift' ? '获赠' : '购入'}<small>已支付 {formatCoins(ticket.paidUnits)} · 系统补贴 {formatCoins(ticket.subsidyUnits)}</small></span></li>)}</ul>}
   </div><footer><button className="button button--paper" onClick={() => setOpen(false)}>{bought ? '完成' : '返回下注'}</button></footer></section></div>, document.body)}</>
 }

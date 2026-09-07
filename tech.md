@@ -1,5 +1,10 @@
 # 技术基线
 
+## 彩票购票更新（2026-09-07）
+
+- `LOTTERY_PRICE_UNITS=4` 为入池额；`LOTTERY_PAYMENT_UNITS=3` 为实付上限；`LOTTERY_PURCHASE_LIMIT=2`。低余额差额继续系统补齐。
+- UI 购买计数和 Bot 排除赠票，点击锁包含购买计数；历史已付金额不重算。天降彩券按当前轮是否末轮限制 3／5 个。
+
 ## 扩展道具事务
 
 - `expansionCards.ts` 提供即时赠票、实体升档与纯并列组判定。v37 可选 `instantCardUses` 保留确认结果；提交只合并锁定动作，回收同时归还升级耗材。
